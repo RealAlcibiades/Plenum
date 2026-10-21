@@ -237,6 +237,16 @@ Sources checked for items 1 to 11 (an earlier round):
 
 **Status.** Decided (Opus and Fable, with research). The follow-ups are not done yet.
 
+## 23. The source is public, and all rights are reserved
+
+**Decision.** The code lives in the public repository https://github.com/RealAlcibiades/Plenum. Its licence is "all rights reserved" (`LICENSE.txt`): people may read the source, but may not copy, modify, redistribute or sell it without written permission. Using the app is governed by the end-user licence agreement shown before first use. Commits use the owner's GitHub noreply address.
+
+**Reason.** The owner chose this on 2026-10-21. It keeps the option to charge for Plenum later, and it can be relaxed later, while code released under an open-source licence can never be taken back. The end-user licence already drafted assumes proprietary software. A public repository also lets releases and automatic updates be hosted in the same place.
+
+**Source.** `LICENSE.txt`; the owner's answer in the build session; the legal drafts in the build notes.
+
+**Status.** Decided. Every builder keeps `LICENSE.txt` as it is; the legal work adds the end-user licence and third-party notices beside it.
+
 ## Open items
 
 - The Muse Code install command for every system is not in the repository or the research. `lib/providers.mjs` shows a plain "not installed" sentence with no URL or command until the exact command is confirmed.
