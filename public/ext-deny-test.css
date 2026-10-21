@@ -1,0 +1,15 @@
+/* ext-deny-test: styles for the command tester under the blocked-command patterns in the Project settings drawer.
+   Uses the theme tokens from style.css only. The input rules are scoped under .ext-deny-test because .card input in
+   style.css would otherwise win on specificity. */
+.ext-deny-test { display: grid; gap: 8px; min-width: 0; }
+.ext-deny-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ext-deny-row .ext-deny-input { flex: 1 1 auto; }
+.ext-deny-row button { flex: none; }
+.ext-deny-test .ext-deny-result {
+  margin: 0; min-width: 0; color: var(--muted);
+  font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere;
+}
+.ext-deny-test .ext-deny-result:empty { display: none; }
+.ext-deny-test .ext-deny-result.ok { color: var(--ok); }
+.ext-deny-test .ext-deny-result.bad { color: var(--bad); }
+.ext-deny-test .ext-deny-note { display: block; }

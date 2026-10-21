@@ -1,0 +1,27 @@
+/* The row of buttons under each turn: Edit under a question; Copy, Insert and Regenerate under a reply. ext-turns.js builds it.
+   The page's own ghost buttons and colour tokens are used, so both themes follow. The row is muted until its turn is
+   hovered or has focus inside it. */
+.ext-turns-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; opacity: 0.5; transition: opacity 0.15s; }
+.turn:hover > .ext-turns-bar, .turn:focus-within > .ext-turns-bar { opacity: 1; }
+.turn.user > .ext-turns-bar { justify-content: flex-end; }
+.ext-turns-btn { flex: none; }
+
+/* The model choice before Regenerate. It is kept small, so the row stays on one line on a phone. */
+.ext-turns-model {
+  flex: none; max-width: 180px; height: 30px; padding: 0 8px; border-radius: 9px; font: 500 13px var(--ui);
+  color: var(--text-2); background: color-mix(in srgb, var(--surface-3) 45%, transparent); border: 1px solid var(--line-2);
+}
+.ext-turns-model:hover { background: var(--surface-3); color: var(--text); }
+.ext-turns-model:disabled { opacity: 0.5; cursor: default; }
+
+/* The text box that carries a reply to the clipboard when the clipboard API refuses (copyText in ext-turns.js). It is
+   placed off the screen, so nothing shows, and it is removed as soon as the copy command has run. */
+.ext-turns-copy { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+/* A touch screen has no hover, so the row is always shown there. */
+@media (hover: none) {
+  .ext-turns-bar { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ext-turns-bar { transition: none; }
+}

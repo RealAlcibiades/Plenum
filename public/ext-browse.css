@@ -1,0 +1,8 @@
+/* "Browse…" beside the add-project form (in its row, between Add folder and Cancel) and beside the welcome screen's Add button.
+   Colours and type come from the ghost button in style.css, so the button follows both themes. */
+
+/* The row wraps when the sidebar is narrow (268 px), so Browse… and Cancel drop to a second line instead of squeezing. */
+.add-project .row { flex-wrap: wrap; }
+
+/* The welcome screen's primary button has a top margin; this button sits on the same line, after it. */
+.welcome > .ext-browse-welcome { margin: 10px 0 0 8px; }

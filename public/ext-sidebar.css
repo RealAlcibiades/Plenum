@@ -1,0 +1,35 @@
+/* Sidebar menu for narrow windows. The sidebar markup is the same at every width. At 860 px and below it slides over the chat
+   from the left, with a scrim behind it, and a menu button sits at the left of the top bar. Colour comes from the tokens in
+   style.css, so both themes follow. Every rule is here; nothing is set inline. */
+
+/* On a wide window the menu pieces stay out of the layout. The scrim has no grid cell of its own, even if its hidden flag drifts. */
+.ext-side-toggle, .ext-side-close, .ext-side-scrim { display: none; }
+
+@media (max-width: 860px) {
+  .ext-side-toggle {
+    display: inline-flex; position: relative; flex: none;
+    align-items: center; justify-content: center;
+    margin-right: 8px;
+  }
+  /* The menu is a fixed panel over the chat, so the chat and composer keep their layout behind it. */
+  body.ext-side-open .sidebar {
+    display: flex; position: fixed; top: 0; left: 0; bottom: 0; width: min(320px, 88vw); z-index: 30;
+    background: var(--bg-side); box-shadow: 0 0 40px rgba(0, 0, 0, 0.35); overflow-y: auto;
+  }
+  body.ext-side-open .ext-side-close { display: inline-flex; align-self: flex-end; }
+  /* Above the chat, below the toasts (40 in style.css). The drawer (21) sits lower than the menu, so ext-sidebar.js closes the menu when a drawer opens. */
+  body.ext-side-open .ext-side-scrim { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0, 0, 0, 0.4); }
+  .topbar .proj-title { min-width: 0; }
+  /* The Updates count, as a small accent circle at the top right of the menu button. */
+  .ext-side-dot {
+    position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 2px var(--bg);
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar .pick-label { display: none; }
+}
+
+/* The desktop app draws the top bar as a window drag area. The menu button has to stay clickable inside it. */
+:root[data-shell="desktop"] :is(.ext-side-toggle, .ext-side-close, .ext-side-scrim) { -webkit-app-region: no-drag; }

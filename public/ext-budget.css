@@ -1,0 +1,40 @@
+/* Spend limit chip and drawer styles. Colour and type come from the tokens in style.css, so the chip and the drawer follow both
+   themes. The chip sits in the top bar after the cost line. It turns the warning colour at the warning and the bad colour at the
+   cap, and its full text is always in the title (the hover text). */
+
+.ext-budget-chip {
+  flex: 0 1000 auto; min-width: 5em; max-width: 40ch; overflow: hidden;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: var(--text-2); font: inherit; font-size: 11.5px; line-height: 1.5;
+  white-space: nowrap; text-overflow: ellipsis; text-align: left;
+  cursor: pointer;
+  /* Colours change at once with the theme here, since a timed colour change can hold the other theme's colour for a moment. */
+}
+.ext-budget-short { display: none; }
+.ext-budget-chip[hidden] { display: none; }
+.ext-budget-chip:hover { background: var(--surface-2); border-color: var(--line-2); color: var(--text); }
+.ext-budget-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ext-budget-chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.ext-budget-chip.cap { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
+
+/* The top bar of the desktop app is the window's drag strip, which would swallow the click and the hover text. */
+:root[data-shell="desktop"] .ext-budget-chip { -webkit-app-region: no-drag; }
+
+/* On a phone-width window, and in a 480 px desktop window, the chip keeps only the amount spent so it can still open the
+   drawer. The top bar wraps while a chip is shown there (ext-git.css), so the chip stays clear of the controls and the window
+   buttons. */
+@media (max-width: 520px) {
+  .ext-budget-chip { min-width: 0; max-width: 100%; }
+  .ext-budget-long { display: none; }
+  .ext-budget-short { display: inline; }
+}
+
+/* ---------- the drawer ---------- */
+
+.ext-budget { display: flex; flex-direction: column; align-items: stretch; gap: 12px; min-width: 0; }
+.ext-budget-note { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-budget-error { margin: 0 4px; color: var(--bad); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-budget-error:empty { display: none; }
+.ext-budget-actions { display: flex; flex-wrap: wrap; gap: 8px; }

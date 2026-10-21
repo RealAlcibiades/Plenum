@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+release/
+dist/
+
+# Logs, temp and OS files
+*.log
+*.tmp
+*.new
+.DS_Store
+Thumbs.db
+
+# Local secrets, never committed
+.env
+.env.*
+*.pem
+*.pfx
+*.p12
+keys.json
+
+# Stray files written by CLI test runs
+*-touch.txt

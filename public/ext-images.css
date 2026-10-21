@@ -1,0 +1,25 @@
+/* Files in the composer (pictures, PDFs, text and code). The chips themselves are the .chip, .chips and .chip-x styles in style.css. */
+
+/* The row above the text, and the same row on a sent message. */
+.composer-images { padding: 2px 4px 0; }
+.composer-images[hidden] { display: none; }
+.msg-images { margin-top: 8px; white-space: normal; }
+.msg-images .chip { padding-right: 9px; }
+.composer-images .chip > .ic, .msg-images .chip > .ic { flex: none; width: 12px; height: 12px; margin-right: 4px; color: var(--accent); }
+.composer-images .img-name, .msg-images .img-name { min-width: 0; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-images .img-size, .msg-images .img-size { flex: none; margin: 0 2px 0 7px; color: var(--muted); }
+
+/* While a file is dragged over the message box, a veil says where it will land. */
+.composer.drop-ready {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-2), 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.composer.drop-ready::after {
+  content: "Drop a file to attach it"; position: absolute; inset: 0; z-index: 1; display: grid; place-items: center;
+  border-radius: inherit; background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--accent); font-weight: 600; font-size: 14px; pointer-events: none;
+}
+
+/* The attach button at the start of the bar under the text. */
+.composer-bar .attach-btn { flex: none; }
+.composer-bar .attach-btn .ic { width: 17px; height: 17px; }

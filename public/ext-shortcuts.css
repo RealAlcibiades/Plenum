@@ -1,0 +1,69 @@
+/* ext-shortcuts: the Keyboard shortcuts sheet, the project switcher (Ctrl+K) and the entry in the Commands drawer.
+   Colour and type come from the tokens in style.css, so both themes follow. The drawer and card parts are the ones
+   style.css already has; the rules here only place the entry, the switcher and the sheet. */
+
+/* The entry sits under the command list, behind a rule, as the saved prompts entry does. */
+.ext-shortcuts-entry {
+  flex: none;
+  display: flex; flex-direction: column; gap: 10px;
+  margin-top: 8px; padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.ext-shortcuts-entry .ghost { align-self: flex-start; }
+.ext-shortcuts-title {
+  margin: 0 4px;
+  color: var(--muted);
+  font: 600 11px/1.3 var(--ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.ext-shortcuts-note { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* The switcher: a search field, then one row per project. */
+.ext-shortcuts-switch { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ext-shortcuts-search {
+  width: 100%; min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line-2); border-radius: 10px;
+  background: var(--bg); color: var(--text);
+  font: 13.5px var(--ui);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ext-shortcuts-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.ext-shortcuts-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ext-shortcuts-pick {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid transparent; border-radius: 12px;
+  background: transparent; color: var(--text);
+  text-align: left; cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.ext-shortcuts-pick:hover, .ext-shortcuts-pick:focus-visible { background: var(--surface-2); border-color: var(--line); }
+.ext-shortcuts-pick[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.ext-shortcuts-name { font: 600 13.5px/1.3 var(--ui); color: var(--text); overflow-wrap: anywhere; }
+.ext-shortcuts-path { color: var(--muted); font-size: 11.5px; line-height: 1.3; overflow-wrap: anywhere; }
+
+/* The sheet: a table of keys and what they do. The keys sit in keycap boxes, and kbd's own auto margin is reset. */
+.ext-shortcuts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ext-shortcuts-table th {
+  padding: 0 8px 8px; text-align: left;
+  color: var(--muted);
+  font: 600 11px/1.3 var(--ui);
+  letter-spacing: 0.09em; text-transform: uppercase;
+}
+.ext-shortcuts-table td {
+  padding: 9px 8px; border-top: 1px solid var(--line);
+  color: var(--text-2); line-height: 1.45; vertical-align: top;
+}
+.ext-shortcuts-keys { white-space: nowrap; }
+.ext-shortcuts-table kbd { margin-left: 0; font-size: 11.5px; color: var(--text); }
+.ext-shortcuts-plus { margin: 0 3px; color: var(--muted); font-size: 12px; }

@@ -1,0 +1,35 @@
+/* ext-openrouter: styles for the OpenRouter model picker in the Accounts drawer. Colour and type come from the tokens in
+   style.css, so the card follows both themes. It reuses .card, .pill, .result, .actions and the text input from style.css;
+   the rules here place the model list and give the provider badge its colour. */
+
+.ext-openrouter { flex: none; display: flex; flex-direction: column; }
+
+/* The badge takes a colour that already exists in the theme. The key card in ext-accounts-api uses the same one. */
+.ext-openrouter .logo-sm.p-openrouter,
+.ext-apikeys .logo-sm.p-openrouter { --p: var(--accent); }
+
+.ext-openrouter .card-head { flex-wrap: wrap; row-gap: 8px; }
+.ext-openrouter .card-head > div:first-of-type { min-width: 0; flex: 1 1 140px; }
+
+/* The list scrolls inside the card, so hundreds of models never stretch the drawer. */
+.ext-openrouter-list {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 240px; overflow-y: auto; padding: 4px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+}
+.ext-openrouter-list[hidden] { display: none; }
+.ext-openrouter-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px;
+  width: 100%; padding: 7px 10px; text-align: left;
+  border: 0; border-radius: 9px; background: transparent; color: var(--text);
+}
+.ext-openrouter-row:hover { background: var(--surface-3); }
+.ext-openrouter-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ext-openrouter-row[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.ext-openrouter-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-openrouter-ctx { color: var(--muted); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ext-openrouter-id { grid-column: 1 / -1; color: var(--muted); font: 11.5px/1.4 var(--mono); overflow-wrap: anywhere; }
+.ext-openrouter-count { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }

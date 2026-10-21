@@ -1,0 +1,17 @@
+/* ext-store-health: the notice above the chat when the saved state file had to be recovered at start. Colour and type come
+   from the tokens in style.css, so both themes follow. The box is placed by its class only. */
+.ext-store-banner {
+  display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 14px;
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--bad) 42%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bad) 9%, var(--surface));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ext-store-copy { flex: 1 1 220px; min-width: 0; }
+.ext-store-head { margin: 0; font-weight: 600; }
+.ext-store-note { margin: 2px 0 0; color: var(--text-2); overflow-wrap: anywhere; }
+.ext-store-dismiss { flex: none; }

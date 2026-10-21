@@ -1,0 +1,20 @@
+/* The Undo line above the composer after /clear or /compact. ext-archive.js builds it; it looks like the queue line. */
+.ext-archive-line {
+  display: flex; align-items: center; gap: 10px; width: var(--col); min-width: 0; margin: 0 auto 8px; padding: 6px 8px 6px 14px;
+  border-radius: 14px; border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface)); font-size: 12.5px; color: var(--text-2);
+}
+.ext-archive-line[hidden] { display: none; }
+.ext-archive-text {
+  flex: 1; min-width: 0; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ext-archive-line .ghost { flex: none; }
+.ext-archive-undo { color: var(--accent); font-weight: 600; }
+.ext-archive-undo:disabled, .ext-archive-dismiss:disabled { opacity: 0.55; cursor: default; }
+
+/* On a phone the line is tighter. The text is cut with an ellipsis rather than wrapped, so the buttons stay on one row. */
+@media (max-width: 560px) {
+  .ext-archive-line { padding: 6px 6px 6px 12px; gap: 6px; }
+  .ext-archive-text { font-size: 12px; }
+}

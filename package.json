@@ -1,0 +1,93 @@
+{
+  "name": "muse-console",
+  "productName": "Plenum",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "description": "Desktop console that runs Claude Code, Codex, Gemini CLI and Muse Code side by side with API models",
+  "main": "desktop/main.cjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "desktop": "electron .",
+    "pack": "electron-builder --win --x64 --dir",
+    "dist": "electron-builder --win --x64",
+    "dist:portable": "electron-builder --win portable --x64",
+    "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
+    "dist:mac:x64": "electron-builder --mac dmg zip --x64 --publish never",
+    "dist:mac:arm64": "electron-builder --mac dmg zip --arm64 --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never",
+    "dist:all": "node -e \"const s={win32:'dist',darwin:'dist:mac',linux:'dist:linux'}[process.platform];if(s)require('child_process').execSync('npm run '+s,{stdio:'inherit'})\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.museconsole.desktop",
+    "productName": "Plenum",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**/*",
+      "lib/**/*",
+      "public/**/*",
+      "server.mjs",
+      "package.json",
+      "build/icon.png",
+      "node_modules/**/*",
+      "!**/*.map"
+    ],
+    "asar": false,
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Plenum"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "category": "Development"
+    },
+    "deb": {
+      "maintainer": "Plenum <plenum@example.com>"
+    }
+  }
+}

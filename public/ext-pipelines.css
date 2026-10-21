@@ -1,0 +1,88 @@
+/* ext-pipelines: styles for the Pipelines drawer and its side-menu entry. Colour and type come from the tokens in
+   style.css, so the panel follows both themes. Its cards reuse .card, .kicker, .field-label, .pill and the buttons from style.css. */
+
+/* The run screen shows several replies, so the drawer is wider while it holds this panel. The other drawers keep their width. */
+.drawer:has(.pl-panel) { width: min(680px, 100vw - 24px); }
+
+.pl-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pl-intro { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.pl-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.pl-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; min-width: 0; }
+.pl-bar .pl-note { flex: 1 1 180px; margin: 0 4px; }
+/* The export and import row under the bar: the two buttons, then a short note that wraps under them on a narrow drawer. */
+.pl-transfer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.pl-transfer .pl-note { flex: 1 1 200px; min-width: 0; margin: 0 4px; }
+.pl-title { flex: 1 1 auto; min-width: 0; font: 600 15px/1.3 var(--display); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.pl-status { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.pl-status:empty { display: none; }
+.pl-status.bad { color: var(--bad); }
+.pl-card .pl-status { margin: 0; }
+.pl-error { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.pl-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.pl-keys { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+/* A saved pipeline: its name and step count, then its steps as a chain. */
+.pl-card { gap: 12px; min-width: 0; }
+.pl-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+.pl-name { font: 600 14px/1.3 var(--display); color: var(--text); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.pl-count { color: var(--muted); font-size: 12px; }
+.pl-chain { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; min-width: 0; }
+.pl-chip {
+  position: relative; max-width: 100%; padding: 4px 11px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: var(--text-2); font-size: 12px; overflow-wrap: anywhere;
+}
+.pl-chip + .pl-chip::before { content: "\2192"; position: absolute; left: -17px; top: 50%; translate: 0 -50%; width: 12px; text-align: center; color: var(--muted); }
+
+/* The editor: the name, then one card per step. The fields follow the look of the other inputs, with the same focus ring. */
+.pl-field { display: grid; gap: 6px; min-width: 0; }
+.pl-field > .field-label { color: var(--text-2); }
+.pl-input, .pl-select, .pl-text {
+  width: 100%; min-width: 0; padding: 8px 10px;
+  border: 1px solid var(--line-2); border-radius: 9px;
+  background: var(--bg); color: var(--text);
+  font: 13px var(--ui); outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pl-select { height: 34px; padding: 0 9px; }
+.pl-select option, .pl-select optgroup { background: var(--surface); color: var(--text); }
+.pl-text { font: 12.5px/1.5 var(--mono); resize: vertical; min-height: 96px; }
+.pl-input:focus, .pl-select:focus, .pl-text:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.pl-input:disabled { opacity: 0.6; cursor: default; }
+.pl-text:read-only { opacity: 0.7; }
+.pl-hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.pl-counter { color: var(--muted); font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.pl-step { gap: 12px; min-width: 0; }
+.pl-step-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; min-width: 0; }
+.pl-step-title { font: 600 13.5px/1.3 var(--display); color: var(--text); }
+.pl-step-tools { display: flex; align-items: center; gap: 6px; }
+.pl-step-tools .ghost.small { padding: 4px 10px; font-size: 12px; }
+.pl-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 170px); gap: 10px; min-width: 0; }
+@media (max-width: 520px) { .pl-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* The run: the final reply first, then what each step wrote, one card per step. */
+.pl-final { gap: 12px; min-width: 0; border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
+.pl-final-text {
+  max-height: 46vh; overflow: auto; min-width: 0;
+  font: 13.5px/1.6 var(--ui); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.pl-outs { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pl-out {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.pl-out-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pl-out-step { flex: none; color: var(--muted); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.09em; }
+.pl-out-name { flex: 1 1 auto; min-width: 0; font-weight: 650; font-size: 13px; overflow-wrap: anywhere; }
+.pl-out .pill { flex: none; }
+.pl-out .pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+.pl-out-text {
+  min-height: 36px; max-height: 32vh; overflow: auto; min-width: 0;
+  font: 13px/1.6 var(--ui); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.pl-out-text:empty::before { content: attr(data-empty); color: var(--muted); font-size: 12.5px; }
+.pl-out-error { margin: 0; color: var(--bad); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }

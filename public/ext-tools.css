@@ -1,0 +1,58 @@
+/* ext-tools: the CLI tool option panels. Colours and type come from the tokens on :root in style.css.
+   Rules are scoped under .ext-tools because the cards sit inside .card, whose generic p and input rules
+   would otherwise win on specificity. Nothing here is set inline: the page's CSP forbids inline styles. */
+
+.ext-tools { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ext-tools-intro { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.ext-tools-cards { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ext-tools .card { min-width: 0; }
+
+/* Options are grouped under a small heading. Groups and options are separated by a hairline. */
+.ext-tools-group { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ext-tools-group + .ext-tools-group { padding-top: 14px; border-top: 1px solid var(--line); }
+.ext-tools .ext-tools-group > .cons-cap { margin: 0; }
+.ext-tools-opt { display: grid; gap: 6px; min-width: 0; }
+.ext-tools-opt + .ext-tools-opt { padding-top: 12px; border-top: 1px solid var(--line); }
+
+/* A switch with its label and help beside it. The help sits under the label, as the rest of the app does.
+   The row is its own positioned box: style.css makes the hidden checkbox absolute, and without this its
+   containing block would be the fixed drawer, so focusing it would scroll the drawer header out of view. */
+.ext-tools .switch-row { position: relative; align-items: flex-start; }
+.ext-tools-switch-text { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+
+/* Selects and text fields share one height and corner, so a column of options reads evenly. */
+.ext-tools input.ext-tools-input,
+.ext-tools select.ext-tools-select {
+  width: 100%; min-width: 0; height: 34px; margin: 0; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: var(--bg); color: var(--text);
+  font: 13px var(--ui); outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ext-tools input.ext-tools-input::placeholder { color: var(--muted); opacity: 1; }
+.ext-tools input.ext-tools-input:focus,
+.ext-tools select.ext-tools-select:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.ext-tools select.ext-tools-select option { background: var(--surface); color: var(--text); }
+
+/* A list: the chips, then one row with the input and its Add button. */
+.ext-tools-chips { min-width: 0; }
+.ext-tools .chip { max-width: 100%; }
+.ext-tools-add { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ext-tools-add .ext-tools-input { flex: 1 1 auto; }
+.ext-tools-add button { flex: none; }
+
+/* The default line and the Use default button, on one row that wraps on a narrow window. */
+.ext-tools-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.ext-tools-foot button { flex: none; }
+.ext-tools-default { min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.ext-tools .ext-tools-help { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-tools .ext-tools-help:empty { display: none; }
+.ext-tools .ext-tools-count { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.ext-tools .ext-tools-err { margin: 0; color: var(--bad); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-tools .ext-tools-err:empty { display: none; }
+.ext-tools .ext-tools-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+
+/* The loading, empty and failed states, each with a button when there is something to try again. */
+.ext-tools-state { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; }

@@ -1,0 +1,38 @@
+/* Token and cost display styles. Colour and type come from the tokens in style.css, so the line follows both themes. The line
+   sits in the top bar, right after the project name. It is a row of parts in order of importance: the total and its estimate
+   label never shrink, the plan tokens shrink next, and the last reply shrinks first. The line itself gives way before the
+   project name does. The title (the hover text) always holds the whole breakdown. */
+
+.cost-line {
+  display: flex; align-items: baseline;
+  flex: 0 1000 auto; min-width: 0; overflow: hidden;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: var(--text-2); font-size: 11.5px; line-height: 1.5;
+  /* The parts start with a space or a middle dot, which must not collapse at the start of a part. */
+  white-space: pre;
+  cursor: help;
+}
+.cost-line[hidden] { display: none; }
+.cost-main, .cost-note, .cost-est { flex: none; }
+.cost-note, .cost-est { color: var(--muted); }
+.cost-est { display: none; }
+.cost-plan, .cost-last { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cost-last { flex-shrink: 1000; color: var(--muted); }
+
+/* The top bar of the desktop app is the window's drag strip, which would swallow the hover text. */
+:root[data-shell="desktop"] .cost-line { -webkit-app-region: no-drag; }
+
+/* Narrow windows: the last reply drops out, then the long estimate label becomes "est.", and on a phone-width window the
+   line goes, since the project name and the controls fill the top bar. */
+@media (max-width: 860px) {
+  .cost-last { display: none; }
+}
+@media (max-width: 760px) {
+  .cost-note { display: none; }
+  .cost-est { display: block; }
+}
+@media (max-width: 520px) {
+  .cost-line { display: none; }
+}

@@ -1,0 +1,56 @@
+/* Checkpoints panel styles. Colour and type come from the tokens in style.css, so the panel follows both themes. The sidebar
+   link reuses .side-link, and the approval card reuses the .approval rules, the same as the card in the chat. The rules here
+   only place the list and the status line. */
+
+.ext-checkpoints { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ext-checkpoints-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.ext-checkpoints-note { flex: 1 1 200px; margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.ext-checkpoints-toggle { flex: none; margin-left: auto; }
+.ext-checkpoints-toggle[aria-pressed="true"] {
+  color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-3));
+}
+.ext-checkpoints-status { margin: 0 4px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-checkpoints-status:empty { display: none; }
+.ext-checkpoints-status.ok { color: var(--ok); }
+.ext-checkpoints-status.bad { color: var(--bad); }
+
+/* The approval card shows here, between the status line and the list. */
+.ext-checkpoints-ask:empty { display: none; }
+.ext-checkpoints-card { min-width: 0; }
+
+.ext-checkpoints-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ext-checkpoints-count { margin: 0 4px; color: var(--muted); font-size: 12.5px; }
+.ext-checkpoints-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ext-checkpoints-group-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 6px 4px 0; min-width: 0; }
+.ext-checkpoints-group-head .ext-checkpoints-path { flex: 1 1 auto; min-width: 0; }
+.ext-checkpoints-group-head .ext-checkpoints-meta { flex: none; }
+.ext-checkpoints-item {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0;
+  padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.ext-checkpoints-line { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-width: 0; }
+.ext-checkpoints-main { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ext-checkpoints-path { font: 600 13px/1.4 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ext-checkpoints-meta { color: var(--muted); font-size: 12px; }
+.ext-checkpoints-label { color: var(--text-2); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-checkpoints-item .ghost { flex: none; }
+
+/* What a restore would change. Hidden until Show changes is pressed. */
+.ext-checkpoints-changes { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ext-checkpoints-changes[hidden] { display: none; }
+.ext-checkpoints-card .ext-checkpoints-changes { margin-top: 12px; }
+.ext-checkpoints-diff-path { margin: 0; color: var(--text-2); font: 600 12px/1.4 var(--mono); overflow-wrap: anywhere; }
+.ext-checkpoints-diff-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-checkpoints-diff-note.bad { color: var(--bad); }
+.ext-checkpoints-diff {
+  margin: 0; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--code-bg); color: var(--text-2);
+  font: 12px/1.55 var(--mono); white-space: pre; overflow: auto; max-height: 280px; min-width: 0;
+}
+.ext-checkpoints-diff > span { display: block; }
+.ext-checkpoints-diff .d-add { color: var(--ok); }
+.ext-checkpoints-diff .d-del { color: var(--bad); }
+.ext-checkpoints-diff .d-hunk { color: var(--muted); }

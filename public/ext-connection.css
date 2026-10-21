@@ -1,0 +1,17 @@
+/* The connection banner, and the Retry bar under a failed send. The page's own colour tokens are used, so both themes follow. */
+
+/* Above the transcript while the local server cannot be reached. The hidden attribute has to win over the display rule. */
+.ext-conn-banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; width: var(--col); min-width: 0; margin: 14px auto 0;
+  padding: 8px 8px 8px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--bad) 38%, var(--line));
+  background: color-mix(in srgb, var(--bad) 9%, var(--surface)); font-size: 13px; color: var(--text-2);
+}
+.ext-conn-banner[hidden] { display: none; }
+.ext-conn-text { flex: 1 1 260px; min-width: 0; font-weight: 600; color: var(--text); }
+.ext-conn-btn { flex: none; }
+
+/* Retry and Copy error under a failed send. */
+.ext-conn-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* A repeated connection line: the script marks every one but the last, and only the last one is shown. */
+.ext-conn-dup { display: none; }

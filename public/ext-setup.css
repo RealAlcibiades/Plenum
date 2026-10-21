@@ -1,0 +1,56 @@
+/* ext-setup: styles for the first-run setup wizard in the drawer. Colour and type come from the tokens in style.css, so both
+   themes follow. The cards, pills, buttons, results and inputs are the ones style.css and ext-accounts-api.css already have;
+   the rules here only lay out the steps and their footer. Nothing sets a fixed width, so the drawer holds the wizard at 360 px. */
+
+.setup { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.setup-count {
+  margin: 0 4px; color: var(--muted);
+  font: 600 11px/1.3 var(--ui); letter-spacing: 0.09em; text-transform: uppercase; overflow-wrap: anywhere;
+}
+.setup-pane { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.setup-pane:not([hidden]) { animation: setup-in 0.2s var(--ease) both; }
+@keyframes setup-in { from { opacity: 0; translate: 0 6px; } }
+.setup-heading {
+  margin: 0; font: 600 17px/1.3 var(--display); letter-spacing: -0.01em; color: var(--text); overflow-wrap: anywhere;
+}
+.setup-lead { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.setup-list {
+  margin: 0; padding-left: 18px; display: grid; gap: 6px;
+  color: var(--text-2); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere;
+}
+.setup-list li::marker { color: var(--muted); }
+.setup-notice {
+  margin: 0; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 12px;
+  background: var(--surface-2); color: var(--text-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere;
+}
+.setup-rows { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.setup .card { min-width: 0; }
+.setup .card-head { flex-wrap: wrap; row-gap: 8px; }
+.setup .card-head > div:first-of-type { min-width: 0; flex: 1 1 140px; overflow-wrap: anywhere; }
+.setup .pill { white-space: normal; text-align: right; }
+.setup-link { margin-left: auto; color: var(--accent); font-size: 12.5px; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.setup-link:hover { text-decoration: underline; }
+.setup-status { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.setup-status:empty { display: none; }
+.setup-status.bad { color: var(--bad); }
+
+/* The footer: Skip on the left, Back and Next (or Finish) on the right. It wraps rather than running past a 360 px drawer. */
+.setup-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.setup-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+/* The badge letters take the colours the Accounts panel uses. The rules name each class, so a badge never loses its colour. */
+.setup .logo-sm { --p: var(--muted); }
+.setup .logo-sm.p-claude { --p: var(--claude); }
+.setup .logo-sm.p-muse { --p: var(--muse); }
+.setup .logo-sm.p-codex { --p: var(--codex); }
+.setup .logo-sm.p-gemini { --p: var(--gemini); }
+.setup .logo-sm.p-xai { --p: var(--text-2); }
+.setup .logo-sm.p-openai { --p: var(--codex); }
+.setup .logo-sm.p-deepseek { --p: var(--advisor); }
+.setup .logo-sm.p-mistral { --p: var(--warn); }
+.setup .logo-sm.p-googleai { --p: var(--gemini); }
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-pane:not([hidden]) { animation: none; }
+  .setup-link { transition: none; }
+}

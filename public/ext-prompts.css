@@ -1,0 +1,71 @@
+/* ext-prompts: styles for the saved prompts drawer and its entry in the Commands drawer. Colour and type come from the
+   tokens in style.css, so both themes follow. The cards and buttons are the ones style.css already has; the rules here
+   only place the entry, the list and the editor. */
+
+/* The entry sits under the command list, behind a rule, the same as the key panel in the Accounts drawer. */
+.ext-prompts-entry {
+  flex: none;
+  display: flex; flex-direction: column; gap: 10px;
+  margin-top: 8px; padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.ext-prompts-entry .ghost { align-self: flex-start; }
+.ext-prompts-title {
+  margin: 0 4px;
+  color: var(--muted);
+  font: 600 11px/1.3 var(--ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.ext-prompts-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ext-prompts-entry .ext-prompts-note { margin: 0 4px; font-size: 12.5px; }
+
+/* The export and import row above the list: the two buttons, then a short note that wraps under them on a narrow drawer. */
+.ext-prompts-transfer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.ext-prompts-transfer .ext-prompts-note { flex: 1 1 200px; min-width: 0; margin: 0 4px; overflow-wrap: anywhere; }
+
+/* The drawer's own column. The status lines and the error box keep a small inset, as the other panels do. */
+.ext-prompts { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ext-prompts-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; }
+.ext-prompts-bar .ext-prompts-status { flex: 1 1 180px; min-width: 0; margin: 0 4px; }
+.ext-prompts-status { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-prompts-status:empty { display: none; }
+.ext-prompts-status.bad { color: var(--bad); }
+.ext-prompts-error { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.ext-prompts-error .ext-prompts-status { margin: 0 4px; }
+
+/* A saved prompt: the name in mono with its description beside it, then the text in a box that scrolls. */
+.ext-prompts-card { gap: 8px; }
+.ext-prompts-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+.ext-prompts-name { font: 600 13.5px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ext-prompts-desc { color: var(--muted); font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
+.ext-prompts-text {
+  max-height: 140px; overflow: auto;
+  padding: 9px 10px; border-radius: 10px;
+  background: var(--code-bg); color: var(--text-2);
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* The editor. Its fields follow the look of the other inputs in style.css, with the same focus ring. */
+.ext-prompts-form { gap: 12px; }
+.ext-prompts-heading { font: 600 14px/1.3 var(--display); color: var(--text); letter-spacing: -0.01em; }
+.ext-prompts-field { display: grid; gap: 6px; min-width: 0; }
+.ext-prompts-field > .field-label { color: var(--text-2); }
+.ext-prompts-form input, .ext-prompts-form textarea {
+  width: 100%; min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line-2); border-radius: 9px;
+  background: var(--bg); color: var(--text);
+  font: 13px var(--ui);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ext-prompts-form textarea { font: 12.5px/1.5 var(--mono); resize: vertical; min-height: 120px; }
+.ext-prompts-form input:focus, .ext-prompts-form textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.ext-prompts-form input:disabled { opacity: 0.6; cursor: default; }
+.ext-prompts-field .ext-prompts-note { font-size: 12px; }
+.ext-prompts-count { color: var(--muted); font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; }

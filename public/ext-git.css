@@ -1,0 +1,55 @@
+/* Git status chip styles. Colour and type come from the tokens in style.css, so the chip and the drawer follow both themes. The
+   chip sits in the top bar after the project name (and after the cost line or the budget chip when there is one). It gives way
+   before the project name does, and its full text is always in the title (the hover text). */
+
+.ext-git-chip {
+  flex: 0 1000 auto; min-width: 5em; max-width: 46ch; overflow: hidden;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  color: var(--text-2); font: inherit; font-size: 11.5px; line-height: 1.5;
+  white-space: nowrap; text-overflow: ellipsis; text-align: left;
+  cursor: pointer;
+  /* Colours change at once with the theme here, since a timed colour change can hold the other theme's colour for a moment. */
+}
+.ext-git-short { display: none; }
+.ext-git-chip[hidden] { display: none; }
+.ext-git-chip:hover { background: var(--surface-2); border-color: var(--line-2); color: var(--text); }
+.ext-git-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ext-git-chip[data-state="dirty"] { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
+.ext-git-chip[data-state="none"] { color: var(--muted); }
+
+/* The top bar of the desktop app is the window's drag strip, which would swallow the click and the hover text. */
+:root[data-shell="desktop"] .ext-git-chip { -webkit-app-region: no-drag; }
+
+/* On a phone-width window, and in a 480 px desktop window, the controls take most of the top bar, so the name and the chips
+   cannot share one row with them. While a chip is shown the top bar wraps: the name and the chips share the first row and the
+   controls take the second row on the right. The git chip keeps only the branch name, cut with an ellipsis at 96 px. The right
+   padding that keeps the window buttons clear is unchanged, so no row runs under them. */
+@media (max-width: 520px) {
+  .topbar:has(:is(.ext-git-chip, .ext-budget-chip):not([hidden])) { flex-wrap: wrap; gap: 6px 12px; }
+  .topbar:has(:is(.ext-git-chip, .ext-budget-chip):not([hidden])) .proj-title { display: contents; }
+  .topbar:has(:is(.ext-git-chip, .ext-budget-chip):not([hidden])) .controls { margin-left: auto; }
+  .ext-git-chip { min-width: 0; max-width: min(96px, 100%); }
+  .ext-git-long { display: none; }
+  .ext-git-short { display: inline; }
+}
+
+/* ---------- the drawer ---------- */
+
+.ext-git { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; min-width: 0; }
+.ext-git > * { align-self: stretch; }
+.ext-git > .ghost { align-self: flex-start; }
+.ext-git-head { margin: 0 4px; font: 600 13.5px/1.4 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ext-git-note { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-git-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ext-git-cap {
+  margin: 0 4px; color: var(--muted); font: 600 10.5px/1 var(--ui); letter-spacing: 0.09em; text-transform: uppercase;
+}
+.ext-git-list {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.ext-git-row { padding: 7px 12px; font: 12.5px/1.45 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ext-git-row + .ext-git-row { border-top: 1px solid var(--line); }

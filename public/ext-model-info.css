@@ -1,0 +1,12 @@
+/* ext-model-info styles: the banner above the composer. The model menu lines are plain text that ext-model-info.js writes into
+   the menus app.js builds, and they take the menus' own note style. */
+
+/* Same place and shape as the queue line: a rounded bar above the composer, in the warning colour. */
+.ext-model-banner {
+  display: flex; align-items: center; gap: 10px; width: var(--col); min-width: 0; margin: 0 auto 8px; padding: 6px 8px 6px 14px;
+  border-radius: 14px; border: 1px solid color-mix(in srgb, var(--warn) 42%, var(--line));
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface)); font-size: 12.5px; color: var(--text-2);
+}
+.ext-model-banner[hidden] { display: none; }
+.emb-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.emb-open { flex: none; }

@@ -1,0 +1,102 @@
+{
+  "name": "Plenum",
+  "slug": "plenum",
+  "tagline": "Many minds, one considered verdict.",
+  "rationale": "Plenum is the Latin word for a full assembly where every member is present and decides together, which is what the app does: three or four models sit, critique each other and reach one verdict, and then smaller agents carry out the work. It is short, plain, not a Meta or AI-lab name, and it has no close namesake in the AI council space. The only same-name software found is a workplace-safety product, a few consultancies and a research project, none of them a multi-model tool.",
+  "checked": [
+    {
+      "candidate": "Plenum",
+      "result": "chosen: no AI council product under this name found",
+      "notes": "Namesakes found: Plenum AI (plenumapps.com, workplace health and safety software that calls itself AI-infused), plenum AG (German management consultancy), Plenumsoft (Mexican software studio), Plenum Tech (Dubai IT company), and PLENUM (RISE research project on collaborative 3D factory workspaces). Also 'plenum' is a common building term (air plenum). Web search only; trademark registers (USPTO, EUIPO, UK IPO) were not checked."
+    },
+    {
+      "candidate": "Tessera",
+      "result": "runner-up: crowded in AI, but in other niches",
+      "notes": "Tessera Labs (enterprise multi-agent AI that connects ERP systems, Foundation Capital-backed), a trust layer that traces AI-agent answers to evidence, a Tessera AI team-workspace mockup, Tessera/Axus Search ecosystem, and an app studio. None is a multi-model council, but the name is taken across several AI products. Word means a single tile of a mosaic: many pieces, one picture."
+    },
+    {
+      "candidate": "Synod",
+      "result": "ruled out: same-concept products already exist",
+      "notes": "Synode (MIT-licensed macOS and Windows desktop app: several AI models discuss a question as a council and a master model gives a verdict; near-identical concept), synod.run (multi-model coding agent with a 'Pope' synthesis model), a small Obsidian plugin called Synod (council of LLM agents), Synodic Software (Toronto AI developer-tools company), Synod.im (Matrix messenger), and the Anglican General Synod event app."
+    },
+    {
+      "candidate": "Quorum",
+      "result": "ruled out: established AI and enterprise software names",
+      "notes": "Quorum public-affairs platform (Quorum Copilot and Quincy AI, used by more than 2,000 organisations, over half the Fortune 100, recent Enlightenment Capital investment), Quorum Software (energy industry, QAI chatbot). The Quorum enterprise blockchain was not searched here."
+    },
+    {
+      "candidate": "Concord",
+      "result": "ruled out: established AI product",
+      "notes": "Concord (concord.app), an AI-native contract management platform with its Horizon release and Agreement Intelligence; claims 1,500+ companies and over a million users in different places."
+    },
+    {
+      "candidate": "Ensemble",
+      "result": "ruled out: crowded, including AI companies",
+      "notes": "Ensemble AI concierge platform (no-code enterprise AI agents), Ensemble AI (ML infrastructure startup; one listing says Cloudflare acquired it), Ensemble Edge (GitHub framework for versioning AI systems), Ensemble OSINT tool. Too generic."
+    },
+    {
+      "candidate": "Meridian",
+      "result": "ruled out: funded AI startup with the name",
+      "notes": "Meridian agentic spreadsheet workspace (USD 17 million round led by Andreessen Horowitz), MeridianOS practice-management software, an AI search-visibility tool, a Rust agent framework, and others."
+    },
+    {
+      "candidate": "Parley",
+      "result": "ruled out: same concept and established names",
+      "notes": "Parley AI (multi-model Room where models debate each other and record common ground and contested points, a direct conceptual rival), MIT's Parley (campus-wide multi-model platform), and Parley for legal teams (self-serve product launched September 2026)."
+    },
+    {
+      "candidate": "Caucus",
+      "result": "ruled out: AI company with the name; political connotation",
+      "notes": "Caucus (YC-backed AI CRM for government offices, with a reported 13.5 million constituent reach). The word is also tied to party politics, which the owner would not want for a neutral tool."
+    },
+    {
+      "candidate": "Prism",
+      "result": "ruled out: many AI apps with the name",
+      "notes": "Prism AI mental-health companion, Prism: Self-Care AI journaling app, Prism AI photo art generator, Prism macOS multi-model AI workspace with a Quick AI overlay, a browser extension and a mobile local-model app."
+    },
+    {
+      "candidate": "Symposium",
+      "result": "ruled out: same concept as a shipping app",
+      "notes": "Symposium AI (App Store app: up to three AIs in one conversation, AI-versus-AI debates and voting, by Braveheart Innovations LLC). Other symposium events are not products."
+    },
+    {
+      "candidate": "Conclave",
+      "result": "ruled out: multi-model AI tools already use it",
+      "notes": "Conclave MCP (open-source MCP server that consults several LLMs and synthesises their answers), LLM Conclave (stork.ai listing), Conclave skill (multi-agent CLI debates), a DAO governance demo, plus a 212 Conclave event app."
+    },
+    {
+      "candidate": "Convene",
+      "result": "ruled out: established board-governance product",
+      "notes": "Convene AI, the AI layer of Convene, the board portal from Azeus Systems (SGX-listed parent, 20+ years on the exchange)."
+    },
+    {
+      "candidate": "Verdict",
+      "result": "ruled out: many AI products with the name",
+      "notes": "Verdict AI image detector (App Store), Verdict: Fact Check, a legal case-prediction app, a Verdict legal research platform, verdict-ai (PyPI) decision CLI and a verdict-console plugin. The word also describes an output, not the product."
+    },
+    {
+      "candidate": "Consensus",
+      "result": "ruled out: well-known AI research search engine",
+      "notes": "Consensus (consensus.app), an AI search engine over academic papers with a Consensus Meter, used by many libraries and universities."
+    },
+    {
+      "candidate": "Accord",
+      "result": "ruled out: AI contract and software names",
+      "notes": "Accord (Ontra legal-contract AI with AI redlines), Accordio (AI contract platform for freelancers and agencies), Accord.NET machine-learning library, and a household chores app."
+    },
+    {
+      "candidate": "Roundtable",
+      "result": "ruled out: same concept, several AI products",
+      "notes": "AI Roundtable (Opper: 200+ models debate and vote), RoundTable (desktop app: one question to up to four models with cross-critique), Roundtable Adaptive (ClawHub, consensus scoring), VIVE Roundtable (HTC group chat with AI experts), and a market-research platform."
+    },
+    {
+      "candidate": "Common Ground",
+      "result": "ruled out: known company and common phrase",
+      "notes": "CommonGround (3D avatar company that Apple reportedly acquired as TrueMeeting), plus a hackathon mediation app. Two-word phrase used by many products."
+    }
+  ],
+  "alternatives": [
+    "Tessera: runner-up if the owner dislikes Plenum. Crowded in AI but not in the council niche.",
+    "Synod: fits the meaning best, but direct same-concept desktop apps already exist (Synode, synod.run), so it is not recommended."
+  ]
+}

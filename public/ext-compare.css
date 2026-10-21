@@ -1,0 +1,72 @@
+/* ext-compare: styles for the Quick compare drawer and its side-menu entry. Colour and type come from the tokens in
+   style.css, so the panel follows both themes. Its cards reuse .card, .kicker, .pill and .primary from style.css. */
+
+/* Four columns need more room than the 440 px drawer. The drawer widens only while it holds this panel, so the other
+   drawers keep their width. */
+.drawer:has(.cmp-panel) { width: min(1000px, 100vw - 24px); }
+
+.cmp-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.cmp-intro { margin: 0 4px; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.cmp-card { gap: 14px; min-width: 0; }
+
+/* The models: one group per provider, each model a chip with its checkbox inside. */
+.cmp-groups { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cmp-group { display: grid; gap: 6px; min-width: 0; }
+.cmp-group-name { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.cmp-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.cmp-chip {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 5px 12px 5px 9px;
+  border-radius: 999px; border: 1px solid var(--line-2); cursor: pointer;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent); color: var(--text-2); font-size: 12.5px;
+  transition: background-color 0.14s, border-color 0.14s, color 0.14s;
+}
+.cmp-chip:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2)); }
+.cmp-chip:has(input:checked) {
+  color: var(--text); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface-2));
+}
+.cmp-chip:has(input:disabled) { opacity: 0.45; cursor: default; }
+.cmp-chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cmp-chip input { flex: none; margin: 0; width: 14px; height: 14px; accent-color: var(--accent); }
+.cmp-count { margin: 0; color: var(--muted); font-size: 12px; }
+
+/* The prompt, then one row of effort, the actions and the hint, then the line that says what happens next. */
+.cmp-prompt {
+  width: 100%; min-height: 96px; resize: vertical; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--line-2); background: var(--bg); color: var(--text);
+  font: 13.5px/1.55 var(--ui); outline: none;
+}
+.cmp-prompt::placeholder { color: var(--muted); }
+.cmp-prompt:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.cmp-prompt:read-only { opacity: 0.7; }
+.cmp-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.cmp-effort { display: inline-flex; align-items: center; gap: 8px; }
+.cmp-effort select {
+  height: 32px; min-width: 120px; padding: 0 9px; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--bg); color: var(--text); font-size: 13px; outline: none;
+}
+.cmp-effort select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.cmp-effort select:disabled { opacity: 0.5; }
+.cmp-hint { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.cmp-status { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.cmp-status.bad { color: var(--bad); }
+
+/* The columns: one card per model, equal in height, wrapping to fewer columns in a narrow window. */
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; min-width: 0; }
+.cmp-empty { grid-column: 1 / -1; margin: 0; padding: 22px 4px; text-align: center; color: var(--muted); font-size: 12.5px; }
+.cmp-col {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px; border-radius: 16px;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.cmp-col-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cmp-col-name { flex: 1 1 auto; min-width: 0; font-weight: 650; font-size: 13.5px; overflow-wrap: anywhere; }
+.cmp-col .pill { flex: none; }
+.cmp-col .pill.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+.cmp-col-text {
+  flex: 1 1 auto; min-height: 120px; max-height: 46vh; overflow: auto; min-width: 0;
+  font: 13px/1.6 var(--ui); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.cmp-col-text:empty::before { content: attr(data-empty); color: var(--muted); font-size: 12.5px; }
+.cmp-col-error { margin: 0; color: var(--bad); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.cmp-col-foot { display: flex; justify-content: flex-end; }

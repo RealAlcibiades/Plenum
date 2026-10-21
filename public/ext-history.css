@@ -1,0 +1,50 @@
+/* Chat history panel styles. Colour and type come from the tokens in style.css, so the panel follows both themes.
+   The sidebar link reuses .side-link from style.css. */
+
+.ext-history-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ext-history-input {
+  flex: 1 1 180px; min-width: 0;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text);
+  font: 14px var(--ui);
+}
+.ext-history-input::placeholder { color: var(--muted); }
+.ext-history-bar .ghost { flex: none; }
+/* The "All projects" switch: a checkbox and its label, kept on one line beside the box. */
+.ext-history-scope {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  color: var(--text-2); font-size: 12.5px; white-space: nowrap;
+}
+.ext-history-scope input { margin: 0; accent-color: var(--accent); }
+.ext-history-note { margin: 2px 4px 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+/* The status line is where a result's text goes when the chat does not show that message. */
+.ext-history-status { margin: 0 4px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.ext-history-status p { margin: 0 0 6px; }
+.ext-history-status:empty { display: none; }
+.ext-history-full {
+  padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere;
+}
+
+.ext-history-list { display: flex; flex-direction: column; gap: 8px; }
+.ext-history-result {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%;
+  padding: 10px 12px; border-radius: 12px; text-align: left;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  transition: border-color 0.14s, background-color 0.14s;
+}
+.ext-history-result:hover { border-color: var(--line-2); background: var(--surface-3); }
+.ext-history-who { color: var(--text-2); font: 600 12px/1.3 var(--ui); }
+/* With "All projects" on, each result names its project on a line of its own, above who wrote it. */
+.ext-history-project { color: var(--accent); font: 600 11.5px/1.3 var(--ui); overflow-wrap: anywhere; }
+.ext-history-snippet { color: var(--text); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-history-snippet mark {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: inherit; border-radius: 3px; padding: 0 2px;
+}
+
+/* The chat turn the search jumped to is outlined for a moment. */
+.turn.ext-history-hit { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 14px; }
