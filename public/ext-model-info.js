@@ -131,8 +131,7 @@
   // Reads the facts and the readiness. A failed read changes nothing, so the last good copy stays on screen.
   async function load() {
     try {
-      const res = await fetch(INFO_URL, {
-        cache: 'no-store',
+      const res = await MuseUI.request(INFO_URL, {
         signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(TIMEOUT_MS) : undefined,
       });
       if (res.ok) {

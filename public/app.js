@@ -1,4 +1,3 @@
-const H = { 'content-type': 'application/json', 'x-muse-console': '1' };
 const $ = id => document.getElementById(id);
 
 // The desktop app draws its own title bar, so the stylesheet keeps the window buttons clear.
@@ -45,6 +44,7 @@ const el = {
   updatesBtn: $('updatesBtn'),
   updatesBadge: $('updatesBadge'),
   helpBtn: $('helpBtn'),
+  settingsBtn: $('settingsBtn'),
   themeBtn: $('themeBtn'),
   themeValue: $('themeValue'),
   drawer: $('drawer'),
@@ -53,6 +53,12 @@ const el = {
   drawerClose: $('drawerClose'),
   scrim: $('scrim'),
   toasts: $('toasts'),
+  pane: $('pane'),
+  paneGrip: $('paneGrip'),
+  paneBack: $('paneBack'),
+  paneTabs: $('paneTabs'),
+  paneClose: $('paneClose'),
+  paneBody: $('paneBody'),
 };
 
 const DEFAULT_HINT = el.hint.textContent;
@@ -120,6 +126,7 @@ const COMMANDS = [
   { name: 'clear', aliases: ['reset'], args: '', desc: 'Clear this project’s chat' },
   { name: 'cancel', aliases: ['stop'], args: '', desc: 'Stop the running request' },
   { name: 'theme', args: '[system|dark|light]', desc: 'Follow Windows, or always use the dark or light look' },
+  { name: 'settings', args: '', desc: 'App settings: appearance, desktop alerts and sessions' },
   { name: 'music', args: '[on|off|style]', desc: 'Background music: turn it on or off, or pick a style' },
   { name: 'accounts', aliases: ['login', 'keys'], args: '', desc: 'Sign in and manage keys' },
   { name: 'gemini', args: '', desc: 'Open Accounts at the Gemini card' },
@@ -161,6 +168,11 @@ let providers = null;
 let notes = [];
 let abortCtl = null;
 let updates = [];
+// The overlay of applied updates, as GET /api/updates reports it ({ active, generations, rollback }), and the automatic rollback this
+// window still shows in the Updates panel after it told the server it had seen it.
+let overlayInfo = null;
+let rollbackNotice = null;
+let rollbackSeen = '';
 let streamEl = null;
 let paletteItems = [];
 let paletteIndex = 0;
@@ -172,19 +184,205 @@ let accountsFocus = '';   // a card the Accounts drawer scrolls to when it opens
 let boardPills = [];      // the seat pills on the board, updated in place
 let followUps = [];       // messages typed during a run, oldest first: [{ project, text }], at most MAX_QUEUED (see queueFollowUp)
 let queueLine = null;     // the line above the composer that counts queued follow-ups; built when first needed
-let queueWatch = null;    // the timer that reads the state while a run has no stream of ours to show it
 let queueDrawn = [];      // the follow-ups the rows in the queue line show, so a redraw that changes nothing keeps focus on a button
+let liveRunId = '';       // the id of the run this window started (from the first event of its own stream)
+let foreign = null;       // a chat, review or relay run started in another window that this window is drawing: { runId, ready, queue, onEvent }
+const foreignDone = new Set(); // ids of foreign runs that have ended here, so a late event does not draw them again
+const noted = new Set();  // ids of other runs this window has already said one line about
+const claimed = new Set(); // ids of runs a panel of this window started with its own request (MuseUI.claimRun)
 
-// ---------- helpers ----------
+// ---------- the launch token and requests ----------
+
+// Every /api/ call carries this launch's token in the x-plenum-token header (lib/auth.mjs). Under the desktop app the preload
+// bridge (desktop/preload.cjs) hands it over. Started with plain Node, it comes from the link Plenum prints (#token=...), and
+// this tab keeps it in session storage so a reload keeps working. It is held in memory, and this page never puts it in a URL.
+const TOKEN_RE = /^[a-f0-9]{64}$/;
+const TOKEN_KEY = 'plenum-token';
+let TOKEN = '';
+let readyDone = () => {};
+// Resolves once the token has been looked for (see loadToken), so a panel that fetches as it loads can wait for it.
+const ready = new Promise(resolve => { readyDone = resolve; });
+
+// The token from the link's fragment. The fragment leaves the address bar at once.
+function tokenFromHash() {
+  const m = /[#&]token=([a-f0-9]{64})\b/.exec(location.hash);
+  if (!m) return '';
+  try {
+    history.replaceState(null, '', location.pathname + location.search);
+  } catch {
+    // The address bar keeps the fragment; nothing else is affected.
+  }
+  return m[1];
+}
+
+// Session storage is used only on the plain-node path. The desktop app never reads web storage: the first read held up startup
+// for seconds there. Both calls return quietly when storage is blocked.
+function rememberToken(t) {
+  if (window.plenumShell) return false;
+  try {
+    sessionStorage.setItem(TOKEN_KEY, t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function recallToken() {
+  if (window.plenumShell) return '';
+  try {
+    const t = sessionStorage.getItem(TOKEN_KEY) ?? '';
+    return TOKEN_RE.test(t) ? t : '';
+  } catch {
+    return '';
+  }
+}
+
+async function loadToken() {
+  if (window.plenumShell) {
+    try {
+      const t = await window.plenumShell.token();
+      if (typeof t === 'string' && TOKEN_RE.test(t)) TOKEN = t;
+    } catch {
+      // No token: the calls below answer 401 and the message says so.
+    }
+    return;
+  }
+  const fromHash = tokenFromHash();
+  if (fromHash) {
+    TOKEN = fromHash;
+    rememberToken(fromHash);
+    return;
+  }
+  TOKEN = recallToken();
+}
+
+const headers = (extra = {}) => ({ 'x-plenum-token': TOKEN, ...extra });
+
+// True for the server's refusal of a request that carries no valid token. A 401 that a model provider sent back (an invalid API
+// key) has no x-plenum-auth header, so it is an ordinary error and never asks for a token.
+const tokenRefused = res => res.status === 401 && res.headers?.get?.('x-plenum-auth') === 'token';
+
+// The one way this page (and every panel, as MuseUI.request) calls the server: the token, JSON when there is a body, never cached.
+// Resolves to the Response.
+async function request(path, { method = 'GET', body, signal, headers: extra = {} } = {}) {
+  return fetch(path, {
+    method,
+    cache: 'no-store',
+    signal,
+    headers: headers({ ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...extra }),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+// The card for a tab with no token (plain Node only; the desktop never shows it). Without a token the page can do nothing, so
+// it has no close button. A good token is remembered and the page loads again with it.
+function showTokenCard() {
+  if (window.plenumShell || document.querySelector('.token-card')) return;
+  const card = document.createElement('section');
+  card.className = 'token-card';
+  card.setAttribute('role', 'dialog');
+  card.setAttribute('aria-modal', 'true');
+  card.setAttribute('aria-labelledby', 'tokenTitle');
+  const mark = document.createElementNS(SVG_NS, 'svg');
+  mark.setAttribute('class', 'mark');
+  mark.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', '#mark');
+  mark.append(use);
+  const title = document.createElement('h2');
+  title.id = 'tokenTitle';
+  title.textContent = 'Open Plenum with its link';
+  const head = document.createElement('div');
+  head.className = 'token-head';
+  head.append(mark, title);
+  const text = document.createElement('p');
+  text.className = 'token-text';
+  text.textContent = 'Plenum was started with node, so this tab needs the link printed where it started. It looks like http://127.0.0.1:4317/#token=... Paste the token here, or open that link.';
+  const form = document.createElement('form');
+  form.className = 'token-row';
+  const input = document.createElement('input');
+  input.className = 'token-input';
+  input.type = 'password';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.placeholder = '64 letters and digits';
+  input.setAttribute('aria-label', 'Token');
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'primary';
+  submit.textContent = 'Use token';
+  form.append(input, submit);
+  const problem = document.createElement('p');
+  problem.className = 'token-error';
+  problem.setAttribute('role', 'alert');
+  problem.hidden = true;
+  card.append(head, text, form, problem);
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const value = input.value.trim();
+    if (!TOKEN_RE.test(value)) {
+      problem.textContent = 'A token is 64 letters and digits.';
+      problem.hidden = false;
+      input.focus();
+      return;
+    }
+    TOKEN = value;
+    const kept = rememberToken(value);
+    card.remove();
+    $('app')?.removeAttribute('inert');
+    // Panels that loaded before there was a token have nothing to show, so the page starts over with it. When this tab cannot
+    // keep the token, it loads what it can in place.
+    if (kept) location.reload();
+    else loadAll();
+  });
+  document.body.append(card);
+  // Nothing behind the card can be reached by keyboard or screen reader while it is open.
+  $('app')?.setAttribute('inert', '');
+  input.focus();
+}
 
 async function api(path, body) {
-  const res = await fetch(path, body === undefined
-    ? { cache: 'no-store' }
-    : { method: 'POST', headers: H, body: JSON.stringify(body) });
+  const res = await request(path, body === undefined ? {} : { method: 'POST', body });
   const data = await res.json().catch(() => ({}));
+  if (tokenRefused(res)) showTokenCard();
+  if (data.terms === true) window.dispatchEvent(new CustomEvent('plenum:terms-required'));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
+
+// A download link into /api/ cannot carry the token, so a click on one is turned into a request that does, and the file is saved
+// from memory. The panels' Export buttons make such links (history, prompts, pipelines); the server names the file.
+async function downloadApi(href) {
+  const res = await request(href);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  let name = '';
+  try {
+    name = star ? decodeURIComponent(star) : (/filename="([^"]+)"/i.exec(disposition)?.[1] ?? '');
+  } catch {
+    name = '';
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name.replace(/[\\/:*?"<>|]/g, '_') || 'download';
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+document.addEventListener('click', e => {
+  const link = e.target instanceof Element ? e.target.closest('a[download][href^="/api/"]') : null;
+  if (!link) return;
+  e.preventDefault();
+  downloadApi(link.getAttribute('href')).catch(err => toast(err.message, 'bad'));
+}, true);
 
 const span = (cls, text) => {
   const s = document.createElement('span');
@@ -287,12 +485,13 @@ function trackOpen(store, key, d, fallback) {
   return d;
 }
 
-function toast(message, kind = 'ok') {
+// ms is how long the toast stays; the default is 3.2 s, or 5.2 s for a problem.
+function toast(message, kind = 'ok', ms) {
   const t = document.createElement('div');
   t.className = `toast ${kind}`;
   t.textContent = message;
   el.toasts.append(t);
-  setTimeout(() => t.remove(), kind === 'bad' ? 5200 : 3200);
+  setTimeout(() => t.remove(), ms ?? (kind === 'bad' ? 5200 : 3200));
 }
 
 function stickBottom() {
@@ -399,6 +598,8 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
   card.className = 'approval fresh';
   card.setAttribute('role', 'alertdialog');
   card.tabIndex = -1;
+  // Lets a window that did not answer this card find it when the events channel says it was answered elsewhere (events.on('approval')).
+  card.dataset.approvalId = ev.approvalId;
   const head = span('approval-head', 'Approval needed');
   head.prepend(icon('shield'));
   card.append(head, span('approval-summary', ev.summary));
@@ -477,6 +678,9 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
   const decide = async allow => {
     if (answered) return;
     answered = true;
+    // This window answered, so the 'answered' event that comes back on the events channel must not replace the card with
+    // "in another window".
+    card.dataset.answeredHere = '1';
     clearInterval(tick);
     yes.disabled = true;
     no.disabled = true;
@@ -752,6 +956,16 @@ function renderAll() {
   renderTop();
   renderProjects();
   renderChat();
+  renderStatus();
+  renderBadge();
+  renderBoard();
+  renderMusic();
+}
+
+// Everything renderAll draws except the transcript, so a reply that is streaming into it is never wiped by a settings change.
+function renderShell() {
+  renderTop();
+  renderProjects();
   renderStatus();
   renderBadge();
   renderBoard();
@@ -1072,14 +1286,20 @@ async function runStream(url, body, onEvent, { tick } = {}) {
   // The server ends a run with a done event, or reports a failed run with an error event. A stream that ends with neither was cut
   // short, so it is reported below. Without that the message would vanish with no error, since the page redraws from the server.
   let reported = false;
+  liveRunId = '';
+  // Every event of the stream carries the run's id. The first one tells which run is ours, so the events channel (which carries
+  // every run) does not draw it a second time. Each event is also announced to the page's panels as 'muse:stream'.
   const watch = ev => {
+    if (ev.runId && !liveRunId) liveRunId = ev.runId;
     if (ev.type === 'done' || ev.type === 'error') reported = true;
+    window.dispatchEvent(new CustomEvent('muse:stream', { detail: ev }));
     onEvent(ev);
   };
   try {
-    const res = await fetch(url, { method: 'POST', headers: H, body: JSON.stringify(body), signal: abortCtl.signal });
+    const res = await request(url, { method: 'POST', body, signal: abortCtl.signal });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+      if (tokenRefused(res)) showTokenCard();
       throw new Error(data.error || `Request failed (${res.status})`);
     }
     await readSSE(res, watch);
@@ -1107,6 +1327,13 @@ async function runStream(url, body, onEvent, { tick } = {}) {
 // A chat turn, a relay send or a relay route. Each seat has a lane of its own, so the parallel
 // replies of a broadcast stay apart; a chain's hops arrive one after another in the same way.
 function streamTurn(url, body) {
+  const renderer = turnRenderer();
+  return runStream(url, body, renderer.onEvent, { tick: renderer.tick });
+}
+
+// Draws the events of a chat turn, a review or a relay into the transcript: the turns, the tool lines and the approval cards.
+// It serves a run of this window (streamTurn) and a run started in another window (foreignFeed). Returns { onEvent, tick }.
+function turnRenderer() {
   const tools = new Map();
   const lanes = new Map();
   let hopFrom = '';
@@ -1256,7 +1483,7 @@ function streamTurn(url, body) {
       label.textContent = cli ? `Working · ${time} · the answer appears when ${modelName(ln.model)} finishes` : `Thinking · ${time}`;
     }
   };
-  return runStream(url, body, onEvent, { tick });
+  return { onEvent, tick };
 }
 
 // Images picked in the composer (public/ext-images.js) go with the next chat message to a model that takes them. A queued
@@ -1431,31 +1658,27 @@ function syncQueue() {
   el.send.classList.toggle('stop', stop);
   el.send.title = stop ? 'Stop' : 'Send';
   el.send.setAttribute('aria-label', el.send.title);
-  if (!queueWatch && !abortCtl && S.running) queueWatch = setInterval(watchRun, 2000);
 }
 
-// While a run goes on that no stream of ours carries (one started in another window, one still going after a reload, or a
-// stopped one still winding down on the server), the state is read every two seconds and the page is redrawn only when the
-// run or the chat has changed. The timer stops once the project is idle, and the next queued message then starts.
+// The fallback for the events channel. While the channel is down (and only then, every 5 seconds) the state is read and the
+// page is redrawn when the run, the project or the chat has changed, and the next queued message starts once the project is idle.
+// While the channel is up, the server sends every change and this does nothing.
 async function watchRun() {
-  if (abortCtl) return;
+  if (abortCtl || events.connected) return;
   try {
     const next = await api('/api/state');
-    if (abortCtl) return;
+    if (abortCtl || events.connected) return;
     const changed = next.running !== S.running || next.activeProject !== S.activeProject || next.messages.length !== S.messages.length;
     if (changed) {
       S = next;
       renderAll();
     }
-    if (!S.running) {
-      clearInterval(queueWatch);
-      queueWatch = null;
-      scheduleDrain();
-    }
+    if (!S.running) scheduleDrain();
   } catch {
     // The next tick tries again.
   }
 }
+setInterval(watchRun, 5000);
 
 // /compact: the main model writes a summary, which then replaces the chat.
 async function compact() {
@@ -1470,8 +1693,9 @@ async function compact() {
   stream().append(t.article);
   el.chat.scrollTop = el.chat.scrollHeight;
   try {
-    const res = await fetch('/api/compact', { method: 'POST', headers: H, body: JSON.stringify({ project: S.activeProject }), signal: abortCtl.signal });
+    const res = await request('/api/compact', { method: 'POST', body: { project: S.activeProject }, signal: abortCtl.signal });
     const data = await res.json().catch(() => ({}));
+    if (tokenRefused(res)) showTokenCard();
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     S = data;
     notes = [];
@@ -2787,6 +3011,148 @@ async function refresh() {
   renderAll();
 }
 
+// Takes the state the events channel sends (everything but the transcript, plus messageCount and lastMessageTs) and redraws the
+// parts around the chat. The transcript is read again, as a whole, only when it has changed and no stream is being drawn here
+// (a live stream is never wiped, which is the trap B-10 describes). { chat: false } leaves the transcript alone.
+function applyState(next, { chat } = {}) {
+  if (!next || typeof next !== 'object') return;
+  const switched = next.activeProject !== undefined && next.activeProject !== S.activeProject;
+  S = { ...S, ...next, messages: S.messages };
+  if (switched) notes = [];
+  renderShell();
+  const changed = typeof next.messageCount === 'number' && (next.messageCount !== S.messages.length || (next.lastMessageTs ?? 0) !== (S.messages.at(-1)?.ts ?? 0));
+  if (chat !== false && !abortCtl && !foreign && (switched || changed)) refresh();
+  if (!S.running && !abortCtl) scheduleDrain();
+}
+
+// ---------- the events channel ----------
+
+// GET /api/events keeps one stream open per window (lib/events.mjs). The server sends every change on it, so nothing here polls
+// while it is up. A lost stream is reopened after 1, 2, 4, 8, then every 10 seconds, and watchRun covers the gap.
+const eventHandlers = new Map();
+let startedAt = 0;
+let reconnecting = false;
+
+function fanOut(ev) {
+  for (const fn of eventHandlers.get(ev.type) ?? []) {
+    try {
+      fn(ev);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  // Panels listen to every event as 'plenum:event'.
+  window.dispatchEvent(new CustomEvent('plenum:event', { detail: ev }));
+}
+
+function setConnected(connected) {
+  if (events.connected === connected) return;
+  events.connected = connected;
+  window.dispatchEvent(new CustomEvent('plenum:connection', { detail: { connected } }));
+}
+
+const events = {
+  connected: false,
+  on(type, fn) {
+    if (!eventHandlers.has(type)) eventHandlers.set(type, new Set());
+    eventHandlers.get(type).add(fn);
+  },
+  off(type, fn) {
+    eventHandlers.get(type)?.delete(fn);
+  },
+  // Opens the stream and keeps it open, for the life of the page. Calling it again while it runs does nothing.
+  async connect() {
+    if (reconnecting) return;
+    reconnecting = true;
+    for (let fails = 0; ; ) {
+      try {
+        const res = await request('/api/events');
+        if (tokenRefused(res)) showTokenCard();
+        if (!res.ok) throw new Error(`Request failed (${res.status})`);
+        await readSSE(res, ev => {
+          fails = 0;
+          fanOut(ev);
+        });
+      } catch {
+        // The stream ended or could not open; it is opened again below.
+      }
+      setConnected(false);
+      await new Promise(resolve => setTimeout(resolve, [1000, 2000, 4000, 8000, 10000][Math.min(fails, 4)]));
+      fails += 1;
+    }
+  },
+};
+
+events.on('hello', ev => {
+  // A different startedAt than before means the server restarted (an applied update), so this window loads the new page once.
+  if (startedAt && ev.startedAt !== startedAt) {
+    location.reload();
+    return;
+  }
+  startedAt = ev.startedAt;
+  setConnected(true);
+  applyState(ev.state);
+});
+
+events.on('state', ev => applyState(ev.state));
+
+// An approval card answered in another window is replaced by one quiet line. A card this window answered itself is left alone.
+events.on('approval', ev => {
+  const card = document.querySelector(`[data-approval-id="${CSS.escape(String(ev.approvalId))}"]`);
+  if (!card || card.dataset.answeredHere) return;
+  const text = ev.action === 'expired' ? 'Timed out' : ev.action === 'stopped' ? 'Stopped' : ev.allow ? 'Approved in another window' : 'Denied in another window';
+  card.replaceWith(systemTurn(text));
+});
+
+// What a run started in another window looks like here. A chat turn, a review or a relay is drawn like a run of this window
+// (the same turns, tool lines and approval cards), after the transcript has been read once so the message that started it is
+// on the page. Any other kind gets one line.
+const DRAWN_KINDS = ['chat', 'review', 'relay'];
+const KIND_WORDS = { council: 'A council', build: 'A build', compare: 'A comparison', pipeline: 'A pipeline', compact: 'A compact', restore: 'A restore' };
+
+function foreignFeed(ev) {
+  if (!foreign || foreign.runId !== ev.runId) {
+    if (foreignDone.has(ev.runId)) return;
+    const run = { runId: ev.runId, kind: ev.kind, ready: false, queue: [], ...turnRenderer() };
+    foreign = run;
+    refresh().then(() => {
+      if (foreign !== run) return;
+      run.ready = true;
+      for (const queued of run.queue.splice(0)) foreignFeed({ runId: run.runId, event: queued });
+    });
+  }
+  if (!foreign.ready) {
+    foreign.queue.push(ev.event);
+    return;
+  }
+  foreign.onEvent(ev.event);
+  // A run ends with done. A chat turn or a review that fails ends with its error as well, so it never stays drawn if the done
+  // is lost (the server sends one after it). A relay carries on after an error in one hop, so only its done ends it.
+  if (ev.event.type === 'done' || (ev.event.type === 'error' && foreign.kind !== 'relay')) {
+    foreignDone.add(foreign.runId);
+    foreign = null;
+    refresh();
+  }
+}
+
+function noteOtherRun(ev) {
+  if (noted.has(ev.runId) || ev.event?.type === 'done') return;
+  noted.add(ev.runId);
+  // A panel of this window that started the run claims it from its first event; that arrives a moment after this one.
+  setTimeout(() => {
+    if (claimed.has(ev.runId) || ev.project !== S.activeProject || abortCtl) return;
+    stream().append(systemTurn(`${KIND_WORDS[ev.kind] ?? 'A run'} is running in another window.`));
+    stickBottom();
+  }, 400);
+}
+
+events.on('run', ev => {
+  if (ev.project !== S.activeProject || ev.runId === liveRunId || claimed.has(ev.runId)) return;
+  if (abortCtl) return;
+  if (DRAWN_KINDS.includes(ev.kind)) foreignFeed(ev);
+  else noteOtherRun(ev);
+});
+
 async function loadProviders() {
   const data = await api('/api/status');
   providers = data.providers;
@@ -2824,11 +3190,28 @@ async function setTheme(theme) {
 
 async function loadUpdates() {
   try {
-    updates = (await api('/api/updates')).updates;
+    const data = await api('/api/updates');
+    updates = data.updates;
+    takeOverlay(data.overlay);
   } catch {
     updates = [];
   }
   renderBadge();
+}
+
+// Keeps the overlay part of GET /api/updates. An automatic rollback (the bootstrap went back to an earlier generation because the
+// last one did not start) gets one toast, and the server is told it has been seen. The panel keeps showing it, from here, until its OK.
+function takeOverlay(info) {
+  overlayInfo = info && typeof info === 'object' ? info : null;
+  const rb = overlayInfo?.rollback;
+  if (!rb) return;
+  const key = `${rb.at}|${rb.from}|${rb.to}`;
+  if (key === rollbackSeen) return;
+  rollbackSeen = key;
+  rollbackNotice = rb;
+  const why = rb.reason || 'Plenum did not start with it';
+  toast(`The last update was rolled back: ${why}.${rb.from !== null ? ' Its files are kept under overlay in the state folder.' : ''}`, 'bad', 8000);
+  api('/api/updates/ack-rollback', {}).catch(() => {});
 }
 
 async function update(body) {
@@ -3180,7 +3563,9 @@ function openAccounts() {
 
 async function renderUpdates(body) {
   try {
-    updates = (await api('/api/updates')).updates;
+    const data = await api('/api/updates');
+    updates = data.updates;
+    takeOverlay(data.overlay);
   } catch (err) {
     body.append(para(err.message));
     return;
@@ -3188,9 +3573,72 @@ async function renderUpdates(body) {
   renderBadge();
   if (!updates.length) {
     body.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'Nothing to review. When Claude proposes a change to Plenum, it appears here.' }));
-    return;
   }
   for (const u of updates) body.append(updateCard(u));
+  body.append(overlayCard());
+}
+
+// "14 Oct 2026"
+function shortDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'earlier';
+  return `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// The "Applied updates" section: which generation of the overlay is in use, and the two ways back (roll back one step, or remove
+// them all). An automatic rollback shows as a strip at the top until its OK.
+function overlayCard() {
+  const card = document.createElement('section');
+  card.className = 'update applied-updates';
+  card.append(span('ut', 'Applied updates'));
+  if (rollbackNotice) card.append(rollbackStrip(rollbackNotice));
+  const gens = overlayInfo?.generations ?? [];
+  const active = overlayInfo?.active ?? null;
+  const gen = active === null ? null : gens.find(g => g.n === active);
+  if (!gen) {
+    card.append(span('um', 'Plenum is running its shipped files.'));
+    return card;
+  }
+  card.append(span('um', `Generation ${gen.n}, applied ${shortDate(gen.appliedAt)}: ${gen.summary}`));
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = `Files (${gen.files.length})`;
+  const list = document.createElement('div');
+  list.className = 'gen-files';
+  for (const p of gen.files) list.append(span('uf', p));
+  details.append(summary, list);
+  const row = document.createElement('div');
+  row.className = 'actions';
+  const back = button('ghost small', 'Roll back');
+  back.title = gen.previous ? `Go back to generation ${gen.previous}` : 'Go back to the shipped files';
+  back.addEventListener('click', () => restartWith('/api/updates/rollback'));
+  const reset = button('ghost small', 'Remove all applied updates');
+  reset.title = 'Delete every applied update and restart with the shipped files';
+  reset.addEventListener('click', () => {
+    if (confirm('Remove every applied update and restart?')) restartWith('/api/updates/reset');
+  });
+  row.append(back, reset);
+  card.append(details, row);
+  return card;
+}
+
+// The warning strip for an automatic rollback: what happened, which generations were involved, and OK.
+function rollbackStrip(rb) {
+  const strip = document.createElement('div');
+  strip.className = 'rollback-strip';
+  strip.setAttribute('role', 'status');
+  const reason = rb.reason || 'Plenum did not start with it';
+  const text = rb.from === null
+    ? `The last update was rolled back: ${reason}.`
+    : `The last update was rolled back: ${reason}. Generation ${rb.from} was replaced by ${rb.to === null ? 'the shipped files' : `generation ${rb.to}`}.`;
+  const ok = button('ghost small', 'OK');
+  ok.addEventListener('click', () => {
+    rollbackNotice = null;
+    api('/api/updates/ack-rollback', {}).catch(() => {});
+    strip.remove();
+  });
+  strip.append(span('rs-text', text), ok);
+  return strip;
 }
 
 function updateCard(u) {
@@ -3230,16 +3678,33 @@ async function waitForServer() {
 
 async function applyUpdate(u) {
   const names = u.files.map(f => f.path).join(', ');
-  if (!confirm(`Apply "${u.summary}"?\n\nFiles: ${names}\n\nThe current versions are backed up first, then Plenum restarts.`)) return;
+  if (!confirm(`Apply "${u.summary}"?\n\nFiles: ${names}\n\nThe update is kept beside Plenum's data, and the files Plenum was installed with are not touched. Plenum restarts. If it cannot start with the update, it goes back to the version before.`)) return;
+  await restartWith('/api/updates/apply', { id: u.id });
+}
+
+// Calls an endpoint that ends in a restart of the server (apply, roll back, remove all), waits for Plenum to answer again, then reloads.
+// One at a time: while a call is in flight a second one is not sent, and the buttons on the update cards are off until the page reloads
+// or the call fails.
+let restarting = false;
+const setUpdateButtons = off => document.querySelectorAll('.update button').forEach(b => { b.disabled = off; });
+async function restartWith(path, body = {}) {
+  if (restarting) return;
+  restarting = true;
+  setUpdateButtons(true);
   try {
-    await api('/api/updates/apply', { id: u.id });
+    await api(path, body);
     toast('Applied. Restarting Plenum…');
     const back = await waitForServer();
-    if (back) location.reload();
-    else toast('The server did not come back within a minute. Restart it from the Start menu.', 'bad');
+    if (back) {
+      location.reload();
+      return;
+    }
+    toast('The server did not come back within a minute. Restart it from the Start menu.', 'bad');
   } catch (err) {
     toast(err.message, 'bad');
   }
+  restarting = false;
+  setUpdateButtons(false);
 }
 
 async function discardUpdate(u) {
@@ -3357,6 +3822,583 @@ function renderCommands(body) {
   body.append(Object.assign(document.createElement('p'), { textContent: 'Enter sends. Shift+Enter adds a line. Esc stops a run. @path/to/file attaches a file.' }));
 }
 
+// ---------- the side pane (MuseUI.pane) ----------
+
+// Panels register a tab in the side pane (artifacts, the browser, review, agents) and open it. This code draws only the tab strip,
+// the grip and the Back and Close buttons. Each panel draws into its own view. The view stays in the page while its tab is open,
+// so switching tabs never draws a view again. Nothing about the pane is kept between page loads, except what the panels keep.
+const PANE_ID = /^[a-z0-9-]{1,32}$/;
+const PANE_ICON = /^[a-z0-9-]{1,40}$/;
+const PANE_DEFAULT_W = 440;
+const PANE_MIN_W = 380;   // UI-ARCH: the pane is never narrower than 380 px
+const PANE_STEP = 24;     // one arrow key on the grip moves the edge this far
+const paneDefs = new Map();       // id -> the registered definition
+const paneInstances = new Map();  // id -> an open tab: { id, label, icon, count, tab, view, badgeEl, api, closed }
+let paneActive = null;    // the selected tab's id, or null when no tab is open
+let paneShown = false;    // whether the column is visible. Back and the last tab closing hide it; the tabs stay
+let paneW = PANE_DEFAULT_W;   // the width in px, kept for this page's life only
+let paneDrag = null;      // { pointer, x, w } while the grip is dragged
+
+function paneEvent(action, id) {
+  window.dispatchEvent(new CustomEvent('plenum:pane', { detail: { action, id: id ?? null } }));
+}
+
+// A hook a panel gave in its definition. An error in it is logged and does not stop the pane.
+function paneHook(id, name, api) {
+  const fn = paneDefs.get(id)?.[name];
+  if (typeof fn !== 'function') return;
+  try {
+    fn(api);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// 380 px at least, 60% of the window at most, and never so wide that less than 480 px of the window is left for the chat.
+function paneWidthLimits() {
+  const vw = window.innerWidth;
+  return { min: PANE_MIN_W, max: Math.max(PANE_MIN_W, Math.min(Math.floor(vw * 0.6), vw - 480)) };
+}
+
+function paneCurrentWidth() {
+  return Math.min(paneW, paneWidthLimits().max);
+}
+
+// Sets the width (a number of pixels, clamped) through the --pane-w property the stylesheet reads. A value that is not a number keeps
+// the width as it is.
+function paneSetWidth(px) {
+  const { min, max } = paneWidthLimits();
+  const n = Number(px);
+  paneW = Math.round(Math.min(max, Math.max(min, Number.isFinite(n) ? n : paneCurrentWidth())));
+  el.pane.style.setProperty('--pane-w', `${paneW}px`);
+  el.paneGrip.setAttribute('aria-valuenow', String(paneW));
+  el.paneGrip.setAttribute('aria-valuemax', String(max));
+  paneEvent('resize', paneActive);
+  return paneW;
+}
+
+// The tab strip keeps the order the panels asked for. Equal orders keep the order they were opened in.
+const paneTabOrder = id => paneDefs.get(id)?.order ?? 50;
+
+// A count on a tab. null (or anything that is not a count) hides the badge.
+function paneSetBadge(inst, n) {
+  inst.count = n;
+  const shown = typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  inst.badgeEl.hidden = !shown;
+  inst.badgeEl.textContent = shown ? (n > 99 ? '99+' : String(Math.floor(n))) : '';
+}
+
+// Draws what the tab shows: the icon, the title and the badge.
+function paneFillTab(inst) {
+  const parts = [];
+  if (PANE_ICON.test(inst.icon ?? '')) parts.push(icon(inst.icon));
+  parts.push(span('pane-tab-title', inst.label));
+  inst.badgeEl = span('badge', '');
+  parts.push(inst.badgeEl);
+  inst.tab.replaceChildren(...parts);
+  inst.view.setAttribute('aria-label', inst.label);
+  paneSetBadge(inst, inst.count ?? null);
+}
+
+function paneSortTab(inst) {
+  const order = paneTabOrder(inst.id);
+  const later = [...el.paneTabs.children].find(tab => tab !== inst.tab && paneTabOrder(tab.dataset.pane) > order);
+  if (later) el.paneTabs.insertBefore(inst.tab, later);
+  else el.paneTabs.append(inst.tab);
+}
+
+// Makes the tab and its view, and gives the api the panel receives. The view is not drawn yet (paneRenderView does that).
+function paneCreate(def, params) {
+  const { id } = def;
+  const tab = document.createElement('button');
+  tab.type = 'button';
+  tab.className = 'pane-tab';
+  tab.id = `pane-tab-${id}`;
+  tab.dataset.pane = id;
+  tab.setAttribute('role', 'tab');
+  tab.setAttribute('aria-selected', 'false');
+  tab.setAttribute('aria-controls', `pane-view-${id}`);
+  tab.tabIndex = -1;
+  const view = document.createElement('section');
+  view.className = 'pane-view';
+  view.id = `pane-view-${id}`;
+  view.dataset.pane = id;
+  view.setAttribute('role', 'tabpanel');
+  view.setAttribute('aria-labelledby', tab.id);
+  view.hidden = true;
+  const inst = { id, label: def.title, icon: def.icon, count: null, tab, view, badgeEl: null, closed: false, api: null };
+  inst.api = {
+    id,
+    params: params ?? {},
+    el: view,
+    close: () => {
+      if (!inst.closed) paneCloseTab(id);
+    },
+    setTitle: text => {
+      if (inst.closed) return;
+      inst.label = String(text ?? '');
+      paneFillTab(inst);
+    },
+    badge: n => {
+      if (!inst.closed) paneSetBadge(inst, n);
+    },
+    isActive: () => !inst.closed && paneActive === id,
+  };
+  tab.addEventListener('click', () => paneSelect(id));
+  paneFillTab(inst);
+  el.paneBody.append(view);
+  return inst;
+}
+
+// render(body, api) runs once, on the first open. A render that throws (or rejects) says so in its own view.
+function paneRenderView(inst, def) {
+  const fail = err => inst.view.replaceChildren(para(`This pane could not load: ${err?.message ?? err}`));
+  try {
+    const out = def.render(inst.view, inst.api);
+    if (out && typeof out.then === 'function') out.catch(fail);
+  } catch (err) {
+    fail(err);
+  }
+}
+
+function paneSelectTab(id) {
+  for (const inst of paneInstances.values()) {
+    const on = inst.id === id;
+    inst.view.hidden = !on;
+    inst.tab.setAttribute('aria-selected', String(on));
+    inst.tab.tabIndex = on ? 0 : -1;
+  }
+  paneActive = paneInstances.has(id) ? id : null;
+}
+
+// The column shows only while there is a tab to show.
+function paneShowColumn(on) {
+  paneShown = Boolean(on) && paneInstances.size > 0;
+  el.pane.hidden = !paneShown;
+}
+
+// The tab after the given one, else the one before it, or null when it is the only tab.
+function paneNeighbour(tab) {
+  const tabs = [...el.paneTabs.children];
+  const at = tabs.indexOf(tab);
+  const other = tabs[at + 1] ?? tabs[at - 1];
+  return other ? other.dataset.pane : null;
+}
+
+function paneRegister(def) {
+  const d = def && typeof def === 'object' ? def : {};
+  const { id, title, icon: iconName = '', order = 50, render, onShow, onHide, onClose } = d;
+  if (typeof id !== 'string' || !PANE_ID.test(id)) throw new Error('A pane id is 1 to 32 lower-case letters, digits or hyphens.');
+  if (typeof title !== 'string' || !title.trim()) throw new Error(`Pane ${id} needs a title.`);
+  if (typeof render !== 'function') throw new Error(`Pane ${id} needs a render(body, api) function.`);
+  if (typeof order !== 'number' || !Number.isFinite(order)) throw new Error(`Pane ${id}: order must be a number.`);
+  const next = { id, title: title.trim(), icon: typeof iconName === 'string' ? iconName : '', order, render, onShow, onHide, onClose };
+  // Registering again replaces the definition. A tab that is open keeps its view and takes the new title and icon.
+  paneDefs.set(id, next);
+  const inst = paneInstances.get(id);
+  if (inst) {
+    inst.label = next.title;
+    inst.icon = next.icon;
+    paneFillTab(inst);
+    paneSortTab(inst);
+  }
+  return next;
+}
+
+// Opens the tab for id (drawing it on the first open) and shows the column. Every open sets the params the panel is given.
+function paneOpenTab(id, params) {
+  const def = paneDefs.get(id);
+  if (!def) throw new Error(`No side pane called "${id}". Register it with MuseUI.pane.register first.`);
+  let inst = paneInstances.get(id);
+  if (!inst) {
+    inst = paneCreate(def, params);
+    paneInstances.set(id, inst);
+    paneSortTab(inst);
+    paneRenderView(inst, def);
+  }
+  inst.api.params = params ?? {};
+  const prev = paneActive;
+  const wasShown = paneShown;
+  paneSelectTab(id);
+  if (wasShown && prev && prev !== id) paneHook(prev, 'onHide', paneInstances.get(prev).api);
+  paneShowColumn(true);
+  paneHook(id, 'onShow', inst.api);
+  paneEvent('open', id);
+  return inst.api;
+}
+
+// Selects a tab that is open. Nothing is drawn again: the views are kept and only their hidden flags change.
+function paneSelect(id) {
+  if (!paneInstances.has(id)) return false;
+  if (paneActive === id && paneShown) return true;
+  const prev = paneActive;
+  const wasShown = paneShown;
+  paneSelectTab(id);
+  if (wasShown && prev && prev !== id) paneHook(prev, 'onHide', paneInstances.get(prev).api);
+  paneShowColumn(true);
+  paneHook(id, 'onShow', paneInstances.get(id).api);
+  paneEvent('select', id);
+  return true;
+}
+
+// Removes the tab and its view and calls onClose. The neighbour of an active tab is selected; the column hides when no tab is left.
+function paneCloseTab(id = paneActive) {
+  const inst = id ? paneInstances.get(id) : undefined;
+  if (!inst) return false;
+  const wasActive = paneActive === id;
+  const hadFocus = el.pane.contains(document.activeElement);
+  const next = wasActive ? paneNeighbour(inst.tab) : null;
+  paneInstances.delete(id);
+  inst.closed = true;
+  inst.tab.remove();
+  inst.view.remove();
+  paneHook(id, 'onClose', inst.api);
+  if (wasActive) {
+    paneActive = null;
+    if (next) {
+      paneSelectTab(next);
+      // onShow means the tab is on screen, so a neighbour of a tab closed while the column is hidden waits for show().
+      if (paneShown) paneHook(next, 'onShow', paneInstances.get(next).api);
+    }
+  }
+  if (paneInstances.size === 0) paneShowColumn(false);
+  // The focused control has gone with its view, so focus goes to the tab that is now selected, or to the composer.
+  if (hadFocus) {
+    const target = paneActive && paneShown ? paneInstances.get(paneActive).tab : null;
+    (target ?? el.input).focus();
+  }
+  paneEvent('close', id);
+  return true;
+}
+
+// Hides the column and keeps every tab. The composer takes the focus if the pane had it.
+function paneHide() {
+  if (!paneShown) return false;
+  const id = paneActive;
+  const hadFocus = el.pane.contains(document.activeElement);
+  paneShowColumn(false);
+  if (hadFocus) el.input.focus();
+  if (id) paneHook(id, 'onHide', paneInstances.get(id).api);
+  paneEvent('hide', id);
+  return true;
+}
+
+function paneShow() {
+  if (paneShown || paneInstances.size === 0) return false;
+  paneShowColumn(true);
+  paneHook(paneActive, 'onShow', paneInstances.get(paneActive).api);
+  paneEvent('show', paneActive);
+  return true;
+}
+
+// Shows the tab when it is not the one on screen, and hides the pane when it is.
+function paneToggle(id) {
+  if (paneShown && paneActive === id) {
+    paneHide();
+    return false;
+  }
+  paneOpenTab(id);
+  return true;
+}
+
+const paneList = () => [...paneDefs.values()].sort((a, b) => a.order - b.order).map(d => d.id);
+
+const PANE = {
+  register: paneRegister,
+  open: paneOpenTab,
+  close: id => paneCloseTab(id),
+  toggle: paneToggle,
+  select: paneSelect,
+  show: paneShow,
+  hide: paneHide,
+  active: () => paneActive,
+  isOpen: id => paneInstances.has(id),
+  list: paneList,
+  width: px => (px === undefined ? paneCurrentWidth() : paneSetWidth(px)),
+};
+
+// The grip on the left edge: a drag, a double-click to reset, and the arrow keys when it has the focus.
+el.paneGrip.addEventListener('pointerdown', e => {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  paneDrag = { pointer: e.pointerId, x: e.clientX, w: paneCurrentWidth() };
+  try {
+    el.paneGrip.setPointerCapture(e.pointerId);
+  } catch {
+    // Without capture the drag still follows the pointer while it stays over the grip.
+  }
+});
+el.paneGrip.addEventListener('pointermove', e => {
+  if (!paneDrag || e.pointerId !== paneDrag.pointer) return;
+  // The pane sits on the right, so moving the edge left makes it wider.
+  paneSetWidth(paneDrag.w + (paneDrag.x - e.clientX));
+});
+const paneDragEnd = e => {
+  if (!paneDrag || e.pointerId !== paneDrag.pointer) return;
+  paneDrag = null;
+  try {
+    el.paneGrip.releasePointerCapture(e.pointerId);
+  } catch {
+    // The capture ended with the pointer.
+  }
+};
+el.paneGrip.addEventListener('pointerup', paneDragEnd);
+el.paneGrip.addEventListener('pointercancel', paneDragEnd);
+el.paneGrip.addEventListener('dblclick', () => paneSetWidth(PANE_DEFAULT_W));
+el.paneGrip.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+  paneSetWidth(paneCurrentWidth() + (e.key === 'ArrowLeft' ? PANE_STEP : -PANE_STEP));
+});
+el.paneGrip.setAttribute('aria-valuemax', String(paneWidthLimits().max));
+window.addEventListener('resize', () => el.paneGrip.setAttribute('aria-valuemax', String(paneWidthLimits().max)));
+
+el.paneBack.addEventListener('click', () => paneHide());
+el.paneClose.addEventListener('click', () => paneCloseTab());
+
+// The arrow keys, Home and End move between the tabs and select the tab they reach.
+el.paneTabs.addEventListener('keydown', e => {
+  const tabs = [...el.paneTabs.children];
+  const at = tabs.indexOf(e.target);
+  if (at < 0) return;
+  let to = null;
+  if (e.key === 'ArrowRight') to = (at + 1) % tabs.length;
+  else if (e.key === 'ArrowLeft') to = (at - 1 + tabs.length) % tabs.length;
+  else if (e.key === 'Home') to = 0;
+  else if (e.key === 'End') to = tabs.length - 1;
+  if (to === null) return;
+  e.preventDefault();
+  paneSelect(tabs[to].dataset.pane);
+  tabs[to].focus();
+});
+
+// Escape with the focus inside the pane closes its active tab. It stops here, so the composer's Escape (which stops a run) never sees
+// it. Three cases leave it alone: a panel that handled Escape itself (it calls preventDefault), an open drawer (it sits above the
+// pane, so Escape closes the drawer first), and no open tab. The drawer's own Escape handler on the document then runs.
+el.pane.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.defaultPrevented || !paneActive || !el.drawer.hidden) return;
+  e.stopPropagation();
+  paneCloseTab(paneActive);
+});
+
+// ---------- settings (MuseUI.settings) ----------
+
+// Sections for the Settings drawer (scope 'app') and for the project settings drawer (scope 'project'). Each section's render draws
+// into its card. A change inside a section saves at once and says so on its row.
+const settingsDefs = new Map();
+
+function settingsRegister(def) {
+  const d = def && typeof def === 'object' ? def : {};
+  const { id, scope, title, order = 50, render } = d;
+  if (typeof id !== 'string' || !PANE_ID.test(id)) throw new Error('A settings id is 1 to 32 lower-case letters, digits or hyphens.');
+  if (scope !== 'app' && scope !== 'project') throw new Error(`Settings ${id}: scope must be 'app' or 'project'.`);
+  if (typeof title !== 'string' || !title.trim()) throw new Error(`Settings ${id} needs a title.`);
+  if (typeof render !== 'function') throw new Error(`Settings ${id} needs a render(body, ctx) function.`);
+  if (typeof order !== 'number' || !Number.isFinite(order)) throw new Error(`Settings ${id}: order must be a number.`);
+  const next = { id, scope, title: title.trim(), order, render };
+  settingsDefs.set(id, next);
+  return next;
+}
+
+// Copies of the sections for one scope, in order. Equal orders keep the order they were registered in.
+const settingsSections = scope => [...settingsDefs.values()]
+  .filter(d => d.scope === scope)
+  .sort((a, b) => a.order - b.order)
+  .map(d => ({ ...d }));
+
+// The context a section's render receives. state is read when asked, so it is current.
+function settingsContext() {
+  return {
+    get state() { return S; },
+    update: body => update(body),
+    refresh: () => refreshDrawer(),
+    toast: (message, kind) => toast(message, kind),
+  };
+}
+
+// The line under a setting. It says "Saved" once the server has stored the change, or the server's refusal in red.
+function settingStatus() {
+  const note = document.createElement('span');
+  note.className = 'setting-status';
+  note.setAttribute('role', 'status');
+  const show = (text, bad) => {
+    note.textContent = text;
+    note.classList.toggle('bad', Boolean(bad));
+  };
+  return { note, saved: () => show('Saved'), failed: message => show(message, true) };
+}
+
+function settingsCard(def) {
+  const card = document.createElement('section');
+  card.className = 'card settings-card';
+  card.dataset.section = def.id;
+  const title = document.createElement('h4');
+  title.className = 'card-title';
+  title.textContent = def.title;
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  card.append(title, body);
+  const fail = err => body.replaceChildren(para(`This section could not load: ${err?.message ?? err}`));
+  try {
+    const out = def.render(body, settingsContext());
+    if (out && typeof out.then === 'function') out.catch(fail);
+  } catch (err) {
+    fail(err);
+  }
+  return card;
+}
+
+// The Settings drawer: one card per app section, in order. It is drawn again by refreshDrawer.
+function openSettings() {
+  openDrawer('Settings', body => {
+    body.append(...settingsSections('app').map(settingsCard));
+  });
+}
+
+// scope 'app' opens the Settings drawer. scope 'project' opens the project settings drawer when a panel defined it.
+function settingsOpen(scope = 'app') {
+  if (scope === 'project') {
+    if (typeof window.MuseUI?.openProjectSettings === 'function') return window.MuseUI.openProjectSettings();
+    return toast('Project settings are not available.', 'bad');
+  }
+  if (scope !== 'app') throw new Error(`Settings scope must be 'app' or 'project', not "${scope}".`);
+  return openSettings();
+}
+
+const SETTINGS = { register: settingsRegister, sections: settingsSections, open: settingsOpen };
+
+// Appearance: the same choice as the Theme button in the sidebar. The select follows the button when the theme changes elsewhere.
+settingsRegister({
+  id: 'appearance',
+  scope: 'app',
+  title: 'Appearance',
+  order: 10,
+  render(body) {
+    const select = document.createElement('select');
+    for (const [key, label] of Object.entries(THEMES)) select.append(new Option(label, key));
+    select.value = currentTheme();
+    const row = document.createElement('label');
+    row.className = 'setting';
+    const status = settingStatus();
+    row.append(span('field-label', 'Theme'), select);
+    select.addEventListener('change', () => {
+      const theme = select.value;
+      setTheme(theme)
+        .then(() => {
+          status.saved();
+          toast(`Theme: ${THEMES[theme]}`);
+        })
+        .catch(err => {
+          status.failed(err.message);
+          toast(err.message, 'bad');
+        });
+    });
+    const watch = new MutationObserver(() => {
+      if (!select.isConnected) {
+        watch.disconnect();
+        return;
+      }
+      select.value = currentTheme();
+    });
+    watch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    body.append(row, status.note);
+  },
+});
+
+// Desktop: four switches the desktop app reads from the saved state file. Under plain node they are shown but disabled.
+const DESKTOP_SWITCHES = [
+  { key: 'finishedAlerts', label: 'Finished alerts', desc: 'Show a notification when a run ends while the window is not focused' },
+  { key: 'approvalAlerts', label: 'Approval alerts', desc: 'Show a notification when a card waits while the window is not focused' },
+  { key: 'keepAwake', label: 'Keep awake', desc: 'Keep the computer from sleeping while a run is in progress' },
+  { key: 'trayOnClose', label: 'Keep in tray on close', desc: 'Closing the window hides Plenum to the tray and keeps the server running' },
+];
+
+settingsRegister({
+  id: 'desktop',
+  scope: 'app',
+  title: 'Desktop',
+  order: 20,
+  render(body) {
+    body.append(para('Reading these settings…'));
+    return api('/api/desktop-settings').then(data => {
+      body.replaceChildren();
+      if (!data.desktop) body.append(para('These apply in the Plenum desktop app.'));
+      for (const sw of DESKTOP_SWITCHES) body.append(desktopSwitch(sw, data));
+    });
+  },
+});
+
+function desktopSwitch(sw, data) {
+  const wrap = document.createElement('div');
+  wrap.className = 'setting';
+  const status = settingStatus();
+  // Only the answer to the latest change is shown, so two quick changes cannot leave the switch on the earlier value.
+  let latest = 0;
+  const row = switchRow(sw.label, sw.desc, data[sw.key], value => {
+    const mine = ++latest;
+    api('/api/desktop-settings', { [sw.key]: value })
+      .then(saved => {
+        if (mine !== latest) return;
+        input.checked = saved[sw.key] === true;
+        status.saved();
+        toast(`${sw.label} ${input.checked ? 'on' : 'off'}.`);
+      })
+      .catch(err => {
+        if (mine !== latest) return;
+        input.checked = !value;
+        status.failed(err.message);
+        toast(err.message, 'bad');
+      });
+  });
+  const input = row.querySelector('input');
+  input.disabled = !data.desktop;
+  wrap.append(row, status.note);
+  return wrap;
+}
+
+// Sessions: how a chat turn reaches the model. The same choice the server keeps as sessionMode.
+const SESSION_LABELS = { transcript: 'Transcript', native: 'Native' };
+settingsRegister({
+  id: 'sessions',
+  scope: 'app',
+  title: 'Sessions',
+  order: 30,
+  render(body) {
+    const select = document.createElement('select');
+    for (const [key, label] of Object.entries(SESSION_LABELS)) select.append(new Option(label, key));
+    let saved = S.sessionMode === 'native' ? 'native' : 'transcript';
+    select.value = saved;
+    const status = settingStatus();
+    const row = document.createElement('label');
+    row.className = 'setting';
+    row.append(
+      span('field-label', 'Session mode'),
+      select,
+      span('field-note', 'Transcript resends the chat to each model. Native lets each CLI keep its own session where it can.'),
+    );
+    select.addEventListener('change', () => {
+      const mode = select.value;
+      update({ sessionMode: mode })
+        .then(() => {
+          saved = mode;
+          status.saved();
+          toast(`Session mode: ${SESSION_LABELS[mode]}`);
+        })
+        .catch(err => {
+          select.value = saved;
+          status.failed(err.message);
+          toast(err.message, 'bad');
+        });
+    });
+    body.append(row, status.note);
+  },
+});
+
+// ---------- notices (stubs; public/ext-notices.js replaces both) ----------
+// MuseUI.notice(id, { before, after }) draws a notice strip before or after an element, and MuseUI.risk(id, { action }) asks before a
+// risky switch and resolves to true when it may go on. Until ext-notices.js assigns the real ones, a notice draws nothing and a risk
+// asks nothing, which is today's behaviour.
+
 // ---------- commands ----------
 
 function advisorLine() {
@@ -3422,6 +4464,8 @@ async function runCommand(line) {
         await setTheme(theme);
         return toast(`Theme: ${THEMES[theme]}`);
       }
+      case 'settings':
+        return openSettings();
       case 'usage':
       case 'limits':
         return openDrawer('Usage and limits', renderUsage);
@@ -3693,6 +4737,7 @@ for (const pick of document.querySelectorAll('.pick')) pickable(pick);
 el.accountsBtn.addEventListener('click', openAccounts);
 el.updatesBtn.addEventListener('click', openUpdates);
 el.helpBtn.addEventListener('click', () => openDrawer('Commands', renderCommands));
+el.settingsBtn.addEventListener('click', () => openSettings());
 el.themeBtn.addEventListener('click', () => {
   const order = Object.keys(THEMES);
   setTheme(order[(order.indexOf(currentTheme()) + 1) % order.length]).catch(onSettingError);
@@ -3704,6 +4749,11 @@ el.scrim.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeRelayMenus();
   if (e.key === 'Escape' && !el.drawer.hidden) closeDrawer();
+  // Ctrl+Comma opens Settings from anywhere in the window.
+  if (e.key === ',' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    openSettings();
+  }
   // A slash typed into a field (the composer, the approval reason, the add-project path) is text, so the shortcut leaves it alone.
   const at = document.activeElement;
   const typing = Boolean(at?.isContentEditable) || /^(INPUT|TEXTAREA|SELECT)$/.test(at?.tagName ?? '');
@@ -3716,8 +4766,8 @@ document.addEventListener('keydown', e => {
   }
 });
 
-async function boot() {
-  syncTheme();
+// Reads everything the page shows and opens the events channel.
+async function loadAll() {
   try {
     await loadProviders();
   } catch (err) {
@@ -3727,11 +4777,35 @@ async function boot() {
   await loadUpdates();
   initMusic();
   renderAll();
+  events.connect();
+}
+
+async function boot() {
+  syncTheme();
+  await loadToken();
+  readyDone();
+  // A tab started with plain Node and opened without the link has no token. The card asks for it; nothing else can work.
+  if (!TOKEN && !window.plenumShell) {
+    showTokenCard();
+    return;
+  }
+  await loadAll();
 }
 
 // The surface the extra panels (public/ext-*.js) build on. It exposes what they need and changes nothing itself.
 window.MuseUI = {
-  api, toast, openDrawer, closeDrawer, refreshDrawer, refresh, renderAll, renderTop, update, copyText,
+  api, request, headers, ready, events, applyState, toast, openDrawer, closeDrawer, refreshDrawer, refresh, renderAll, renderTop, update, copyText,
+  // A panel that starts a run with its own request (a compare, a pipeline, a restore) calls this with the runId of its first
+  // event, so the events channel does not draw that run as one started in another window.
+  claimRun: id => { if (typeof id === 'string' && id) claimed.add(id); },
+  // The side pane: panels register a tab (pane.register) and open it (pane.open). See the side pane section above.
+  pane: PANE,
+  // Settings sections: scope 'app' for the Settings drawer, 'project' for the project settings drawer (settings.open).
+  settings: SETTINGS,
+  // Overwritable stubs. public/ext-notices.js assigns the real notice strip and the risk dialog here. A notice is information and a
+  // risk is a question; the stubs draw nothing and allow everything, which is today's behaviour.
+  notice: (id, { before, after } = {}) => null,
+  risk: async (id, { action } = {}) => true,
   el, span, button, para, icon, cardShell, modelName, stream: () => streamEl ?? el.chat,
   get state() { return S; },
   get catalog() { return catalog; },

@@ -16,7 +16,6 @@
   const LOADING = 'Loading the OpenRouter models…';
   // app.js shows this line while the Accounts drawer waits for its own request. The panel waits for it to go.
   const ACCOUNTS_LOADING = 'Checking your accounts';
-  const HEADERS = { 'content-type': 'application/json', 'x-muse-console': '1' };
   const PREFIX = 'openrouter:';
   // The same shape the server accepts for an id (parseRef in lib/providers.mjs), which checks it again.
   const ID_SHAPE = /^[A-Za-z0-9._/:-]{1,120}$/;
@@ -31,11 +30,9 @@
     return node;
   }
 
-  // GET and POST both carry X-Muse-Console, which the OpenRouter routes ask for.
+  // GET and POST both carry the Plenum token (MuseUI.request adds it), which the OpenRouter routes ask for.
   async function call(path, body) {
-    const res = await fetch(path, body === undefined
-      ? { headers: HEADERS, cache: 'no-store' }
-      : { method: 'POST', headers: HEADERS, body: JSON.stringify(body) });
+    const res = await MuseUI.request(path, body === undefined ? {} : { method: 'POST', body });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;

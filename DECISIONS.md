@@ -117,7 +117,7 @@ Sources checked for items 1 to 11 (an earlier round):
 
 ## 11. A deb maintainer address must be set before release
 
-**Decision.** `build.deb.maintainer` in `package.json` is a placeholder, `Plenum <plenum@example.com>`, and it must be replaced with a real maintainer address before release.
+**Decision.** `build.deb.maintainer` in `package.json` is a placeholder, `[LICENSOR NAME] <[CONTACT EMAIL]>` (it was `Plenum <plenum@example.com>` before 0.6), and it must be replaced with a real maintainer address before release.
 
 **Reason.** A deb package carries a maintainer field, and a placeholder would ship in the package's metadata.
 
@@ -235,7 +235,9 @@ Sources checked for items 1 to 11 (an earlier round):
 
 **Follow-ups.** Measure memory with `process.getProcessMemoryInfo()` (private and shared apart). Move applied Plenum updates out of the install folder into the user-data folder, so a signed bundle stays intact and the portable exe keeps them. Then turn on asar with integrity checks and set Electron fuses (no NODE_OPTIONS, no inspect arguments). Replace the fixed `X-Muse-Console: 1` header with a random token made at each launch, before any artifact or web page can run near the app. Never serve artifacts from the app's own origin. Lazy-load panels, limit `electronLanguages`, and keep Electron on a monthly patch schedule.
 
-**Status.** Decided (Opus and Fable, with research). The follow-ups are not done yet.
+**Status of the follow-ups (0.6).** Done: the per-launch token (item 24); applied updates moved out of the install folder (item 27); the Electron fuses and `electronLanguages` set to en-US (item 28); the spellcheck download turned off (`webPreferences.spellcheck: false` in `desktop/main.cjs`). Still open: asar with integrity checks, lazy-loading panels, memory measurement, and the monthly Electron patch. Keeping artifacts off the app's origin comes with art-01, which is not built yet.
+
+**Status.** Decided (Opus and Fable, with research). Some follow-ups are done; the status line above says which.
 
 ## 23. The source is public, and all rights are reserved
 
@@ -246,6 +248,68 @@ Sources checked for items 1 to 11 (an earlier round):
 **Source.** `LICENSE.txt`; the owner's answer in the build session; the legal drafts in the build notes.
 
 **Status.** Decided. Every builder keeps `LICENSE.txt` as it is; the legal work adds the end-user licence and third-party notices beside it.
+
+_Items 24 to 29 come from the 0.6 groundwork. Item 23 keeps its number (the licence decision above), so the groundwork's own numbers 23 to 28 are 24 to 29 here. Later feature docs take the next free numbers from 30._
+
+## 24. Every API request carries a per-launch token
+
+**Decision.** Every request to `/api/` must carry the header `x-plenum-token`, or the server answers 401 before any route runs. The token is 32 random bytes in hex, made at each start (`ensureToken` in `lib/auth.mjs`). The desktop app's main process makes it, hands it to the server over the channel that carries the keys (`lib/keys.mjs`), and gives it only to the app's own window, through the preload bridge (`desktop/preload.cjs`, answered only to the app's own frame). Started with plain Node, the server prints a link with the token in the URL fragment, which a browser never sends to the server; the page keeps it in session storage for that tab. A token given in `PLENUM_TOKEN` is read once and removed from the environment, so no child process inherits it. The token is not written to the state file, the logs or any child environment. Each POST must also come from the app's own origin, and that check runs before the token is looked at.
+
+**Reason.** A fixed header such as `X-Muse-Console: 1` is not a secret: any program on the computer can send it. The owner's follow-up list asked for a random token made at each launch, before any artifact or web page can run near the app.
+
+**Source.** `lib/auth.mjs`; `lib/keys.mjs` (`setToken` on the keys message); `desktop/preload.cjs`; `desktop/main.cjs` (`plenum:token`); `public/app.js` (`loadToken`, `request`); `server.mjs` (the `/api/` check); DECISIONS item 22, follow-ups.
+
+**Status.** Built (groundwork gw-01). Not yet seen in a running desktop window; plain Node was checked by `server-start.test.mjs` in the 0.6 wave (a request with no token, or a wrong one, gets 401).
+
+## 25. State and run events are pushed to every window over GET /api/events
+
+**Decision.** `GET /api/events` keeps one server-sent stream open per window (`lib/events.mjs`). Each event has `type` and `at`. The types are `hello`, `state` (the state without messages), `run`, `approval`, `notice` and `agent`. The page reads the stream with `fetch`, not `EventSource`, and reconnects with a wait of 1 to 10 seconds between tries. Panels read events through `MuseUI.events`, and a route module publishes with `events.publish`.
+
+**Reason.** Panels that polled the server could not show a change at once, and each poll was another request to answer. One stream per window sends each change once. `EventSource` cannot send a header, and every `/api/` request must carry the token.
+
+**Source.** `lib/events.mjs` (the catalogue in its header); `server.mjs` (`GET /api/events`); `public/app.js` (`events`, `fanOut`, `request`); `desktop/sse.cjs` (the parser the desktop reads the stream with). Groundwork defaults in `GROUNDWORK.json`.
+
+**Status.** Built (groundwork gw-01). The `agent` type is reserved for the delegation work; nothing publishes it yet.
+
+## 26. Tools, prompt parts, desktop handlers, panes and settings sections are found in folders and registries, not in central files
+
+**Decision.** A model tool is one file in `lib/tools/` (`NN-name.mjs`). A prompt part is one file in `lib/prompt-parts/`. A desktop handler is one file in `desktop/handlers/`. A side pane is registered with `MuseUI.pane.register`, and a settings section with `MuseUI.settings.register`. The engines (`lib/tools.mjs`, `lib/prompt.mjs`, `desktop/handler-loader.cjs`, `public/app.js`) apply the shared rules, and a feature does not edit them. Item 21 already did this for route modules and panels. The shapes are in README.md, under Extending Plenum.
+
+**Reason.** Parallel features were colliding in the same files: the tool list, the prompt builder and `desktop/main.cjs`. With one file per feature, a feature adds files and changes no shared list.
+
+**Source.** `lib/tools/10-files.mjs` (the entry shape, in its header); `lib/tools.mjs` (`loadTools`, `REGISTRY`, `runTool`); `lib/prompt.mjs` (`CONTEXTS`, `loadParts`); `lib/prompt-parts/10-core.mjs`; `desktop/handler-loader.cjs`; `desktop/main.cjs` (`loadHandlers`); `public/app.js` (`paneRegister`, `settingsRegister`).
+
+**Status.** Built (groundwork gw-02 to gw-05).
+
+## 27. Applied updates live in an overlay under the state folder, with atomic generations and automatic rollback
+
+**Decision.** An applied update is a generation in `<state folder>/overlay/gen-<n>/`, and `overlay/manifest.json` names the active one. Applying writes the whole generation, checks it, and switches with one rename of the manifest. The last three generations are kept. `plenum.mjs` runs a bootstrap (`lib/overlay/register.cjs`) before any module loads, and a module hook (`lib/overlay/hooks.mjs`) serves the active generation's files in place of the shipped ones. A generation that does not start and become healthy is set aside on the next start, and the page says so. The install folder is never written. The loader (`plenum.mjs`, `lib/overlay.mjs`, `lib/overlay/`) and the token check (`lib/auth.mjs`) can never be updated from the app. Each generation records the Plenum version it was applied under.
+
+**Reason.** The old update rewrote files in the install folder. That needed a writable install folder and changed files a signed or per-machine install should not change, and a bad update could leave Plenum unable to start with no way back. A complete generation switched by one rename is either the old version or the new one, never a mix. Fixes B-3 (a bundle that starts but cannot load, with no rollback; the import check now refuses a bundle that imports a file that is not there) and B-26 (a write failure during apply left a half-updated install; a failed apply now removes its half-made generation and changes nothing).
+
+**Source.** `lib/overlay.mjs`; `lib/overlay/register.cjs` (its header); `lib/overlay/hooks.mjs`; `lib/updates.mjs` (`applyNow`, `checkImports`, `rollbackNow`, `ALLOWED`, `BLOCKED`); `plenum.mjs`. Groundwork defaults in `GROUNDWORK.json`.
+
+**Status.** Built (groundwork gw-06). The rules are in `lib/updates.mjs`. The start of a packed app that has an applied generation was not checked in this wave.
+
+## 28. The installer shows a licence page, installs to the per-user folder, ships English locales only, and the app has NODE_OPTIONS and inspect arguments fused off while RunAsNode stays on
+
+**Decision.** `package.json` makes the Windows installer show the licence page (`nsis.license`, with `oneClick` false), install to the default per-user folder with no folder page (`allowToChangeInstallationDirectory` false), and copy `LICENSE.txt` to the top of the app folder (`extraFiles`). The author is `[LICENSOR NAME]` and `[CONTACT EMAIL]`, placeholders until the owner supplies the names; electron-builder takes the Windows company name from `author` (B-109). Electron keeps only `en-US` (`build.electronLanguages`). The Electron fuses (`build.electronFuses`) turn off `NODE_OPTIONS` (`enableNodeOptionsEnvironmentVariable`), the inspect arguments (`enableNodeCliInspectArguments`), the asar integrity and only-load-from-asar checks, and the V8 snapshot, and keep `runAsNode` and cookie encryption on. `grantFileProtocolExtraPrivileges` is left out, so Electron's default applies: nothing in this wave confirmed that the packed page still loads with that fuse off.
+
+**Reason.** `NODE_OPTIONS` and the inspect arguments are two ways to run code or attach a debugger when the app starts. `runAsNode` stays on because the server checks updates by running `process.execPath --check` in node mode. Asar stays off until it is turned on with its checks (item 22). A user can no longer choose a folder, so an install outside the per-user folder cannot happen, and updates never write the install folder anyway (item 27). The other Electron locale files were unused.
+
+**Source.** `package.json`; `node_modules/app-builder-lib/scheme.json` (`FuseOptionsV1`, `electronLanguages`, the licence options); `node_modules/app-builder-lib/out/platformPackager.js` (fuses set after packing); `node_modules/@electron/fuses` (the fuse wire, read back by `package.test.mjs`); `lib/updates.mjs` (`syntaxCheck`); `server.mjs` (`ELECTRON_RUN_AS_NODE` in the utility process).
+
+**Status.** Built and checked in the 0.6 wave. `npm run pack` succeeded. The packed `Plenum.exe` reads back the fuses as set. The packed folder has `LICENSE.txt` at its top, `plenum.mjs` and `lib/overlay/` under `resources/app`, and only `en-US.pak`. The update syntax check runs under the exe in node mode. The exe's company name is `[LICENSOR NAME]`. Not checked: the installer's licence page and install folder on screen, and the packed app's window. INSTALLER_STATUS
+
+## 29. Desktop alert and tray switches are set in the window
+
+**Decision.** Settings, in the Desktop section, has four switches: Finished alerts, Approval alerts, Keep awake and Keep in tray on close. They are read and written through `GET` and `POST /api/desktop-settings` (`lib/routes/desktop-settings.mjs`), and they are the same keys in the state file (`finishedAlerts`, `approvalAlerts`, `keepAwake`, `trayOnClose`). A POST takes any of the four as a boolean, and any other value refuses the whole request. The desktop app reads the state file when it needs a value, so a change needs no restart.
+
+**Reason.** The four switches were in the state file only, so a person had to know the key names to turn one off. The window is where a person looks for them.
+
+**Source.** `lib/routes/desktop-settings.mjs`; `public/app.js` (`DESKTOP_SWITCHES` and the `desktop` settings section); `desktop/main.cjs` (reads the keys when it needs them).
+
+**Status.** Built (groundwork). Not seen in a running desktop window.
 
 ## Open items
 

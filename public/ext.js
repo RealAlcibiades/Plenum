@@ -8,10 +8,13 @@
   const NAME = /^ext-[a-z0-9-]{1,40}$/;
 
   // Names the server lists, or [] when the list cannot be read.
+  // The request carries the Plenum token (MuseUI.request), so it waits until the page has looked for the token (MuseUI.ready).
+  // Without MuseUI nothing can be asked, and only the KNOWN panels load.
   async function discovered() {
     try {
-      const res = await fetch('/api/ext-modules', {
-        cache: 'no-store',
+      if (!window.MuseUI?.request) return [];
+      await (window.MuseUI.ready ?? Promise.resolve());
+      const res = await window.MuseUI.request('/api/ext-modules', {
         signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined,
       });
       if (!res.ok) return [];

@@ -80,6 +80,8 @@
     try {
       const res = await real(down ? DOWN_CHECK : UP_CHECK, {
         cache: 'no-store',
+        // The status endpoint is behind the Plenum token like every other /api/ route.
+        headers: MuseUI.headers ? MuseUI.headers() : {},
         signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined,
       });
       res.body?.cancel().catch(() => {});
@@ -90,6 +92,13 @@
       probing = false;
     }
   }
+
+  // The events channel (GET /api/events) is open while the server is up, so its loss is the quickest sign the server is gone:
+  // app.js announces it as 'plenum:connection' with detail { connected }.
+  window.addEventListener('plenum:connection', e => {
+    if (e.detail?.connected) markUp();
+    else markDown();
+  });
 
   // Runs for the life of the page. Without it an idle page would not notice a server that stopped.
   setInterval(probe, EVERY_MS);

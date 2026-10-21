@@ -80,6 +80,9 @@
   // The gear sits right after the project name. renderTop only changes the name's text, so the gear stays put.
   if (!document.querySelector('.proj-gear')) MuseUI.el.projName.after(gearButton());
 
+  // MuseUI.settings.open('project') opens this drawer through here (app.js).
+  MuseUI.openProjectSettings = openProjectSettings;
+
   // ---------- opening and loading the drawer ----------
 
   function openProjectSettings() {
@@ -127,9 +130,34 @@
     const root = document.createElement('div');
     root.className = 'ps';
     root.append(MuseUI.para(`Settings for ${name}. Each one follows the app default until you change it here. A change saves as you make it.`));
-    root.append(defaultsCard(), denyCard(), toolsCard());
+    root.append(defaultsCard(), denyCard(), toolsCard(), ...projectSectionCards());
     body.append(root);
     paintAll();
+  }
+
+  // Sections that panels register for project settings (MuseUI.settings.register with scope 'project') come after Tools, one
+  // card each. A section is given the project record, its saved settings, the queued edit, save and a refresh of this drawer.
+  // project and saved are read when a section asks, so they are current after a save.
+  function projectSectionCards() {
+    const sections = typeof MuseUI.settings?.sections === 'function' ? MuseUI.settings.sections('project') : [];
+    return sections.map(section => {
+      const card = cardSection(section.title);
+      const ctx = {
+        get project() { return view; },
+        get saved() { return view?.settings ?? {}; },
+        edit,
+        save: saveChange,
+        refresh: () => MuseUI.refreshDrawer(),
+      };
+      const showFailure = err => card.append(MuseUI.para(`This section could not load: ${err?.message ?? err}`));
+      try {
+        const out = section.render(card, ctx);
+        if (out && typeof out.then === 'function') out.catch(showFailure);
+      } catch (err) {
+        showFailure(err);
+      }
+      return card;
+    });
   }
 
   // ---------- saving ----------

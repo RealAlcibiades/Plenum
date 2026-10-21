@@ -10,7 +10,6 @@
 
   const TITLE = 'Checkpoints';
   const BUTTON_ID = 'checkpointsBtn';
-  const JSON_HEADERS = { 'content-type': 'application/json', 'x-muse-console': '1' };
   const INTRO = 'Plenum keeps a copy of a file just before the agent changes it. Restore puts that copy back, after you approve.';
   const LOADING = 'Loading checkpoints…';
   const EMPTY = 'No checkpoints yet. One is kept each time the agent changes an existing file.';
@@ -281,10 +280,11 @@
     // Becomes true once the stream says how the restore ended. A stream that ends without that was cut short.
     let ended = false;
     try {
-      const res = await fetch('/api/checkpoints/restore', {
+      // MuseUI.request adds the Plenum token. The run's id is claimed from its first event, so the events channel does not
+      // draw this restore as one started in another window.
+      const res = await MuseUI.request('/api/checkpoints/restore', {
         method: 'POST',
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ project: view.project.id, id: item.id }),
+        body: { project: view.project.id, id: item.id },
         signal: ctl.signal,
       });
       if (!res.ok) {
@@ -292,6 +292,7 @@
         throw new Error(data.error || `Request failed (${res.status})`);
       }
       await readEvents(res, ev => {
+        MuseUI.claimRun?.(ev.runId);
         if (ev.type === 'approval') {
           setStatus(view, 'Waiting for your approval…', '');
           showApproval(view, ev, item);

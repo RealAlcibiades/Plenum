@@ -30,6 +30,7 @@
     { keys: [MOD, 'Enter'], action: 'Start a run in Quick compare or Pipelines.' },
     { keys: ['Y'], action: 'Approve the focused approval card (not a blocked command or a checkpoint restore: click those).' },
     { keys: ['N'], action: 'Deny the focused approval card.' },
+    { keys: [MOD, ','], action: 'Open Settings.' },
     { keys: [MOD, '/'], action: 'Show this list.' },
   ];
 

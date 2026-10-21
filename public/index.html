@@ -55,6 +55,7 @@
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 5.2v13.6a.8.8 0 0 0 1.2.7l11-6.8a.8.8 0 0 0 0-1.4l-11-6.8a.8.8 0 0 0-1.2.7z"/></symbol>
     <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 17.5V5.5l10-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></symbol>
     <symbol id="i-relay" viewBox="0 0 24 24"><path d="M4 8.5h11M11 5l4 3.5-4 3.5M20 15.5H9M13 12l-4 3.5 4 3.5"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.4V5.2M12 18.8V21.6M2.4 12H5.2M18.8 12H21.6M7.19 7.19L5.21 5.21M16.81 7.19L18.79 5.21M7.19 16.81L5.21 18.79M16.81 16.81L18.79 18.79"/></symbol>
   </svg>
 
   <div class="app" id="app">
@@ -108,6 +109,9 @@
           </div>
           <p class="music-hint" id="musicHint" hidden>Music was on. Click the switch to start it again.</p>
         </div>
+        <button class="side-link" id="settingsBtn" type="button" title="Appearance, desktop alerts and sessions">
+          <svg class="ic" aria-hidden="true"><use href="#i-gear"></use></svg>Settings
+        </button>
         <button class="side-link" id="themeBtn" type="button" title="Switch between the system, dark and light themes">
           <svg class="ic" aria-hidden="true"><use href="#i-contrast"></use></svg>Theme
           <span class="side-value" id="themeValue">System</span>
@@ -195,6 +199,21 @@
         </div>
       </footer>
     </main>
+
+    <!-- The side pane. Panels register into it (MuseUI.pane); nothing is drawn here until one opens. -->
+    <aside class="pane" id="pane" hidden aria-label="Side pane">
+      <div class="pane-grip" id="paneGrip" role="separator" aria-orientation="vertical" aria-label="Resize the pane" aria-valuemin="380" aria-valuemax="1200" aria-valuenow="440" tabindex="0"></div>
+      <div class="pane-head">
+        <button class="icon-btn pane-back" id="paneBack" type="button" title="Back to the chat" aria-label="Back to the chat">
+          <svg class="ic" aria-hidden="true"><use href="#i-chevron"></use></svg>
+        </button>
+        <div class="pane-tabs" id="paneTabs" role="tablist"></div>
+        <button class="icon-btn" id="paneClose" type="button" title="Close pane" aria-label="Close pane">
+          <svg class="ic" aria-hidden="true"><use href="#i-x"></use></svg>
+        </button>
+      </div>
+      <div class="pane-body" id="paneBody"></div>
+    </aside>
 
     <div class="scrim" id="scrim" hidden></div>
     <aside class="drawer" id="drawer" hidden aria-label="Panel">

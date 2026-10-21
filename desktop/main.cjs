@@ -1,22 +1,43 @@
 // Muse Console desktop shell. Runs the local server as an Electron utility process and shows it in a window.
 // The API keys live here, encrypted by the operating system (keyvault.cjs). The server is started with no key in its environment
 // and gets the saved keys over its message channel; when the page saves a key, the server asks this process to store it.
-const { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, shell, utilityProcess } = require('electron');
+// This file keeps the core: the single instance, the window, the server process, the tray and quit. What the server asks of the
+// desktop (keys, the folder dialog, the alerts, and later the browser and the computer) is answered by the handler modules in
+// desktop/handlers/, which desktop/handler-loader.cjs loads and routes (see that file for the shape).
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, shell: electronShell, utilityProcess } = require('electron');
 const { execFileSync } = require('node:child_process');
+const { randomBytes } = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { createKeyVault, stripKeys } = require('./keyvault.cjs');
-const { shouldAnnounce, tooltipFor } = require('./alerts.cjs');
+const { tooltipFor } = require('./alerts.cjs');
+const { createSseParser } = require('./sse.cjs');
+const { loadHandlers, handleMessage, runHooks } = require('./handler-loader.cjs');
+
+// This launch's token. Every request to the server's /api/ must carry it (lib/auth.mjs). It is made once per launch of the app, so
+// a server restart after an applied update keeps it and an open window keeps working. It goes to the server over the keys channel,
+// to the app page through the preload bridge (preload.cjs) and to this process's own requests as a header. It is never on a
+// command line, in an environment, in a URL or in the log.
+const TOKEN = randomBytes(32).toString('hex');
+const apiHeaders = () => ({ 'x-plenum-token': TOKEN });
 
 const PORT = 4317;
 const APP_URL = `http://127.0.0.1:${PORT}/`;
 // The server exits with this code when it wants a restart (after an applied update).
 const RESTART_EXIT_CODE = 75;
-// The server is asked for its state this often while the app is open. A request that takes longer than the timeout is skipped.
+// Set once the server has been started again because it ended while an applied update was still unproven (see the exit handler in
+// startServer). It is cleared when a start gets as far as answering, so one bad update costs one restart, not a loop.
+let restartTried = false;
+// The server is asked for its state this often while the events channel is down (while it is up, the server sends the state
+// whenever it changes). A request that takes longer than the timeout is skipped.
 const POLL_MS = 2_000;
 const POLL_TIMEOUT_MS = 1_000;
+// How long to wait before the events channel is opened again, by the number of failed tries in a row.
+const EVENTS_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
+// How long the port check waits for an answer before it counts the port as in use.
+const PORT_PROBE_MS = 1_500;
 const root = path.resolve(__dirname, '..');
 // The page draws the title bar itself; Windows only overlays the minimise, maximise and close
 // buttons. The height matches --bar-h and the colours match --bg in public/style.css.
@@ -39,26 +60,81 @@ let vault = null;
 let quitting = false;
 let logStream = null;
 let logFile = '';
-// Background checks: the poll timer, whether a poll is running now, the keep-awake blocker id,
-// and the run being watched ({ projectId, name }) while the server reports it in progress.
+// The poll timer, and whether a poll is running now. The poll is the fallback while the events channel is down.
 let pollTimer = null;
 let polling = false;
-let keepAwakeId = null;
-let watchedRun = null;
-let finishedNote = null;
-// The number of approval cards the last poll counted, and the notification for one that just arrived (kept, as finishedNote is).
-let lastWaiting = 0;
-let approvalNote = null;
-// True while the folder dialog for the server's "Browse…" is open. Only one is opened at a time.
-let folderPickOpen = false;
+// The number of approval cards the tray shows. The alerts handler sets it through shell.tray.count.
+let trayCount = 0;
+// The notice shown the first time the window is hidden to a Linux tray that may not be there (B-112). Kept, as the alerts are.
+let trayNote = null;
+let trayNoticeShown = false;
+// The events channel (GET /api/events): the open request, whether it has delivered its first event, the failed tries in a row,
+// and the timer for the next try.
+let eventsReq = null;
+let eventsUp = false;
+let eventsFails = 0;
+let eventsTimer = null;
+// The desktop handlers (desktop/handlers/): their messages and hooks. Loaded once, in main(), before the window is made.
+let handlers = { messages: new Map(), hooks: [], reported: new Set() };
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   // A second launch (for example from the shortcut) shows the window, even when it is hidden in the tray.
   app.on('second-instance', () => showWindow());
+  // macOS: a click on the Dock icon re-activates the app. The window may be hidden to the tray, so bring it back.
+  // Windows and Linux never send this, so it changes nothing there.
+  app.on('activate', () => showWindow());
   app.whenReady().then(main);
 }
+
+function writeLog(line) {
+  logStream?.write(`${line}\n`);
+}
+
+// Calls the handlers' hooks with this name. The shell is the first argument of every hook.
+function callHooks(name, ...args) {
+  runHooks(handlers, name, [desktopShell, ...args], { log: writeLog });
+}
+
+// What a handler module is given as its shell (desktop/handler-loader.cjs). It is this process's view for the handlers' own jobs:
+// the key vault and the token are read through it, and windows, notifications and replies to the server go out through it.
+// shell.log writes to the app's log; the handlers here never pass a key or the token to it.
+const desktopShell = {
+  app,
+  dialog,
+  shell: electronShell,
+  Notification,
+  nativeImage,
+  powerSaveBlocker,
+  ipcMain,
+  win: () => win,
+  showWindow: () => showWindow(),
+  tell: message => tell(server, message),
+  get vault() {
+    return vault;
+  },
+  token: TOKEN,
+  get userData() {
+    return app.getPath('userData');
+  },
+  get logFile() {
+    return logFile;
+  },
+  log: writeLog,
+  settings: () => alertSettings(),
+  stateFile: () => stateFile(),
+  tray: {
+    count: n => {
+      trayCount = n;
+      if (tray) {
+        tray.setToolTip(tooltipFor(n));
+        tray.setContextMenu(buildTrayMenu(n));
+      }
+    },
+  },
+  serverPid: () => server?.pid ?? null,
+};
 
 function openLog() {
   const dir = app.getPath('userData');
@@ -132,18 +208,30 @@ function startServer() {
   server = child;
   child.stdout.pipe(logStream, { end: false });
   child.stderr.pipe(logStream, { end: false });
-  child.on('message', message => onServerMessage(child, message));
+  child.on('message', message => {
+    onServerMessage(child, message).catch(() => writeLog('a message from the server could not be handled'));
+  });
   child.on('exit', code => {
     if (child !== server) return;
     server = null;
+    callHooks('serverExited', code);
     if (quitting) return;
     if (code === RESTART_EXIT_CODE) {
+      setTimeout(restartAndReload, 300);
+      return;
+    }
+    // B-3: an applied update that has not started cleanly yet leaves overlay/pending.json in the state folder (lib/updates.mjs). If
+    // the server ends while it is there, start it once more: the bootstrap (lib/overlay/register.cjs) then goes back to the
+    // generation before. A second failure in a row shows the box below as it always did.
+    if (!restartTried && fs.existsSync(path.join(stateDir(), 'overlay', 'pending.json'))) {
+      restartTried = true;
       setTimeout(restartAndReload, 300);
       return;
     }
     dialog.showErrorBox('Plenum stopped', `The local server exited with code ${code}.\n\nLog: ${logFile}`);
     app.quit();
   });
+  callHooks('serverStarted', child);
 }
 
 // Sends the server a message, if it is still the server this reply was for.
@@ -156,46 +244,11 @@ function tell(child, message) {
   }
 }
 
-// Answers the server's two key requests. keys-hello is sent once at its start and gets the saved keys; save-key stores one key.
-// Nothing here is logged, and the keys appear only in the replies.
+// The server's messages go to the handler modules (desktop/handlers/). A message from a server that is no longer the current one
+// is ignored, and a message with no string type is not a request.
 async function onServerMessage(child, message) {
-  if (child !== server || !vault || !message || typeof message !== 'object') return;
-  if (message.type === 'keys-hello') {
-    let loaded;
-    try {
-      loaded = await vault.load();
-    } catch {
-      loaded = { storage: 'unavailable', note: 'The saved keys could not be read.', keys: {} };
-    }
-    tell(child, { type: 'keys', ...loaded });
-  } else if (message.type === 'save-key') {
-    tell(child, { type: 'save-key-result', id: message.id, ...(await vault.save(message.name, message.key)) });
-  } else if (message.type === 'pick-folder' && typeof message.id === 'string') {
-    await answerFolderPick(child, message.id);
-  }
-}
-
-// Opens the folder dialog for the server's "Browse…" and answers with the folder path, or null when it is cancelled or cannot open.
-// The window is shown first, in case it is in the tray. A request that arrives while a dialog is open is answered with null and
-// busy: true, so the server refuses it instead of reading it as a cancelled dialog. The path is not logged.
-async function answerFolderPick(child, id) {
-  if (folderPickOpen) {
-    tell(child, { type: 'pick-folder-result', id, path: null, busy: true });
-    return;
-  }
-  folderPickOpen = true;
-  let folder = null;
-  try {
-    showWindow();
-    const options = { properties: ['openDirectory'], title: 'Choose a project folder' };
-    const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
-    folder = r.canceled || !r.filePaths?.length ? null : r.filePaths[0];
-  } catch {
-    folder = null;
-  } finally {
-    folderPickOpen = false;
-  }
-  tell(child, { type: 'pick-folder-result', id, path: folder });
+  if (child !== server || !message || typeof message !== 'object' || typeof message.type !== 'string') return;
+  await handleMessage(handlers, message, desktopShell, { post: reply => tell(child, reply), log: writeLog });
 }
 
 function stopServer() {
@@ -210,6 +263,30 @@ function stopServer() {
   }
 }
 
+// Whether something already answers on the app's port before this app starts its server. Only a refused connection means the
+// port is free: any answer, or silence for PORT_PROBE_MS, counts as in use. The request carries no token, so a foreign listener
+// is never given this launch's token.
+function portInUse() {
+  return new Promise(resolve => {
+    let settled = false;
+    const done = inUse => {
+      if (settled) return;
+      settled = true;
+      resolve(inUse);
+    };
+    const req = http.get(`${APP_URL}api/status`, res => {
+      res.resume();
+      done(true);
+      req.destroy();
+    });
+    req.on('error', err => done(err?.code !== 'ECONNREFUSED'));
+    req.setTimeout(PORT_PROBE_MS, () => {
+      req.destroy();
+      done(true);
+    });
+  });
+}
+
 // Polls the server until it answers. Gives up after 30 seconds.
 function waitForServer(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -219,7 +296,7 @@ function waitForServer(timeoutMs = 30_000) {
       else setTimeout(tryOnce, 300);
     };
     const tryOnce = () => {
-      const req = http.get(`${APP_URL}api/status`, res => {
+      const req = http.get({ host: '127.0.0.1', port: PORT, path: '/api/status', headers: apiHeaders() }, res => {
         res.resume();
         if (res.statusCode === 200) resolve();
         else retry();
@@ -238,6 +315,8 @@ async function restartAndReload() {
   startServer();
   try {
     await waitForServer();
+    restartTried = false;
+    subscribeEvents();
     if (win) win.loadURL(APP_URL);
   } catch (err) {
     dialog.showErrorBox('Plenum', `${err.message}\n\nLog: ${logFile}`);
@@ -262,7 +341,9 @@ function createWindow() {
     titleBarStyle: 'hidden',
     titleBarOverlay: windowButtons(startLook),
     show: false,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
+    // preload.cjs gives the page its token (window.plenumShell.token). spellcheck is off because on Linux Electron downloads
+    // Hunspell dictionaries from a Google-hosted server when it is on, and the Privacy Notice says Plenum makes no such request.
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: path.join(__dirname, 'preload.cjs'), spellcheck: false },
   });
   win.once('ready-to-show', () => win.show());
   // The page publishes its background as its theme colour. The window buttons follow it, so they
@@ -274,7 +355,7 @@ function createWindow() {
   });
   // Links that open a new window go to the browser; the app itself stays in this window.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    if (/^https:\/\//.test(url)) electronShell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event, url) => {
@@ -287,6 +368,14 @@ function createWindow() {
     if (!ensureTray()) return;
     event.preventDefault();
     win.hide();
+    // B-112: a Linux desktop with no tray host draws no tray icon and reports no error, so the window would stay hidden with no
+    // way back on screen. Say where it went, once per launch. The notice is kept in a variable, so a click still reaches it.
+    if (process.platform === 'linux' && !trayNoticeShown && Notification.isSupported()) {
+      trayNoticeShown = true;
+      trayNote = new Notification({ title: 'Plenum is still running', body: 'Open Plenum again, or use its tray icon, to show the window.' });
+      trayNote.on('click', () => showWindow());
+      trayNote.show();
+    }
   });
   // Windows is ending the session, which cannot be stopped, so the window must not hide to the tray now.
   win.on('session-end', () => {
@@ -296,11 +385,17 @@ function createWindow() {
     win = null;
   });
   win.loadFile(path.join(__dirname, 'splash.html'));
+  callHooks('windowCreated', win);
+}
+
+// The state folder the server uses (lib/store.mjs HOME): the app state file, and the overlay of applied updates.
+function stateDir() {
+  return process.env.MUSE_CONSOLE_HOME || path.join(os.homedir(), '.muse-console');
 }
 
 // The app state file. lib/store.mjs writes it in the same folder, so the shell and the server share the settings.
 function stateFile() {
-  return path.join(process.env.MUSE_CONSOLE_HOME || path.join(os.homedir(), '.muse-console'), 'state.json');
+  return path.join(stateDir(), 'state.json');
 }
 
 // Reads "trayOnClose" from the app state file. It is read at close time, so a change applies without restarting.
@@ -326,7 +421,7 @@ function alertSettings() {
 // Asks the server for its state. Resolves null when it does not answer in time, so a slow server changes nothing.
 function fetchState() {
   return new Promise(resolve => {
-    const req = http.get(`${APP_URL}api/state`, res => {
+    const req = http.get({ host: '127.0.0.1', port: PORT, path: '/api/state', headers: apiHeaders() }, res => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', chunk => {
@@ -348,67 +443,66 @@ function fetchState() {
   });
 }
 
-// Holds the PC awake while a run is in progress. Only one blocker is held at a time.
-function setKeepAwake(on) {
-  if (on && keepAwakeId === null) {
-    keepAwakeId = powerSaveBlocker.start('prevent-app-suspension');
-  } else if (!on && keepAwakeId !== null) {
-    powerSaveBlocker.stop(keepAwakeId);
-    keepAwakeId = null;
-  }
+// Takes the server's state (from an event, or from the poll below) and hands it to the state hooks (the alerts, in desktop/handlers/).
+function onState(st) {
+  callHooks('state', st);
 }
 
-// The finished alert: the project name and a short status only. It never carries a prompt or a reply.
-function notifyFinished(name) {
-  if (!Notification.isSupported()) return;
-  // Kept in a variable so the notification is not collected before a click on it can be handled.
-  finishedNote = new Notification({ title: 'Plenum finished', body: `${name || 'Project'}: run finished.` });
-  finishedNote.on('click', () => showWindow());
-  finishedNote.show();
-}
-
-// Runs every POLL_MS while the app is open. It keeps the blocker in step with the run and announces a run that has
-// ended, and a card that is waiting for an approval. The server reports a run only for the active project, so a run is
-// followed only while that project stays active. A poll that gets no answer changes nothing.
+// The fallback: runs every POLL_MS, and does nothing while the events channel is up. A poll that gets no answer changes nothing.
 async function pollServer() {
-  if (polling) return;
+  if (polling || eventsUp) return;
   polling = true;
   try {
     const st = await fetchState();
-    if (!st) return;
-    const { finishedAlerts, keepAwake, approvalAlerts } = alertSettings();
-    const active = (st.projects ?? []).find(p => p.id === st.activeProject);
-    if (st.running && active) {
-      watchedRun = { projectId: active.id, name: active.name };
-    } else if (watchedRun && st.activeProject === watchedRun.projectId) {
-      const ended = watchedRun;
-      watchedRun = null;
-      if (finishedAlerts && (!win || !win.isFocused())) notifyFinished(ended.name);
-    } else {
-      // The user moved to another project, so the run in progress can no longer be followed.
-      watchedRun = null;
-    }
-    // The approval alert is for a card that has just arrived while the window is not focused. The tray text follows the
-    // count whether or not the alert shows, so it is right when the window comes back. The notification names the project only.
-    const waiting = Number(st.approvalsWaiting) || 0;
-    if (shouldAnnounce(lastWaiting, waiting, Boolean(win && win.isFocused()), approvalAlerts)) {
-      if (Notification.isSupported()) {
-        approvalNote = new Notification({ title: 'Plenum needs your approval', body: `${active?.name ?? 'Project'}: an action is waiting for Approve or Deny.` });
-        approvalNote.on('click', () => showWindow());
-        approvalNote.show();
-      }
-    }
-    if (waiting !== lastWaiting && tray) {
-      tray.setToolTip(tooltipFor(waiting));
-      tray.setContextMenu(buildTrayMenu(waiting));
-    }
-    lastWaiting = waiting;
-    setKeepAwake(keepAwake && st.running === true);
-  } catch {
-    // Polling must never throw into the timer. A failed check changes nothing.
+    if (st) onState(st);
   } finally {
     polling = false;
   }
+}
+
+// Opens the events channel (GET /api/events). Its hello and state events carry the state without messages, which is all
+// onState reads. When the channel ends or fails it is opened again after 1, 2, 4, 8 and then 10 seconds, and the poll above
+// covers the gap. Calling this while a channel is open or a retry is waiting starts over with a fresh one.
+function subscribeEvents() {
+  if (quitting) return;
+  clearTimeout(eventsTimer);
+  eventsTimer = null;
+  if (eventsReq) {
+    const old = eventsReq;
+    eventsReq = null;
+    old.destroy();
+  }
+  eventsUp = false;
+  const parser = createSseParser(ev => {
+    if (!ev || typeof ev !== 'object' || (ev.type !== 'hello' && ev.type !== 'state') || !ev.state) return;
+    eventsUp = true;
+    eventsFails = 0;
+    onState(ev.state);
+  });
+  const req = http.get({ host: '127.0.0.1', port: PORT, path: '/api/events', headers: { ...apiHeaders(), accept: 'text/event-stream' } }, res => {
+    if (res.statusCode !== 200) {
+      res.resume();
+      return eventsLost(req);
+    }
+    res.setEncoding('utf8');
+    res.on('data', chunk => parser.feed(chunk));
+    res.on('end', () => eventsLost(req));
+    res.on('error', () => eventsLost(req));
+    return undefined;
+  });
+  req.on('error', () => eventsLost(req));
+  eventsReq = req;
+}
+
+// The channel ended or never opened: the poll takes over and a new try is scheduled. A request that has been replaced is ignored.
+function eventsLost(req) {
+  if (req !== eventsReq) return;
+  eventsReq = null;
+  eventsUp = false;
+  if (quitting) return;
+  const wait = EVENTS_BACKOFF_MS[Math.min(eventsFails, EVENTS_BACKOFF_MS.length - 1)];
+  eventsFails += 1;
+  eventsTimer = setTimeout(subscribeEvents, wait);
 }
 
 // Brings the window back from the tray, or from behind other windows.
@@ -442,9 +536,9 @@ function ensureTray() {
     tray = null;
     return false;
   }
-  // The tray starts with the count the last poll saw, so a tray made while an approval waits says so at once.
-  tray.setToolTip(tooltipFor(lastWaiting));
-  tray.setContextMenu(buildTrayMenu(lastWaiting));
+  // The tray starts with the count the alerts last gave it, so a tray made while an approval waits says so at once.
+  tray.setToolTip(tooltipFor(trayCount));
+  tray.setContextMenu(buildTrayMenu(trayCount));
   // A left click on the icon shows the window; the context menu opens on a right click.
   tray.on('click', () => showWindow());
   return true;
@@ -458,16 +552,31 @@ async function main() {
   // The encrypted keys sit beside the log, in the app's user-data folder. The vault is made before the server starts, because
   // the server asks for its keys the moment it is up.
   vault = createKeyVault({ safeStorage, file: path.join(app.getPath('userData'), 'keys.json') });
+  // The app page asks for this launch's token through the preload bridge (preload.cjs). Only the app's own window, showing a page
+  // from the app's own address, gets it; any other sender gets an empty string. Registered before the window is made.
+  ipcMain.handle('plenum:token', event => (win && event.sender === win.webContents && String(event.senderFrame?.url ?? '').startsWith(APP_URL)) ? TOKEN : '');
+  // The handler modules are loaded before the window, so their window hook sees the window made here.
+  handlers = loadHandlers({ dir: path.join(__dirname, 'handlers'), log: writeLog });
   createWindow();
+  // B-111: a program that already listens on the port would answer the status check as if it were this app's server, and the
+  // app would load it. So the port is checked first, and a busy one stops the start with a plain message.
+  if (await portInUse()) {
+    dialog.showErrorBox('Plenum could not start', `Port ${PORT} is already in use by another program or another Plenum. Close it and start Plenum again.\n\nLog: ${logFile}`);
+    app.quit();
+    return;
+  }
   startServer();
   pollTimer = setInterval(pollServer, POLL_MS);
   try {
     await waitForServer();
+    restartTried = false;
+    subscribeEvents();
     if (win) win.loadURL(APP_URL);
   } catch (err) {
     dialog.showErrorBox('Plenum could not start', `${err.message}\n\nLog: ${logFile}`);
     app.quit();
   }
+  callHooks('ready');
 }
 
 app.on('window-all-closed', () => app.quit());
@@ -476,5 +585,8 @@ app.on('before-quit', () => {
   stopServer();
   clearInterval(pollTimer);
   pollTimer = null;
-  setKeepAwake(false);
+  clearTimeout(eventsTimer);
+  eventsReq?.destroy();
+  eventsReq = null;
+  callHooks('beforeQuit');
 });

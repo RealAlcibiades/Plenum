@@ -118,7 +118,8 @@ kbd {
 /* Visible to screen readers only. */
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-.app { display: grid; grid-template-columns: 268px minmax(0, 1fr); height: 100vh; }
+/* The third column is the side pane. It has no tracks while the pane is hidden, so the page is laid out as before. */
+.app { display: grid; grid-template-columns: 268px minmax(0, 1fr) auto; height: 100vh; }
 
 /* ---------- sidebar ---------- */
 
@@ -241,6 +242,9 @@ kbd {
 /* The desktop app has no title bar of its own: the top strip moves the window. */
 :root[data-shell="desktop"] :is(.topbar, .brand) { -webkit-app-region: drag; }
 :root[data-shell="desktop"] :is(.topbar .controls, .scrim, .drawer, #palette) { -webkit-app-region: no-drag; }
+/* The pane's head is a drag strip too, with its buttons and tabs kept clickable. */
+:root[data-shell="desktop"] .pane-head { -webkit-app-region: drag; }
+:root[data-shell="desktop"] .pane-head :is(button, .pane-tabs) { -webkit-app-region: no-drag; }
 
 /* ---------- menus (model, advisor, effort) ---------- */
 
@@ -775,6 +779,60 @@ kbd {
 .drawer-body { padding: 16px 16px 22px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .drawer-body > p { margin: 6px 4px 0; color: var(--muted); font-size: 12.5px; }
 
+/* ---------- side pane (MuseUI.pane, app.js) ---------- */
+/* The column to the right of the chat. Panels register tabs into it. Its width is the --pane-w custom property that the
+   grip and MuseUI.pane.width set; 440px until then. */
+.pane {
+  width: var(--pane-w, 440px); min-width: 380px; max-width: 60vw; min-height: 0; position: relative;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-side) 76%, transparent);
+}
+.pane[hidden] { display: none; }
+/* A strip on the pane's left edge. The 2px accent bar shows on hover and on keyboard focus. */
+.pane-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 1; }
+.pane-grip:focus-visible { outline: none; }
+.pane-grip:is(:hover, :focus-visible)::before { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--accent); }
+.pane-head {
+  height: var(--bar-h); display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 0 8px 0 4px; border-bottom: 1px solid var(--line);
+}
+/* On a wide window the pane is the right-hand column from the top edge, so its head sits under the desktop app's window buttons
+   (--win-controls). The head then keeps clear of them, and the top bar stops at the pane's edge instead of the window's. Narrow
+   windows keep the pane below the title bar (see the 860 px rules), so these apply only above 860 px. */
+@media (min-width: 861px) {
+  .pane-head { padding-right: calc(var(--win-controls) + 8px); }
+  .app:has(> .pane:not([hidden])) .topbar { padding-right: 20px; }
+}
+.pane-tabs { display: flex; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; }
+.pane-tab {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  padding: 6px 10px; border-radius: 10px; border: 0; background: none;
+  color: var(--text-2); font-size: 13px; white-space: nowrap;
+  transition: background-color 0.14s, color 0.14s;
+}
+.pane-tab:hover { background: color-mix(in srgb, var(--surface-2) 80%, transparent); color: var(--text); }
+.pane-tab .ic { width: 15px; height: 15px; color: var(--muted); }
+.pane-tab[aria-selected="true"] { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.pane-tab[aria-selected="true"] .ic { color: var(--accent); }
+.pane-tab .badge { margin-left: 2px; }
+/* The Back chevron is shown only where the pane takes the whole window (see the 860 px rules below). */
+.pane-back { display: none; }
+.pane-back .ic { rotate: 180deg; }
+.pane-body { overflow: auto; min-height: 0; }
+.pane-view { min-width: 0; }
+
+/* ---------- settings drawer (MuseUI.settings, app.js) ---------- */
+.settings-card .card-title { margin: 0; font: 600 14px/1.3 var(--display); letter-spacing: -0.005em; color: var(--text); }
+.card-body { display: grid; gap: 10px; min-width: 0; }
+.card-body > p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.setting { display: grid; gap: 6px; min-width: 0; }
+/* Each saved change says "Saved" on its row, or the server's refusal in red. Empty until the first change. */
+.setting-status { font-size: 12px; color: var(--ok); }
+.setting-status:empty { display: none; }
+.setting-status.bad { color: var(--bad); }
+.switch-row:has(input:disabled) { cursor: default; opacity: 0.6; }
+
 .card, .update {
   display: flex; flex-direction: column; gap: 10px; flex: none; padding: 16px;
   border: 1px solid var(--line); border-radius: 16px;
@@ -830,6 +888,16 @@ kbd {
   background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
   font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* Updates panel, Applied updates section (app.js overlayCard). The generation's files are a quiet list under a details element. */
+.update .gen-files { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+/* The strip for an automatic rollback: the warning colour on a 3 px edge, like the notice strips. OK dismisses it. */
+.rollback-strip {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface)); font-size: 12.5px; color: var(--text-2);
+}
+.rollback-strip .rs-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rollback-strip .ghost { flex: none; }
 .empty { color: var(--muted); font-size: 13px; padding: 36px 16px; text-align: center; text-wrap: balance; }
 
 /* ---------- toasts ---------- */
@@ -1176,6 +1244,12 @@ kbd {
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); }
   .sidebar { display: none; }
+  /* The pane covers the chat from below the title bar, so the menu button in the title bar stays reachable. It sits under the
+     drawer and its scrim (21 and 20), so Settings and the other drawers still open over it. */
+  /* --win-top is the desktop title-bar overlay, which the top bar already fills, so the larger of the two is the bar's bottom. */
+  .pane { position: fixed; top: max(var(--win-top), var(--bar-h)); right: 0; bottom: 0; left: 0; z-index: 19; width: auto; max-width: none; min-width: 0; border-left: 0; background: var(--bg); }
+  .pane-grip { display: none; }
+  .pane-back { display: grid; }
   .suggest { grid-template-columns: minmax(0, 1fr); }
   /* Only the composer's footer hint goes on narrow windows. The hint on an approval card (its countdown and keys) stays, and on a
      narrow card it wraps onto its own line under the buttons. */
@@ -1205,3 +1279,29 @@ kbd {
 
 /* The hidden text box MuseUI.copyText uses when the clipboard API refuses. It is off screen and removed at once. */
 .copy-buffer { position: fixed; top: 0; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+/* token card */
+/* Shown only when a tab started with plain Node has no token (app.js showTokenCard). It sits outside #app and covers
+   the page, so nothing else can be reached. The wide shadow paints the page background over everything behind the card. */
+.token-card {
+  position: fixed; inset: 0; z-index: 60; margin: auto;
+  width: min(460px, 100% - 32px); height: max-content; max-height: calc(100% - 32px); overflow: auto;
+  display: grid; gap: 14px; padding: 20px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px;
+  box-shadow: var(--shadow-2), inset 0 1px 0 var(--sheen), 0 0 0 100vmax var(--bg);
+}
+.token-head { display: flex; align-items: center; gap: 12px; }
+.token-head h2 { margin: 0; font: 600 18px/1.3 var(--display); letter-spacing: -0.01em; }
+.token-text { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
+.token-row { display: flex; gap: 8px; margin: 0; }
+.token-input {
+  flex: 1; min-width: 0;
+  background: var(--bg); border: 1px solid var(--line-2); border-radius: 9px; padding: 9px 11px;
+  color: var(--text); font: 13px var(--mono); outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.token-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.token-error { margin: 0; color: var(--bad); font-size: 12.5px; }
+@media (max-width: 560px) {
+  .token-row { flex-direction: column; }
+}

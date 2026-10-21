@@ -19,7 +19,6 @@
   const STATUS_TEXT = { waiting: 'Waiting', writing: 'Writing', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
   const INTRO = 'Send one message to two to four models at once and compare the replies side by side. Nothing reaches the chat until you keep one.';
   const HINT = 'Ctrl+Enter to compare';
-  const JSON_HEADERS = { 'content-type': 'application/json', 'x-muse-console': '1' };
 
   // The picks, the draft and the effort survive a redraw, so closing the drawer loses nothing that was typed.
   let chosen = [];
@@ -296,17 +295,21 @@
     controller = new AbortController();
     paint();
     try {
-      const res = await fetch('/api/compare', {
+      const res = await MuseUI.request('/api/compare', {
         method: 'POST',
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ project, prompt, seats: chosen, effort }),
+        body: { project, prompt, seats: chosen, effort },
         signal: controller.signal,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Request failed (${res.status})`);
       }
-      await readSSE(res, ev => onEvent(current, ev));
+      // The run's id is claimed from its first event, so the events channel does not draw this compare as one started in
+      // another window.
+      await readSSE(res, ev => {
+        MuseUI.claimRun?.(ev.runId);
+        onEvent(current, ev);
+      });
     } catch (err) {
       if (err.name !== 'AbortError') current.error = err.message;
     } finally {

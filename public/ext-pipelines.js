@@ -25,7 +25,6 @@
   const INTRO = 'A pipeline sends your message through a chain of models, one after another. The reply of each step goes to the next. Steps never open files or run commands, and nothing reaches the chat until you keep the final reply.';
   const EDIT_HINT = 'In a prompt, {input} is your message and {previous} is the reply of the step before it (empty in the first step).';
   const HINT = 'Ctrl+Enter to run';
-  const JSON_HEADERS = { 'content-type': 'application/json', 'x-muse-console': '1' };
 
   // The project's pipelines: { project, list }. Null until the first load for that project has come back.
   let items = null;
@@ -701,17 +700,20 @@
     // The steps are new, so the screen is built again from them.
     show();
     try {
-      const res = await fetch('/api/pipelines/run', {
+      const res = await MuseUI.request('/api/pipelines/run', {
         method: 'POST',
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ project, name: current.name, message }),
+        body: { project, name: current.name, message },
         signal: controller.signal,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Request failed (${res.status})`);
       }
-      await readSSE(res, ev => onEvent(current, ev));
+      // The run's id is claimed from its first event, so the events channel does not draw this run as one started in another window.
+      await readSSE(res, ev => {
+        MuseUI.claimRun?.(ev.runId);
+        onEvent(current, ev);
+      });
     } catch (err) {
       if (err.name !== 'AbortError') current.error = err.message;
     } finally {

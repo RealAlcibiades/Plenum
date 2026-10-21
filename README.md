@@ -1,6 +1,6 @@
 # Plenum
 
-A local, Claude Code / Codex-style console. It runs on your machine, serves a browser UI at
+A local console that runs Claude Code, Codex, Gemini CLI and Muse Code, and API models. It runs on your machine, serves a browser UI at
 http://127.0.0.1:4317, and talks to:
 
 - **Claude** through the Claude CLI (`claude`), signed in with your Claude account. It reads and searches the project, creates and edits files, runs commands, and can propose changes to Plenum itself. Without the CLI it falls back to the Anthropic API and a saved key.
@@ -31,7 +31,7 @@ The macOS builds from the release workflow are unsigned until signing certificat
 
 ## Windows app
 
-The installer is written to `release/` as `Plenum Setup 0.4.1.exe`. It installs per user (no admin rights needed), adds a Desktop shortcut and a Start menu entry, and opens Plenum in its own window. Closing the window stops the server.
+The installer is written to `release/` as `Plenum Setup 0.4.1.exe`. It shows the licence page first, which you accept before anything is installed. It installs per user (no admin rights needed) to the default per-user folder, without asking for a folder, and adds a Desktop shortcut and a Start menu entry. It opens Plenum in its own window. Closing the window stops the server, unless **Keep in tray on close** is on (see [Portable and tray mode](#portable-and-tray-mode)).
 
 `npm run pack` builds an unpacked folder at `release/win-unpacked/` for quick testing: run `Plenum.exe` in it. `start.bat` opens that build.
 
@@ -39,18 +39,20 @@ To keep it on the taskbar, open Plenum, right-click its taskbar icon and choose 
 
 The look follows the system (light or dark). The **Theme** button in the sidebar, or `/theme dark`, overrides that.
 
-Updates applied from the Updates panel rewrite the files in the install folder, so keep the install location writable (the per-user default is).
+Applied updates are kept in Plenum's state folder, never in the install folder, so the install location does not need to be writable for them. See [Updates to Plenum](#updates-to-plenum).
 
 ## Run without the app window
 
-In a terminal:
+In a terminal, in this folder:
 
 ```bash
 npm install
-node server.mjs
+npm start
 ```
 
-Then open http://127.0.0.1:4317 in a browser. It is the same app with the same state. Keys saved in the desktop app are not available here; see [Where keys are kept](#where-keys-are-kept).
+`npm start` runs `plenum.mjs`, which settles any applied update first and then starts the server. The terminal prints a link such as `http://127.0.0.1:4317/#token=...`. Open that link in a browser. The token in it is new for each start, and it is what lets the page talk to the server, so keep the link to yourself. It is the same app with the same state. Keys saved in the desktop app are not available here; see [Where keys are kept](#where-keys-are-kept).
+
+`node server.mjs` runs the same server with the shipped files and no applied updates.
 
 ## Setup wizard
 
@@ -113,11 +115,13 @@ Muse Code and Codex work inside the project folder they are given. To work on a 
 
 Claude can propose a change to Plenum itself with the `propose_update` tool. The change is queued in the **Updates** panel, which shows each file's status and its new contents. Nothing changes on disk until you click **Apply and restart**. Applying:
 
-1. Runs a syntax check on every JavaScript file in the bundle.
-2. Backs up the current versions under `~/.muse-console/backups/`.
-3. Writes the new files, moves the bundle to `applied/`, and restarts the server.
+1. Runs a syntax check on every JavaScript file in the bundle, and checks that each relative import in a changed file exists, either in the bundle or in the version it replaces.
+2. Writes the whole new version as a **generation** under Plenum's state folder, in `overlay/gen-<n>/` (`~/.muse-console/overlay/` on macOS and Linux, `%USERPROFILE%\.muse-console\overlay\` on Windows). A generation holds every file of the version it replaces that the bundle does not change, so it is complete on its own. The install folder is never written.
+3. Switches to the new generation with one change to `overlay/manifest.json`, and restarts the server.
 
-Only the Plenum source files can be updated: `server.mjs`, `package.json`, `README.md`, `start.bat`, `lib/*.mjs`, and `public/*.html|js|css`. **Discard** drops a bundle without applying it. Applying is refused while a run is in progress. A new `public/ext-*.js` file is listed as "new panel: loads on every page", because Plenum loads every panel file it finds.
+The Updates panel lists the generations. **Roll back** goes back to the generation before the active one. **Remove all applied updates** deletes every applied generation and restarts with the shipped files. Plenum keeps the last three generations. If a new generation does not start and become healthy, the next start goes back to the generation before it, and the page shows a notice that says so. A failure before the switch removes the half-made generation and changes nothing.
+
+What can be updated: `server.mjs`, the `.mjs` files in `lib/`, `lib/routes/`, `lib/tools/` and `lib/prompt-parts/`, and the `.html`, `.js` and `.css` files in `public/`. What never can be updated from the app: the update loader (`plenum.mjs`, `lib/overlay.mjs` and `lib/overlay/`), the request token check (`lib/auth.mjs`), the desktop app (`desktop/`), and `package.json`, `README.md` and `start.bat`, which belong to the install. A new release changes those. **Discard** drops a bundle without applying it. Applying is refused while a run is in progress. A new `public/ext-*.js` file is listed as "new panel: loads on every page", because Plenum loads every panel file it finds.
 
 ## API model providers
 
@@ -154,6 +158,20 @@ While a reply is running, Enter queues what you type, up to five messages. Each 
 - **Model menu.** Each model shows whether it is ready (signed in, or a key is set), its price per million tokens, its context window and whether it can use tools. Choosing a model that is not ready shows a banner that says what to do.
 - **Command palette.** Typing `/` lists matching commands with a hint for their arguments. Some have a second name: `/stop` runs `/cancel`, `/reset` runs `/clear`, `/switch` runs `/project`, `/forget` runs `/remove`, `/limits` runs `/usage`, and `/keys` and `/login` open Accounts. The Commands panel has a filter box.
 - **Narrow windows.** Below 860 px the sidebar folds into a menu button at the top left. The desktop window can be as narrow as 480 px.
+
+## Settings
+
+**Settings** in the sidebar, or `/settings`, opens a drawer with one card per section:
+
+- **Appearance:** the same choice as the **Theme** button (system, dark or light).
+- **Desktop:** the four switches described in [Finished alerts and keep-awake](#finished-alerts-and-keep-awake). They take effect in the desktop app only, and the section says so when the page is not running there.
+- **Sessions:** the session mode, Transcript or Native, as described in [Session modes](#session-modes).
+
+Each change saves at once, and the line under it says **Saved** or why the change was refused. Panels can add their own sections; see [Extending Plenum](#extending-plenum).
+
+## Side panes
+
+The side pane is the column to the right of the chat. Panels put their tabs into it, such as Artifacts, the Browser, Review and Agents, and only one tab shows at a time. **Back to the chat** hides the column and keeps the tabs. **Close pane** closes the tab that is showing. Drag the pane's left edge to resize it, double-click the edge to reset it, or focus the edge and use the arrow keys. The pane starts at 440 px. It is never narrower than 380 px, and never wider than the smaller of 60% of the window and the window less 480 px, so the chat keeps room. Below 860 px the pane covers the window below the title bar, and **Back to the chat** returns to the chat. The width is kept only for the life of the page.
 
 ## Keyboard shortcuts
 
@@ -195,7 +213,7 @@ If the project folder has an `AGENTS.md`, Plenum adds its text to the instructio
 
 ## Finished alerts and keep-awake
 
-In the desktop app, Plenum shows a "Plenum finished" notification when a run in the active project ends while the window is not focused. Clicking it brings the window back. While a run is in progress, Plenum keeps the PC from suspending. When an approval card is waiting and the window is not focused, Plenum shows "Plenum needs your approval" with the project's name; clicking it brings the window back. The tray icon's tooltip and menu show how many approvals are waiting. All three are on by default, and the window has no switch for them. To turn one off, set `"finishedAlerts": false`, `"approvalAlerts": false` or `"keepAwake": false` in the state file. None of them runs under `npm start`.
+In the desktop app, Plenum shows a "Plenum finished" notification when a run in the active project ends while the window is not focused. Clicking it brings the window back. While a run is in progress, Plenum keeps the PC from suspending. When an approval card is waiting and the window is not focused, Plenum shows "Plenum needs your approval" with the project's name; clicking it brings the window back. The tray icon's tooltip and menu show how many approvals are waiting. The four switches are under **Settings** in the sidebar, in the **Desktop** section: **Finished alerts**, **Approval alerts**, **Keep awake** and **Keep in tray on close**. They are also kept in the state file as `finishedAlerts`, `approvalAlerts`, `keepAwake` and `trayOnClose`, and a change made in the window applies at once, with no restart. Finished alerts, approval alerts and keep awake are on by default. Keep in tray on close is off by default. None of them runs under `npm start`.
 
 ## Project settings and tools
 
@@ -213,7 +231,7 @@ Each council seat shows **Sessions: Native** or **Sessions: Transcript**. Transc
 
 ## Portable and tray mode
 
-On Windows, `npm run dist:portable` builds one portable `.exe` in `release/` that runs without an installer. To keep the window in the tray, set `"trayOnClose": true` in the state file: `%USERPROFILE%\.muse-console\state.json` on Windows, or `~/.muse-console/state.json` on macOS and Linux. Closing the window then hides Plenum to the tray and the server keeps running. Click the tray icon to show the window again, or choose **Quit** from the tray menu to stop everything.
+On Windows, `npm run dist:portable` builds one portable `.exe` in `release/` that runs without an installer. To keep the window in the tray, turn on **Keep in tray on close** under **Settings** › **Desktop** (or set `"trayOnClose": true` in the state file: `%USERPROFILE%\.muse-console\state.json` on Windows, or `~/.muse-console/state.json` on macOS and Linux). Closing the window then hides Plenum to the tray and the server keeps running. Click the tray icon to show the window again, or choose **Quit** from the tray menu to stop everything.
 
 ## Commands
 
@@ -233,6 +251,7 @@ On Windows, `npm run dist:portable` builds one portable `.exe` in `release/` tha
 | `/effort [low\|medium\|high\|xhigh\|max]` | Show or set how hard the main model thinks. The **Effort** menu under the message box does the same. Claude, Muse Code and Codex all take it |
 | `/theme [system\|dark\|light]` | Follow the system, or always use the dark or light look |
 | `/updates` | Show or hide the Updates panel |
+| `/settings` | Open Settings: Appearance, the Desktop switches and Sessions |
 | `/ask <model> <message>` | Send one message to a model without switching |
 | `/plan <task>` | Ask for a plan only, with no file edits |
 | `/usage` | Show your limits: Muse Code's 5-hour and weekly use, Codex's weekly use and credits, and the Claude key's per-minute rate limits. Reading Muse Code or Claude can send one very small request |
@@ -252,14 +271,87 @@ On Windows, `npm run dist:portable` builds one portable `.exe` in `release/` tha
 - Muse Code runs one-shot per message, with the chat resent. Codex resumes its own session only in Native session mode. Neither shares its session memory with Claude's history.
 - Prompts for the CLIs go in a file or on stdin, so long histories fit.
 - Plenum keeps projects and chat history in `%USERPROFILE%\.muse-console\state.json` on Windows, or `~/.muse-console/state.json` on macOS and Linux (override with `MUSE_CONSOLE_HOME`). It does not write API keys to that file. Where keys are kept is described in [Where keys are kept](#where-keys-are-kept). Before each save, the previous file is copied to `state.json.bak`. If `state.json` cannot be read as JSON at start, it is renamed to `state.json.corrupt-<time>` (never deleted), the backup is loaded, and a banner says what happened. If it cannot be opened at all (another program holding it), Plenum tries three more times, then loads the backup and leaves the file alone; before the next save replaces it, it is copied to `state.json.unread-<time>`.
-- The server binds to 127.0.0.1 only. Requests must come from the same origin and carry the `X-Muse-Console` header.
+- The server binds to 127.0.0.1 only. Every request to `/api/` must carry the per-launch token (the desktop app passes it to its window; a plain node run prints a link that carries it) and POSTs must come from the same origin.
 - `MUSE_CONSOLE_NO_FALLBACK=1` turns off the server-side refusal fallback that the Claude Opus, Sonnet and Fable models request by default.
 - macOS and Linux have not been run. They were only tested with the platform forced. Every build is unsigned until certificates are added, including the Windows installer and portable exe built here (Windows SmartScreen warns on first run), and the Linux builds are never signed.
 - The desktop app itself (the Electron window, the OS-encrypted key store, and the utility process that runs the server) has been tested only against stand-ins, not by launching the app. That includes the approval alert, the tray count, the folder chooser behind **Browse…** and the 480 px minimum width.
 - Cut-off replies (**Continue**) and the spend cap's refusal were checked against mock providers, not live API models. Approval cards from a live model, with their keys, reason box and **Show all**, were checked with cards made by a checkpoint restore and with page tests.
-- The deb maintainer address (`build.deb.maintainer` in `package.json`) is a placeholder, `Plenum <plenum@example.com>`, and must be replaced before release.
+- The deb maintainer (`build.deb.maintainer` in `package.json`) is a placeholder, `[LICENSOR NAME] <[CONTACT EMAIL]>`, and must be replaced before release. The author name and email in `package.json` are placeholders too, and they set the Windows company name.
 - In their read-only settings, Codex, Gemini and Muse Code can still read files on the machine and run commands that only read, so do not paste untrusted text into a council, relay, compare or pipeline run that includes them.
 
 ## Tests
 
 The test scripts live outside this folder. They cover the security gate, projects and settings, streaming, file mentions, the Claude request shape and tool loop against a mock endpoint, path containment, approvals, the update outbox (including apply with backup), and the Muse and Codex process handling.
+
+## Extending Plenum
+
+For builders. A feature is a file in the folder that Plenum reads for it, so it needs no edit to a central list. Each shape below is the one the code checks when it loads the file. Applied updates can add files to these folders too (see [Updates to Plenum](#updates-to-plenum)).
+
+**Route modules** are `lib/routes/*.mjs`. Each exports `routes`. The server checks the token before a handler runs, and the handler answers the response itself. A handler receives `{ req, res, url, json, readBody, httpError, store, events, ... }`, and `events` is `lib/events.mjs`.
+
+```js
+export const routes = [
+  { method: 'GET', path: '/api/example', handler: ({ res, json }) => json(res, 200, { ok: true }) },
+];
+```
+
+**Model tools** are `lib/tools/NN-name.mjs`. Each exports `tools`, a list of entries with `name`, `description`, `input_schema` and `run(input, ctx, stamp)`, which returns `{ ok, summary, output, denied? }`. Optional fields: `plan`, `describe`, `command`, `stamped`, `scoped`, `refusal` and `when(ctx)`. A raw entry `{ raw, when }` is sent to the model exactly as given. `lib/tools.mjs` applies the approval, scope and deny-list rules, not the tool file.
+
+```js
+export const tools = [
+  { name: 'example_tool', description: 'What it does.', input_schema: { type: 'object', properties: {} },
+    run: async (input, ctx) => ({ ok: true, summary: 'Done', output: 'Text for the model.' }) },
+];
+```
+
+**Prompt parts** are `lib/prompt-parts/NN-name.mjs`. Each exports `parts`, a list of `{ id, order, contexts, text }`. `contexts` is `'*'` or a list of names from `CONTEXTS` in `lib/prompt.mjs`. `text(ctx)` returns a string, or `null` for none. A part adds text only.
+
+```js
+export const parts = [
+  { id: 'example', order: 60, contexts: ['chat'], text: async ctx => `Project folder: ${ctx.root}.` },
+];
+```
+
+**Desktop handlers** are `desktop/handlers/name.cjs`. Each exports `{ name, messages, hooks }`. `messages[type](message, shell)` answers a message from the server: a reply with a `type` is sent as it is, and any other object is sent as `${type}-result` with the message's `id`. The hooks are `ready`, `windowCreated`, `serverStarted`, `serverExited`, `state` and `beforeQuit`. Server code reaches the shell through `lib/shell.mjs`: `shellRequest(type, payload, { timeoutMs })`, `onShellMessage(type, fn)` and `shellPost(message)`.
+
+```js
+module.exports = {
+  name: 'example',
+  messages: { 'example-ask': async (message, shell) => ({ answer: true }) },
+  hooks: { state(shell, st) {} },
+};
+```
+
+**Side panes** register in a `public/ext-*.js` file. `id` is 1 to 32 lower-case letters, digits or hyphens. `render(body, api)` draws into `body`, and `api` has `params`, `close()`, `setTitle()`, `badge(n)` and `isActive()`.
+
+```js
+MuseUI.pane.register({ id: 'example', title: 'Example', icon: 'chart', order: 50,
+  render(body, api) {}, onShow() {}, onHide() {}, onClose() {} });
+MuseUI.pane.open('example', { /* params for api.params */ });
+```
+
+`MuseUI.pane` also has `close(id)`, `toggle(id)`, `select(id)`, `show()`, `hide()`, `active()`, `isOpen(id)`, `list()` and `width(px)`.
+
+**Settings sections** register with `MuseUI.settings.register`. Scope `'app'` puts the section in the Settings drawer, and `'project'` in the project settings drawer. `render(body, ctx)` gets `ctx.state`, `ctx.update(body)` (which saves a change), `ctx.refresh()` and `ctx.toast(message, kind)`.
+
+```js
+MuseUI.settings.register({ id: 'example', scope: 'app', title: 'Example', order: 40,
+  render(body, ctx) {} });
+```
+
+**Notices and risk prompts** are `MuseUI.notice(id, { before, after })` and `await MuseUI.risk(id, { action })`, which resolves to true or false. Until a notices panel assigns the real ones, the stubs in `public/app.js` are used: `notice` draws nothing and `risk` resolves to true.
+
+**Events** come from `GET /api/events`, one server-sent stream per window. Its types are `hello`, `state`, `run`, `approval`, `notice` and `agent`, and each has `type` and `at`. A route module publishes with `events.publish({ type, ... })`, `events.publishState(reason)` for the state, or `events.tag(runId, project, kind)` for a run's events. In the page:
+
+```js
+MuseUI.events.on('run', ev => {});                  // also off(type, fn) and the connected flag
+window.addEventListener('plenum:event', e => {});   // every event, as e.detail
+window.addEventListener('plenum:connection', e => {}); // e.detail.connected
+```
+
+**Page requests** always carry the token. `MuseUI.api(path, body)` returns the parsed JSON, sending a POST when a body is given, and throws the server's error message on failure. `MuseUI.request(path, { method, body, signal, headers })` returns the `Response`. `MuseUI.headers(extra)` returns the headers with `x-plenum-token`, for a request made any other way.
+
+```js
+const data = await MuseUI.api('/api/example', { name: 'x' });
+const res = await MuseUI.request('/api/example', { method: 'GET' });
+```

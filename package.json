@@ -5,12 +5,17 @@
   "private": true,
   "type": "module",
   "description": "Desktop console that runs Claude Code, Codex, Gemini CLI and Muse Code side by side with API models",
+  "author": {
+    "name": "RealAlcibiades",
+    "url": "https://github.com/RealAlcibiades"
+  },
+  "license": "SEE LICENSE IN LICENSE.txt",
   "main": "desktop/main.cjs",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.mjs",
+    "start": "node plenum.mjs",
     "desktop": "electron .",
     "pack": "electron-builder --win --x64 --dir",
     "dist": "electron-builder --win --x64",
@@ -31,6 +36,10 @@
   "build": {
     "appId": "com.museconsole.desktop",
     "productName": "Plenum",
+    "copyright": "Copyright © 2026 RealAlcibiades. All rights reserved.",
+    "electronLanguages": [
+      "en-US"
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -38,14 +47,33 @@
     "files": [
       "desktop/**/*",
       "lib/**/*",
+      "lib/overlay/**/*",
       "public/**/*",
       "server.mjs",
+      "plenum.mjs",
+      "LICENSE.txt",
       "package.json",
       "build/icon.png",
       "node_modules/**/*",
       "!**/*.map"
     ],
+    "extraFiles": [
+      {
+        "from": "LICENSE.txt",
+        "to": "LICENSE.txt"
+      }
+    ],
     "asar": false,
+    "electronFuses": {
+      "runAsNode": true,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": false,
+      "onlyLoadAppFromAsar": false,
+      "loadBrowserProcessSpecificV8Snapshot": false,
+      "resetAdHocDarwinSignature": true
+    },
     "win": {
       "icon": "build/icon.ico",
       "target": [
@@ -72,7 +100,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "allowToChangeInstallationDirectory": false,
+      "license": "LICENSE.txt",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Plenum"
@@ -83,11 +112,21 @@
       "entitlements": "build/entitlements.mac.plist",
       "gatekeeperAssess": false
     },
+    "dmg": {
+      "license": "LICENSE.txt"
+    },
     "linux": {
       "category": "Development"
     },
+    "appImage": {
+      "license": "LICENSE.txt"
+    },
     "deb": {
-      "maintainer": "Plenum <plenum@example.com>"
+      "maintainer": "[LICENSOR NAME] <[CONTACT EMAIL]>"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RealAlcibiades/Plenum.git"
   }
 }
