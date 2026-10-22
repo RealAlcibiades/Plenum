@@ -49,6 +49,7 @@
 .setup .logo-sm.p-deepseek { --p: var(--advisor); }
 .setup .logo-sm.p-mistral { --p: var(--warn); }
 .setup .logo-sm.p-googleai { --p: var(--gemini); }
+.setup .logo-sm.p-openrouter { --p: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {
   .setup-pane:not([hidden]) { animation: none; }

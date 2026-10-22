@@ -14,6 +14,10 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # scripts/build-legal.mjs fails the build while a placeholder ([LICENSOR NAME], [CONTACT EMAIL],
+    # [GOVERNING LAW], [EFFECTIVE DATE]) remains in the legal texts, LICENSE.txt or package.json.
+    env:
+      PLENUM_RELEASE: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +89,49 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ matrix.platform == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           FORCE_SIGNING: ${{ (matrix.platform == 'windows' && secrets.WIN_CSC_LINK != '' && '--config.win.forceCodeSigning=true') || (matrix.platform == 'macos' && secrets.CSC_LINK != '' && '--config.mac.forceCodeSigning=true') || '' }}
         run: ${{ matrix.build }} --publish never $FORCE_SIGNING
+
+      # Every unpacked build must carry the licence and notice files. Windows and Linux keep them at the top of the
+      # unpacked folder. The macOS location is not fixed, so for macOS they are searched for inside Plenum.app.
+      - name: Check the legal files in the unpacked build
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          apps=()
+          case "$PLATFORM" in
+            windows)
+              if [ -d release/win-unpacked ]; then apps=(release/win-unpacked); fi
+              ;;
+            linux)
+              if [ -d release/linux-unpacked ]; then apps=(release/linux-unpacked); fi
+              ;;
+            macos)
+              while IFS= read -r app; do apps+=("$app"); done < <(find release -mindepth 2 -maxdepth 2 -type d -name 'Plenum.app')
+              ;;
+            *) echo "::error::Unknown platform: $PLATFORM"; exit 1 ;;
+          esac
+          if [ "${#apps[@]}" -eq 0 ]; then
+            echo "::error::No unpacked Plenum build found under release/ ($PLATFORM)."
+            exit 1
+          fi
+          missing=0
+          for dir in "${apps[@]}"; do
+            for file in LICENSE.txt THIRD-PARTY-NOTICES.txt LICENSE.electron.txt LICENSES.chromium.html; do
+              found=""
+              if [ "$PLATFORM" = "macos" ]; then
+                found=$(find "$dir" -name "$file" -print -quit)
+              elif [ -f "$dir/$file" ]; then
+                found="$dir/$file"
+              fi
+              if [ -z "$found" ]; then
+                echo "::error::$dir has no $file"
+                missing=1
+              else
+                echo "found $found"
+              fi
+            done
+          done
+          exit "$missing"
 
       - name: Upload installers
         uses: actions/upload-artifact@v7

@@ -1,0 +1,121 @@
+/* The Review tab of the side pane (public/ext-review.js). Colours and type come from the tokens in style.css, so both themes follow.
+   Nothing is set inline: the page writes classes only. Below 760 px of pane width the file list sits above the diff. */
+
+.ext-review {
+  container: review / inline-size;
+  display: flex; flex-direction: column; min-width: 0; min-height: 100%;
+  color: var(--text);
+}
+.ext-review[hidden] { display: none; }
+
+.ext-review-head { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 8px; min-width: 0; }
+.ext-review-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ext-review-source { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.ext-review-refresh { flex: none; }
+.ext-review-plan {
+  margin: 0; padding: 7px 10px; border-radius: 9px; font-size: 12.5px; line-height: 1.45;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.ext-review-plan[hidden] { display: none; }
+.ext-review-status { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-review-status:empty { display: none; }
+.ext-review-status.ok { color: var(--ok); }
+.ext-review-status.bad { color: var(--bad); }
+
+/* The list and the diff: side by side from 760 px of pane width, stacked below. */
+.ext-review-body { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-width: 0; padding: 0 14px 12px; }
+.ext-review-files { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-height: 34vh; overflow: auto; }
+.ext-review-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+@container review (min-width: 760px) {
+  .ext-review-body { flex-direction: row; align-items: flex-start; }
+  .ext-review-files { flex: 0 0 240px; width: 240px; max-height: none; position: sticky; top: 0; }
+  .ext-review-diff { flex: 1 1 auto; }
+}
+
+.ext-review-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ext-review-group-title { margin: 4px 2px 2px; color: var(--muted); font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.ext-review-empty { margin: 6px 2px; color: var(--muted); font-size: 12.5px; }
+
+.ext-review-row {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding: 4px 6px 4px 4px; border-radius: 9px; border: 1px solid transparent;
+}
+.ext-review-row:hover { background: var(--surface-2); }
+.ext-review-row.is-selected { background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.ext-review-row.is-viewed .ext-review-name { color: var(--muted); }
+.ext-review-pick {
+  flex: 1 1 auto; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 4px 4px;
+  border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer;
+}
+.ext-review-letter {
+  flex: none; width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center;
+  font: 700 11px/1 var(--mono); color: var(--text-2); background: var(--surface-3);
+}
+.ext-review-name { flex: 1 1 auto; min-width: 0; font: 12.5px/1.35 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ext-review-dir { color: var(--muted); }
+.ext-review-stats { flex: none; font: 11.5px var(--mono); color: var(--muted); white-space: nowrap; }
+.ext-review-viewed { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11.5px; white-space: nowrap; cursor: pointer; }
+.ext-review-viewed input { margin: 0; accent-color: var(--accent); }
+
+.ext-review-file { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ext-review-file-title { margin: 0; font: 600 13.5px/1.35 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.ext-review-file-meta { margin: 0; color: var(--muted); font-size: 12px; }
+.ext-review-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.ext-review-act.is-danger { color: var(--bad); }
+
+.ext-review-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-review-note.ext-review-meta { font-family: var(--mono); font-size: 11.5px; }
+
+/* The diff. A row per line; the gutter holds the old and new numbers and is the button that starts a comment. */
+.ext-review-lines {
+  min-width: 0; max-height: 60vh; overflow: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--code-bg);
+  font: 12px/1.55 var(--mono); color: var(--text-2);
+}
+.ext-review-hunk {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0;
+  padding: 4px 8px; border-top: 1px solid var(--line); background: var(--surface-2);
+  position: sticky; left: 0;
+}
+.ext-review-hunk-text { flex: 1 1 200px; min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.ext-review-line { display: flex; width: max-content; min-width: 100%; }
+.ext-review-ln {
+  flex: none; display: flex; gap: 6px; align-items: flex-start; padding: 0 8px 0 6px; min-width: 84px;
+  border: 0; border-radius: 0; background: var(--surface-2); color: var(--muted); font: inherit; text-align: right; cursor: pointer;
+  position: sticky; left: 0;
+}
+.ext-review-ln:hover { color: var(--text); background: var(--surface-3); }
+.ext-review-ln-old, .ext-review-ln-new { display: inline-block; min-width: 3.4ch; }
+.ext-review-code { flex: 0 0 auto; padding: 0 10px 0 6px; white-space: pre; }
+.ext-review-code.d-add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.ext-review-code.d-del { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.d-hunk { color: var(--muted); }
+.ext-review-line:has(.d-add) .ext-review-ln { background: color-mix(in srgb, var(--ok) 10%, var(--surface-2)); }
+.ext-review-line:has(.d-del) .ext-review-ln { background: color-mix(in srgb, var(--bad) 10%, var(--surface-2)); }
+
+.ext-review-saved, .ext-review-editor {
+  display: flex; flex-direction: column; gap: 6px; margin: 4px 0 6px 96px; padding: 8px 10px; min-width: 0;
+  border-radius: 9px; border: 1px solid var(--line-2); background: var(--surface); color: var(--text);
+  font-size: 13px; line-height: 1.5; white-space: normal;
+}
+.ext-review-saved-text { margin: 0; color: var(--text-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+.ext-review-saved { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
+.ext-review-saved .ext-review-saved-text { flex: 1 1 180px; }
+.ext-review-note-input {
+  width: 100%; min-height: 44px; resize: vertical; padding: 7px 9px; box-sizing: border-box;
+  border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text);
+  font-family: inherit; font-size: 13px; line-height: 1.45;
+}
+.ext-review-editor-msg { margin: 0; color: var(--bad); font-size: 12px; }
+.ext-review-editor-msg:empty { display: none; }
+.ext-review-editor-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ext-review-showall { align-self: flex-start; }
+
+.ext-review-foot {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; border-top: 1px solid var(--line); background: var(--surface);
+}
+.ext-review-count { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 12.5px; }
+.ext-review-send { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-review-send:disabled { cursor: default; }

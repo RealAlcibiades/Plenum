@@ -1,0 +1,61 @@
+/* Rules panel (public/ext-rules.js) in Settings > Rules. Colours come from the shared tokens, so both themes follow. */
+.ext-rules { display: grid; gap: 12px; min-width: 0; }
+.ext-rules [hidden] { display: none !important; }
+.ext-rules p { margin: 0; }
+.ext-rules-intro,
+.ext-rules-about,
+.ext-rules-note { font-size: 13px; line-height: 1.5; color: var(--muted); }
+.ext-rules-plan { font-size: 13px; line-height: 1.5; color: var(--accent); }
+.ext-rules-error { font-size: 13px; line-height: 1.5; color: var(--bad); }
+
+/* The tabs look like the segmented buttons elsewhere: the chosen one is raised. */
+.ext-rules-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ext-rules-tab {
+  background: transparent; border: 0; padding: 6px 10px; border-radius: 7px;
+  color: var(--muted); font: 500 12.5px/1.2 var(--ui); white-space: nowrap; cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.ext-rules-tab:hover { color: var(--text); }
+.ext-rules-tab[aria-selected="true"] {
+  background: var(--surface-3); color: var(--text); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 1px 0 var(--sheen);
+}
+.ext-rules-tab:focus-visible,
+.ext-rules-tab-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Blocked commands is a link, so it reads as one. */
+.ext-rules-tab-link {
+  background: transparent; border: 0; padding: 6px 8px; border-radius: 7px;
+  color: var(--accent); font: 500 12.5px/1.2 var(--ui); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.ext-rules-tab-note { font-size: 12px; color: var(--muted); padding: 0 4px; white-space: nowrap; }
+
+.ext-rules-create { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.ext-rules-file { display: grid; gap: 8px; min-width: 0; }
+.ext-rules-text {
+  width: 100%; box-sizing: border-box; min-height: 260px; resize: vertical;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font: 13px/1.5 var(--mono); tab-size: 2;
+}
+.ext-rules-text:read-only { color: var(--muted); }
+.ext-rules-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.ext-rules-foot { display: grid; gap: 4px; min-width: 0; }
+.ext-rules-count { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.ext-rules-count.warn { color: var(--warn); }
+.ext-rules-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  min-height: 1.3em; font-size: 12px; line-height: 1.45; color: var(--muted);
+}
+.ext-rules-status.bad { color: var(--bad); }
+.ext-rules-status-text { min-width: 0; overflow-wrap: anywhere; }
+
+.ext-rules-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ext-rules-patterns { margin-left: 4px; }
+
+@media (max-width: 480px) {
+  .ext-rules-text { min-height: 220px; }
+  .ext-rules-tabs { gap: 2px; }
+}

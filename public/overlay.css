@@ -1,0 +1,81 @@
+/* The bar of the computer-use overlay (public/overlay.html, public/overlay.js): the window is 560x44 and transparent, so the page draws the
+   bar itself. The colours are the shared tokens of style.css, copied here because that file is the whole app and this page is one
+   strip. Amber means a model is driving, grey that the person paused it, the accent that it waits for the person (UI-ARCH 9). The
+   theme comes from the address (overlay.js sets data-theme on the root); with no script the page follows the system. */
+:root {
+  color-scheme: light dark;
+  --surface: light-dark(#ffffff, #13131d);
+  --surface-2: light-dark(#f2f2f9, #1a1a27);
+  --surface-3: light-dark(#e6e6f2, #232434);
+  --line-2: light-dark(rgba(24, 22, 60, 0.16), rgba(255, 255, 255, 0.13));
+  --text: light-dark(#15151f, #edeef6);
+  --text-2: light-dark(#40435a, #b9bdcf);
+  --muted: light-dark(#686c85, #8389a0);
+  --accent: light-dark(#5a48dd, #a9b2ff);
+  --bad: light-dark(#c22c3c, #ff8088);
+  /* The same amber as the frame around the window the model sees (FRAME_COLOR in desktop/computer/overlay.cjs). */
+  --amber: #f5a524;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent;
+  color: var(--text); font: 600 12px/15px var(--ui); -webkit-user-select: none; user-select: none; cursor: default;
+}
+
+/* The marker: top-left, 6x6, plain #ff00ff, above everything, never dimmed or recoloured. Its colour is also in the page as an
+   attribute (bgcolor), so it holds when this file does not load. */
+.mark {
+  position: fixed; left: 0; top: 0; z-index: 10; width: 6px; height: 6px; margin: 0; padding: 0; border: 0; border-spacing: 0;
+  border-collapse: collapse; background: #ff00ff; opacity: 1; pointer-events: none; forced-color-adjust: none;
+}
+.mark td { width: 6px; height: 6px; margin: 0; padding: 0; border: 0; font-size: 0; line-height: 0; background: #ff00ff; forced-color-adjust: none; }
+
+/* The bar: square at the top-left, where the marker sits. Dragging it anywhere but a button moves the window. */
+.bar {
+  box-sizing: border-box; position: fixed; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 16px;
+  border: 2px solid var(--amber); border-radius: 0 12px 12px 12px;
+  background: color-mix(in srgb, var(--amber) 9%, var(--surface)); -webkit-app-region: drag;
+}
+.bar[data-tone="paused"] { border-color: var(--line-2); background: var(--surface-2); }
+.bar[data-tone="wait"] { border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+
+.dot {
+  flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 24%, transparent);
+}
+.bar[data-tone="paused"] .dot { background: var(--muted); box-shadow: none; }
+.bar[data-tone="wait"] .dot { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .bar[data-tone="running"] .dot { animation: breathe 2.4s ease-in-out infinite; }
+}
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 24%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--amber) 10%, transparent); }
+}
+
+/* Up to two lines. A longer text ends in an ellipsis; the drive bar in the app always shows the whole of it. */
+.text {
+  flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+}
+.bar[data-tone="paused"] .text { color: var(--text-2); }
+
+.actions { display: flex; flex: none; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
+.btn {
+  box-sizing: border-box; height: 28px; min-width: 56px; padding: 0 12px; border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--surface-2); color: var(--text); font: 600 12px/1 var(--ui); cursor: pointer; -webkit-app-region: no-drag;
+}
+.btn:hover { background: var(--surface-3); }
+.btn:active { background: var(--surface-3); border-color: var(--muted); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn:disabled:hover { background: var(--surface-2); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Stop is the one that must be found at a glance. It is never disabled. */
+.btn.stop { border-color: color-mix(in srgb, var(--bad) 55%, var(--line-2)); background: color-mix(in srgb, var(--bad) 14%, var(--surface-2)); }
+.btn.stop:hover { background: color-mix(in srgb, var(--bad) 26%, var(--surface-2)); }
+
+/* Words for a screen reader only. */
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }

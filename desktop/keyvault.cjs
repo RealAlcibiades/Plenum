@@ -70,7 +70,8 @@ function createKeyVault({ safeStorage, file, platform = process.platform, fs = n
   }
 
   // The file as saved: { keys: { NAME: base64 }, damaged, locked }. A missing file is empty. One that is there but cannot be
-  // parsed is empty too, marked damaged, and is set aside before the next save writes a new one. One that cannot be read for
+  // parsed, or parses to something other than { keys: {...} }, is empty too, marked damaged, and is set aside before the next
+  // save writes a new one. One that cannot be read for
   // any other reason (another program has it open, or the system refuses access) is empty, marked locked, and is left alone:
   // it may hold keys that are fine, so no save writes over it until it can be read.
   function readRaw() {
@@ -80,16 +81,29 @@ function createKeyVault({ safeStorage, file, platform = process.platform, fs = n
     } catch (err) {
       return { keys: {}, damaged: false, locked: err?.code !== 'ENOENT' };
     }
+    let parsed;
     try {
-      const parsed = JSON.parse(text);
-      const keys = {};
-      for (const name of KEY_NAMES) {
-        if (parsed && typeof parsed.keys === 'object' && parsed.keys !== null && typeof parsed.keys[name] === 'string') keys[name] = parsed.keys[name];
-      }
-      return { keys, damaged: false, locked: false };
+      parsed = JSON.parse(text);
     } catch {
       return { keys: {}, damaged: true, locked: false };
     }
+    // Valid JSON of another shape (a list, a number, or keys that are not an object) is damaged too: writeRaw never writes one.
+    if (!parsed || typeof parsed !== 'object' || !parsed.keys || typeof parsed.keys !== 'object' || Array.isArray(parsed.keys)) {
+      return { keys: {}, damaged: true, locked: false };
+    }
+    const keys = {};
+    for (const name of KEY_NAMES) {
+      if (typeof parsed.keys[name] === 'string') keys[name] = parsed.keys[name];
+    }
+    return { keys, damaged: false, locked: false };
+  }
+
+  // The name a damaged file is set aside under. A copy already there is never written over (a rename replaces its target), so
+  // the first is keys.json.damaged, then keys.json.damaged-2, and so on. Saves run one at a time (serial), so no name is taken twice.
+  function setAsideName() {
+    let aside = `${file}.damaged`;
+    for (let n = 2; fs.existsSync(aside); n++) aside = `${file}.damaged-${n}`;
+    return aside;
   }
 
   // Writes the file through a temporary file and a rename, so a crash cannot leave half a file. Only the owner can read it.
@@ -116,6 +130,9 @@ function createKeyVault({ safeStorage, file, platform = process.platform, fs = n
       for (const [name, value] of session) keys[name] = value;
     } else if (mode.storage === 'keychain') {
       const raw = readRaw();
+      // The file is not read, so the keys it holds are not in the answer. Say so, or the Accounts panel looks as if none were saved.
+      if (raw.locked) note += ' The saved keys file is open in another program, so its keys could not be read. Close that program and restart Plenum.';
+      else if (raw.damaged) note += ' The saved keys file is damaged, so its keys could not be read. It is set aside when you next save a key.';
       let skipped = 0;
       const stale = [];
       for (const name of KEY_NAMES) {
@@ -164,7 +181,7 @@ function createKeyVault({ safeStorage, file, platform = process.platform, fs = n
       if (raw.locked) return { ok: false, message: LOCKED_MESSAGE };
       if (raw.damaged) {
         try {
-          fs.renameSync(file, `${file}.damaged`);
+          fs.renameSync(file, setAsideName());
         } catch {
           // If it cannot be set aside, the new file replaces it.
         }

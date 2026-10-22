@@ -1,0 +1,185 @@
+/* The Browser tab of the side pane (public/ext-browser.js). Colours come from the shared tokens only, so both themes work. No layout for
+   the pane itself: the pane host (style.css) sizes and places it. The grey area `.ext-brw-view` is a placeholder: the desktop app draws
+   the page above it, and the pane shows the page's last picture on it while something covers it. */
+
+.ext-brw {
+  container-type: inline-size;
+  display: flex; flex-direction: column; box-sizing: border-box; height: 100%; min-height: 420px;
+  padding: 10px 0 12px; gap: 8px; color: var(--text); font: 13.5px var(--ui);
+}
+.ext-brw > * { flex: none; }
+.ext-brw button:focus-visible, .ext-brw input:focus-visible, .ext-brw summary:focus-visible, .ext-brw a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* Toolbar. */
+.ext-brw-bar { display: flex; align-items: center; gap: 4px; padding: 0 8px; min-width: 0; }
+.ext-brw-btn:disabled { opacity: 0.4; cursor: default; }
+.ext-brw-btn:disabled:hover { background: transparent; color: var(--muted); }
+.ext-brw-url {
+  flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 11px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font: 13px var(--ui);
+}
+.ext-brw-url::placeholder { color: var(--muted); }
+.ext-brw-url:disabled { opacity: 0.6; }
+.ext-brw-out {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 32px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--line-2); color: var(--text-2); font-size: 12.5px; text-decoration: none; white-space: nowrap;
+  transition: background-color 0.14s, color 0.14s;
+}
+.ext-brw-out:hover { background: var(--surface-3); color: var(--text); }
+.ext-brw-out[aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
+.ext-brw-out .ic { width: 14px; height: 14px; }
+@container (max-width: 520px) { .ext-brw-out-text { display: none; } .ext-brw-out { padding: 0 8px; } }
+
+/* Tabs. */
+.ext-brw-tabsrow { display: flex; align-items: center; gap: 6px; padding: 0 8px; min-width: 0; }
+.ext-brw-tabs { display: flex; gap: 4px; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ext-brw-tabs::-webkit-scrollbar { display: none; }
+.ext-brw-tabwrap {
+  display: flex; align-items: center; flex: 0 1 auto; min-width: 72px; max-width: 200px;
+  border-radius: 9px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.ext-brw-tabwrap:has(.ext-brw-tab[aria-pressed="true"]) { background: var(--surface); border-color: var(--line-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.ext-brw-tab {
+  flex: 1 1 auto; min-width: 0; padding: 5px 4px 5px 10px; border: 0; background: none; color: var(--text-2);
+  font: 12.5px var(--ui); text-align: left; border-radius: 9px 0 0 9px;
+}
+.ext-brw-tab[aria-pressed="true"] { color: var(--text); }
+.ext-brw-tab:hover { color: var(--text); }
+.ext-brw-tab[data-crashed] .ext-brw-tab-text { color: var(--bad); }
+.ext-brw-tab-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-brw-tabwrap[data-loading] .ext-brw-tab-text::before { content: "…"; margin-right: 4px; color: var(--accent); }
+.ext-brw-tab-x {
+  flex: none; width: 24px; height: 24px; margin-right: 2px; display: grid; place-items: center;
+  background: none; border: 0; border-radius: 7px; color: var(--muted);
+}
+.ext-brw-tab-x:hover { background: var(--surface-3); color: var(--text); }
+.ext-brw-tab-x .ic { width: 12px; height: 12px; }
+.ext-brw-plus { flex: none; }
+.ext-brw-driving {
+  margin-left: auto; flex: none; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.ext-brw[data-driving="on"] .ext-brw-bar { box-shadow: inset 0 -2px 0 var(--warn); padding-bottom: 6px; }
+
+/* The slots brw-03 fills: a header row and a strip above the page. They take no room while empty. */
+.ext-brw-headslot, .ext-brw-strip { padding: 0 8px; }
+.ext-brw-headslot:has(.ext-brw-slot-header:empty), .ext-brw-strip:has(.ext-brw-slot-strip:empty) { display: none; }
+
+/* Questions from the page. */
+.ext-brw-asks { display: flex; flex-direction: column; gap: 8px; padding: 0 8px; }
+.ext-brw-asks:empty { display: none; }
+.ext-brw-ask {
+  display: flex; flex-direction: column; gap: 6px; padding: 11px 12px 11px 14px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line-2); border-left: 3px solid var(--accent);
+}
+.ext-brw-ask-text { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-brw-ask-meta { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-brw-ask-warn { margin: 0; color: var(--warn); font-size: 12.5px; line-height: 1.45; }
+.ext-brw-ask-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ext-brw-notice {
+  padding: 9px 11px 9px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+}
+.ext-brw-notice-text { margin: 0 0 6px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.ext-brw-notice-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The placeholder. */
+.ext-brw-view {
+  position: relative; flex: 1 1 auto; min-height: 220px; margin: 0 6px; overflow: hidden;
+  background: var(--surface-2); border-radius: 4px;
+}
+.ext-brw-shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; background: var(--surface-2); }
+.ext-brw-plain, .ext-brw-empty-text {
+  margin: 0; padding: 28px 22px; color: var(--muted); font-size: 13.5px; line-height: 1.55; text-align: center; text-wrap: balance;
+}
+.ext-brw-empty { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-bottom: 18px; }
+.ext-brw-view[data-covered]::after {
+  content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 14%, transparent); pointer-events: none;
+}
+
+/* Status. */
+.ext-brw-status { margin: 0; padding: 0 12px; min-height: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-brw-status[data-tone="bad"] { color: var(--bad); }
+.ext-brw-status:empty { min-height: 0; }
+
+/* Downloads and site permissions. */
+.ext-brw-more { margin: 0 8px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.ext-brw-more-title { cursor: pointer; padding: 9px 12px; color: var(--text-2); font-size: 13px; font-weight: 600; list-style-position: inside; }
+.ext-brw-more[open] > .ext-brw-more-title { border-bottom: 1px solid var(--line); color: var(--text); }
+.ext-brw-more-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; max-height: 320px; overflow: auto; }
+.ext-brw-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ext-brw-folder { flex-direction: column; align-items: stretch; }
+.ext-brw-label { display: grid; gap: 5px; color: var(--muted); font-size: 12.5px; }
+.ext-brw-path {
+  width: 100%; height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--surface); color: var(--text); font: 12.5px var(--mono);
+}
+.ext-brw-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ext-brw-note { margin: 0; flex: 1 1 100%; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.ext-brw-note-inline { color: var(--muted); font-size: 12.5px; }
+.ext-brw-flash { font-size: 12.5px; color: var(--ok); }
+.ext-brw-flash[data-tone="bad"] { color: var(--bad); }
+.ext-brw-flash:empty { display: none; }
+.ext-brw-danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+
+.ext-brw-foot { margin: 0; padding: 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+/* The label of the Block all downloads switch. Not .switch-text: the title bar rules hide that class while the pane is open. */
+.ext-brw-switch-text { font-size: 13px; color: var(--text-2); }
+
+/* brw-03: the switch, the drive strip, Actions, sites and checks. Tokens only; no inline style anywhere. */
+.ext-brw-box { margin: 0 8px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface-2) 55%, transparent); }
+.ext-brw-box-title { cursor: pointer; padding: 9px 12px; color: var(--text-2); font-size: 13px; font-weight: 600; list-style-position: inside; }
+.ext-brw-box[open] > .ext-brw-box-title { border-bottom: 1px solid var(--line); color: var(--text); }
+.ext-brw-box-body { display: flex; flex-direction: column; gap: 12px; padding: 12px; max-height: 360px; overflow: auto; }
+.ext-brw .ext-brw-box summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ext-brw-agent { display: flex; flex-direction: column; gap: 6px; }
+.ext-brw-agent .ext-brw-row { gap: 10px; }
+.ext-brw-plan { color: var(--warn); }
+.ext-brw-notices:empty, .ext-brw-notice-slot:empty { display: none; }
+.ext-brw-notices { display: flex; flex-direction: column; gap: 8px; }
+.ext-brw-approve { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.ext-brw-approve > .ext-brw-note { color: var(--text-2); }
+
+/* The strip above the page while a model drives. */
+.ext-brw-drive {
+  display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 9%, transparent);
+}
+.ext-brw-drive[data-state="paused"], .ext-brw-drive[data-state="card"] { border-color: var(--line-2); background: var(--surface-2); }
+.ext-brw-drive[data-state="turn"] { border-color: color-mix(in srgb, var(--accent) 50%, transparent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.ext-brw-drive-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ext-brw-drive-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.ext-brw-drive[data-state="paused"] .ext-brw-drive-dot, .ext-brw-drive[data-state="card"] .ext-brw-drive-dot { background: var(--muted); }
+.ext-brw-drive[data-state="turn"] .ext-brw-drive-dot { background: var(--accent); }
+.ext-brw-drive-text { flex: 1 1 auto; min-width: 0; color: var(--text); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.ext-brw-drive-actions { display: flex; flex: none; gap: 6px; }
+.ext-brw-secret { display: flex; flex-direction: column; gap: 4px; }
+.ext-brw-secret-input {
+  flex: 1 1 160px; min-width: 0; height: 32px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--surface); color: var(--text); font: 13px var(--ui);
+}
+
+/* Sites, checks and page size. */
+.ext-brw-sites {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--surface); color: var(--text); font: 12.5px var(--mono); resize: vertical;
+}
+.ext-brw-sites:focus-visible, .ext-brw-number:focus-visible, .ext-brw-secret-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ext-brw-number {
+  width: 110px; height: 32px; padding: 0 8px; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--surface); color: var(--text); font: 13px var(--ui);
+}
+.ext-brw-subtitle { margin: 4px 0 0; color: var(--text); font-size: 13px; font-weight: 600; }
+.ext-brw-checks { display: flex; flex-direction: column; gap: 8px; }
+
+/* Actions. */
+.ext-brw-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.ext-brw-log-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; line-height: 1.45; }
+.ext-brw-log-item[data-tone="bad"] .ext-brw-log-text { color: var(--bad); }
+.ext-brw-log-time { flex: none; color: var(--muted); font: 11.5px var(--mono); }
+.ext-brw-log-text { color: var(--text); overflow-wrap: anywhere; }
+.ext-brw-log-host { color: var(--muted); font: 11.5px var(--mono); overflow-wrap: anywhere; }
+.ext-brw-log-note { color: var(--accent); font-size: 11.5px; }
+.ext-brw-notice-slot { display: block; }

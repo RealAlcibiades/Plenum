@@ -1,0 +1,62 @@
+/* The drive bar above the message box and the drive pill in the title bar (public/ext-drive.js). It copies the relay bar's shape. Colours
+   are the shared tokens only: amber while the model drives, grey when the person paused it, accent when it waits for the person.
+   Breathing uses the shared keyframes in style.css. */
+
+/* z-index 35 is above the confirm scrim (25) and dialog (30), so Stop works while a question waits. */
+.drivebar {
+  position: relative; z-index: 35;
+  display: flex; align-items: center; gap: 10px; width: var(--col); min-width: 0; margin: 0 auto 8px; padding: 6px 8px 6px 14px;
+  border-radius: 14px; border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--line));
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface)); font-size: 12.5px; color: var(--text-2);
+}
+.drivebar[hidden] { display: none; }
+.drivebar[data-tone="paused"] { border-color: var(--line-2); background: var(--surface-2); }
+.drivebar[data-tone="wait"] { border-color: color-mix(in srgb, var(--accent) 36%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+
+.db-dot {
+  flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); animation: breathe 2.4s ease-in-out infinite;
+}
+.db-dot[data-tone="paused"] { background: var(--muted); box-shadow: none; animation: none; }
+.db-dot[data-tone="wait"] { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); animation: none; }
+
+.db-kind { display: inline-flex; flex: none; color: var(--muted); }
+.db-kind .ic { width: 15px; height: 15px; }
+.db-text {
+  flex: 1; min-width: 0; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.drivebar.low .db-text { color: var(--warn); }
+.db-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+/* The base kbd rule pushes itself right; in the bar it sits with the buttons. */
+.db-key { margin-left: 0; }
+
+.drive-pill {
+  position: relative; z-index: 35; display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; padding: 3px 3px 3px 10px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface)); color: var(--text-2); font-size: 12px;
+}
+.drive-pill[hidden] { display: none; }
+.drive-pill[data-tone="paused"] { border-color: var(--line-2); background: var(--surface-2); }
+.drive-pill[data-tone="wait"] { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.drive-pill .db-kind { color: var(--muted); }
+.drive-pill .db-kind .ic { width: 14px; height: 14px; }
+.dp-text {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.drive-pill.low .dp-text { color: var(--warn); }
+.dp-stop { flex: none; padding: 3px 10px; font-size: 12px; }
+
+/* Narrow windows: the bar wraps, the state line takes the first row and the buttons sit right-aligned under it. The kind icon and
+   the stop key's chip hide, so the words have the room. */
+@media (max-width: 620px) {
+  .drivebar { flex-wrap: wrap; row-gap: 6px; }
+  .drivebar .db-kind, .drivebar .db-key { display: none; }
+  .db-text { flex: 1 1 calc(100% - 20px); white-space: normal; overflow-wrap: anywhere; }
+  .db-actions { margin-left: auto; }
+}
+/* The smallest windows: the pill shows only its dot and Stop. */
+@media (max-width: 480px) {
+  .drive-pill .dp-text, .drive-pill .db-kind { display: none; }
+}

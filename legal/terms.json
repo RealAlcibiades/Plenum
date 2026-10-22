@@ -1,0 +1,24 @@
+{
+  "version": 3,
+  "effective": "[EFFECTIVE DATE]",
+  "contact": "[CONTACT EMAIL]",
+  "sha256": {
+    "EULA.md": "b6af2e81ab57281514a35048ab040d717566604e759e5260506676d941a2b2e5",
+    "PRIVACY.md": "01782869a5f1522e183184f1e3ebb6956bf9d5119b2c3cb050e438b71536ab80"
+  },
+  "changes": {
+    "1": [
+      "First version of the License Agreement and Privacy Notice."
+    ],
+    "2": [
+      "The Privacy Notice and the License Agreement no longer say that Plenum does not check for updates or update itself over the internet. The installed app checks GitHub for new versions, every 4 hours unless you turn it off under Settings > Updates, and can download them. A new version installs only when you choose Restart to update or when you quit Plenum.",
+      "The Privacy Notice now lists the update files kept on your computer and the requests the API finder makes, and describes computer use and the in-app browser as features that are here, not planned ones.",
+      "Plenum still collects nothing and sends nothing to us."
+    ],
+    "3": [
+      "The Privacy Notice now lists three more things Plenum keeps on your computer: the computer-use run logs (every screenshot the model was shown, and the list of its actions, cards and pauses; 7 days and 200 MB by default), the in-app browser's profile (cookies, sign-ins, site storage, cache and history) and the files you save from the Browser pane.",
+      "It says that computer-use screenshots are also kept on your computer in the run log, and how to delete each of these.",
+      "Plenum still collects nothing and sends nothing to us."
+    ]
+  }
+}

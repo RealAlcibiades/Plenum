@@ -1,0 +1,173 @@
+# Plenum License Agreement
+
+Version 3 · Effective [EFFECTIVE DATE]
+
+This agreement is between you and [LICENSOR NAME] ("we", "us"), the maker of Plenum. It covers the Plenum desktop app, its documentation and any new versions we publish ("Plenum").
+
+**By clicking "I agree" you accept this agreement.** Installing or using Plenum also means you accept it. If you do not accept it, do not install or use Plenum.
+
+## The short version
+
+This summary helps you read the agreement. The full text below is what counts.
+
+- Plenum is free. It comes as is, with no warranty, and our liability is limited.
+- Plenum has no AI model of its own. It runs AI tools and services from other companies that you choose and connect with your own accounts and keys. Their terms apply to you, and you pay their charges.
+- AI output can be wrong. Check it before you rely on it.
+- You decide what AI agents may do on your computer. You are responsible for every action you approve or let run without asking, including in Auto-approve, Approve all, browser control and computer use.
+- Plenum sends nothing to us. See the Privacy Notice.
+
+## 1. Who may use Plenum
+
+You must be at least 18, or the age of majority where you live if that is higher, and able to make a binding contract. Plenum is a developer tool and is not made for children. If you use Plenum for a company or other organization, you confirm that you may accept this agreement for it, and "you" then includes that organization.
+
+## 2. Your licence
+
+We give you a free, personal, non-exclusive, non-transferable, revocable licence to install and use Plenum on computers you own or control, for your own purposes or your organization's internal purposes, as long as you follow this agreement.
+
+Plenum changes its own files only when you apply an update in its Updates panel or install a new version of Plenum (section 11), and you may change your own installed copy for your own use. A changed copy is your responsibility. This agreement still applies to it, and so do sections 12 and 13.
+
+## 3. What you may not do
+
+You may not:
+
+- sell, rent, lease, sublicense or charge for Plenum, or offer it to others as a hosted or managed service;
+- distribute Plenum, changed or not, except by pointing people to its official download;
+- remove or change copyright, licence or attribution notices, or present Plenum or a changed copy as made or approved by us when it is not;
+- use Plenum to share, resell or pool access to an AI provider's subscription, account or API key with other people, or to send other people's requests through your account;
+- use Plenum to get around a provider's limits, access controls or rules on automated use;
+- use Plenum in a way section 9 (Acceptable use) forbids.
+
+Nothing in this agreement limits rights you have under an open-source licence (section 5) or under a law that cannot be waived, such as a right to decompile software for interoperability.
+
+## 4. Ownership
+
+We and our licensors own Plenum, including its name, logo and design. This agreement gives you no right to use our trademarks. If you send us ideas or feedback, we may use them without paying you or owing you anything.
+
+You keep your rights in your projects, files and prompts. As between you and us, we claim no rights in the output that AI models produce for you. Your rights in that output depend on the terms of the provider that produced it, and on the law where you are.
+
+## 5. Open-source components
+
+Plenum includes open-source software, such as Electron and Chromium. Each component is licensed under its own terms. They are listed under **Legal › Open-source licences** in the app, in the THIRD-PARTY-NOTICES.txt file installed with Plenum, and in LICENSES.chromium.html. Where those terms conflict with this agreement for a component, they win for that component.
+
+## 6. AI providers and other third-party services
+
+**Plenum is a tool for using services that other companies run.** It does not provide, host or train any AI model. Depending on what you set up, it runs command-line tools such as Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google) and Muse Code (Meta), and it sends requests to the APIs of providers such as Anthropic, xAI, OpenAI, DeepSeek, Mistral AI, Google and OpenRouter ("Third-Party Services").
+
+You are responsible for:
+
+- **Your accounts and keys.** Getting, signing in to and keeping your accounts, subscriptions and API keys, keeping them secure, and everything done with them. You install the providers' tools yourself. Plenum may show you a publisher's install command; running it is your choice and installs that publisher's software under its terms. Plenum does not install, change or bundle those tools, and it does not collect or store your sign-ins for them.
+- **Costs.** All fees, charges and plan limits for Third-Party Services. That includes charges from long or repeated agent runs, several models answering at once, retries, reviews, key checks and usage checks. Cost and price figures in Plenum are estimates and can be wrong. Plenum's spend limits do not cover every kind of run and may not stop every charge. Your provider's bill is what counts.
+- **Their terms.** Following each provider's terms of service, usage policies, rate limits and other rules. That includes any rules on using a subscription through other software, on automated access, and on what you may do with output. Some providers limit or forbid using their subscription plans through other apps. The Third-Party Services notice names the rules we know of. Check the current terms before you use a provider with Plenum.
+- **Your data with them.** Deciding what you send to each provider, and having the right to send it. Each provider handles your data under its own terms and privacy policy.
+
+We are not a party to your agreements with any provider, and no provider is a party to this one. We do not control Third-Party Services and are not responsible for them, including their availability, accuracy, output, charges or data handling, or any decision they make about your account, such as suspending it. Providers can change or end their services at any time, and parts of Plenum may then stop working.
+
+**Links and prices.** Plenum may show prices, model details and links for Third-Party Services. They come from public sources, can be wrong or out of date, and are neither offers nor endorsements.
+
+Plenum is not affiliated with, endorsed by or sponsored by any provider. See the Third-Party Services notice.
+
+## 7. AI output
+
+AI models make mistakes. Output can be wrong, incomplete, out of date, insecure, biased or offensive, or can resemble other people's work. Code it writes may not run, or may cause damage. Output is not professional advice of any kind, such as legal, medical, financial or security advice. You are responsible for reviewing output, testing code, and deciding whether and how to use it. Plenum shows which model wrote each reply. It does not check that what a model says is true. If a law where you are requires you to tell people that they are dealing with an AI, or to label AI output, that is your responsibility.
+
+## 8. Agents and the actions you allow
+
+Plenum can let AI models act on your computer as well as answer. Depending on the features and settings you use, a model or a provider's tool can read, create, change and delete files; run commands with your user rights and your environment; reach the internet; change Plenum's own files once you apply an update; hand tasks to other agents; and, where those features are available, control a browser or your mouse and keyboard.
+
+**You decide what it may do, and you are responsible for what you allow.**
+
+- An action you approve is authorized by you. So is everything that runs after you turn on a setting that approves actions for you, such as Auto-approve, Approve all, a provider tool's own no-ask mode, browser control, computer use or delegation to other agents. As between you and us, those actions are your actions.
+- Plenum's safety features lower some risks, but they are not complete and they can fail. They include approval cards, blocked folders and commands, checkpoints, plan mode, sandbox settings and spend limits. They do not cover what providers' tools do on their own, such as files that Codex, Gemini or Muse Code write. A model can also be misled by instructions hidden in files, web pages, screens or tool output ("prompt injection").
+- You are responsible for protecting your systems and data. Keep backups and use version control. For agents that act without asking, prefer a separate user account, container or virtual machine. Watch long runs. Keep passwords and private information out of view when a model can see your screen. Do not point agents at systems, accounts or data you are not allowed to use.
+- You are responsible for following the terms of every website, app and service an agent uses for you.
+
+## 9. Acceptable use
+
+Do not use Plenum, or let an agent use it, to:
+
+- break any law, or help anyone else break one;
+- access a computer, account, network or data without permission, or get around authentication, CAPTCHAs, rate limits, paywalls or other security or access controls;
+- create or spread malware, or attack, overload or probe systems you are not authorized to test;
+- infringe or misappropriate anyone's intellectual property, privacy or other rights, or process personal data without a lawful basis;
+- harass, defraud, impersonate, spam or deceive people;
+- break a provider's terms or usage policy;
+- run anything where a failure could cause death, injury, or serious physical or environmental damage, such as medical, aviation, vehicle, weapons or critical-infrastructure systems.
+
+## 10. Privacy
+
+Plenum runs on your computer and sends us nothing. It has no telemetry, analytics or crash reporting, no account with us, and no server of ours. The Privacy Notice describes what Plenum keeps on your computer and what it sends to the providers you choose. It is part of this agreement. If you use Plenum for an organization, or with other people's personal data, you are responsible for following the data-protection laws that apply to you.
+
+## 11. Updates and changes
+
+We publish new versions of Plenum on GitHub. Unless you turn the checks off under Settings > Updates, the installed app looks for a new version every few hours and, when its build can install itself, downloads it. It installs a downloaded version only when you choose Restart to update or when you quit Plenum, and it never restarts by itself. Other builds show you the new version and where to download it. The Privacy Notice says what the check sends. Separately, the Updates panel only applies changes that a model proposed and that you reviewed and chose to apply. Those changes come from the model, not from us.
+
+We may change, suspend or stop Plenum or any feature at any time, and some features may be marked as planned or experimental. We have no duty to support, fix or update Plenum.
+
+We may change this agreement. When we do, Plenum shows the new version and what changed, and asks you to accept it before you keep using Plenum. If you do not accept it, stop using Plenum. The version you accepted applies until you accept a newer one.
+
+## 12. No warranty
+
+PLENUM IS PROVIDED "AS IS" AND "AS AVAILABLE", WITH ALL FAULTS AND WITHOUT WARRANTY OF ANY KIND. TO THE FULLEST EXTENT THE LAW ALLOWS, WE DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT, AND ANY WARRANTY ARISING FROM A COURSE OF DEALING OR USAGE OF TRADE. WE DO NOT WARRANT THAT PLENUM, ANY THIRD-PARTY SERVICE, OR ANY OUTPUT OR ACTION WILL BE ACCURATE, SAFE, SECURE, UNINTERRUPTED OR FREE OF ERRORS OR HARMFUL CODE, OR THAT ANY SAFETY FEATURE WILL PREVENT LOSS. NOTHING WE SAY IN THE APP, ITS DOCUMENTATION OR ELSEWHERE CREATES A WARRANTY.
+
+## 13. Limitation of liability
+
+TO THE FULLEST EXTENT THE LAW ALLOWS:
+
+(a) WE ARE NOT LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, OR FOR LOSS OF PROFITS, REVENUE, DATA, FILES, GOODWILL OR BUSINESS, OR FOR THE COST OF SUBSTITUTE GOODS OR SERVICES;
+
+(b) WE ARE NOT LIABLE FOR LOSS OR DAMAGE ARISING FROM: AI OUTPUT; ACTIONS TAKEN BY AN AGENT OR TOOL THAT YOU APPROVED OR LET RUN, INCLUDING IN ANY AUTO-APPROVE, APPROVE-ALL, BROWSER-CONTROL, COMPUTER-USE OR DELEGATION MODE; THIRD-PARTY SERVICES, THEIR CHARGES, OR ACTIONS THEY TAKE ON YOUR ACCOUNTS; CHANGES THAT YOU OR A MODEL MAKE TO PLENUM; OR ANYONE ELSE'S ACCESS TO YOUR COMPUTER, ACCOUNTS OR KEYS;
+
+(c) OUR TOTAL LIABILITY FOR ALL CLAIMS RELATING TO PLENUM OR THIS AGREEMENT IS LIMITED TO THE GREATER OF THE AMOUNT YOU PAID US FOR PLENUM IN THE 12 MONTHS BEFORE THE CLAIM AND US$100.
+
+These limits apply whatever the legal theory (contract, tort including negligence, strict liability or any other), even if we were told the loss was possible, and even if a limited remedy fails of its essential purpose.
+
+## 14. Rights the law protects
+
+Some places do not allow some of the exclusions and limits in sections 12, 13 and 15, or they give consumers rights that a contract cannot take away. Where that is the case, those sections apply only as far as the law allows.
+
+Nothing in this agreement excludes or limits our liability for death or personal injury caused by our negligence, for fraud or fraudulent misrepresentation, for gross negligence or wilful misconduct where the law does not allow that to be limited, or for anything else the law does not allow to be limited.
+
+If you are a consumer, nothing in this agreement takes away rights or guarantees that the law of your country gives you and that cannot be excluded by contract. That includes, where they apply, the rights of consumers in the European Union and the United Kingdom in relation to digital content, and the statutory guarantees under the Australian Consumer Law. Where such a law applies, sections 12, 13 and 15 limit our liability only as far as it allows.
+
+## 15. Your responsibility for claims (indemnity)
+
+If you use Plenum for a business or other organization, you will defend, indemnify and hold harmless us and our affiliates, contractors and licensors against third-party claims, and against the losses, damages, fines and reasonable costs (including legal fees) that come from them, arising out of:
+
+- your use of Plenum;
+- content you send or output you use;
+- actions you approved or let agents take;
+- your breach of this agreement or of a provider's terms;
+- your breach of any law or of anyone's rights.
+
+If you are a consumer, this section applies only as far as the law of your country allows, and only to claims caused by your breach of this agreement, of a provider's terms or of the law.
+
+We may take part in the defence with our own counsel. You may not settle a claim in a way that puts an obligation on us without our written consent.
+
+## 16. Ending this agreement
+
+You may end this agreement at any time by uninstalling Plenum and deleting your copies. Your licence ends automatically if you break this agreement. We may also end it by a notice in the app or on the download page. When it ends, you must stop using Plenum and delete it. Sections 4, 6, 7, 8 (for actions already taken), 12, 13, 14, 15, 17, 18 and 19 continue to apply after it ends.
+
+## 17. Export and sanctions
+
+You will follow the export-control and sanctions laws that apply to you and to Plenum. You confirm that those laws do not bar you from receiving software. Plenum includes standard encryption from Electron and Chromium, which some countries regulate.
+
+## 18. Governing law and disputes
+
+The laws of [GOVERNING LAW] govern this agreement, without regard to conflict-of-law rules. The courts located in [GOVERNING LAW] have exclusive jurisdiction over any dispute about Plenum or this agreement, and both of us consent to them. Either of us may instead bring a claim in a small-claims court that has jurisdiction. If you are a consumer, this does not take away the protection of the mandatory laws of the country where you live, or your right to bring a claim in its courts. The United Nations Convention on Contracts for the International Sale of Goods does not apply.
+
+## 19. General
+
+- This agreement, together with the Privacy Notice, is the whole agreement between you and us about Plenum. It replaces anything said before.
+- Your click on "I agree" is your electronic signature. Plenum keeps a record on your computer of the version you accepted and when.
+- If a court finds part of this agreement unenforceable, that part is changed as little as needed to make it enforceable, and the rest stays in force.
+- If we do not enforce a right, we have not waived it.
+- You may not transfer this agreement. We may transfer it to anyone who takes over Plenum.
+- No one other than you and us has rights under this agreement.
+- We are not responsible for delays or failures caused by events outside our reasonable control.
+- We may give you notices in the app. Send notices to us at [CONTACT EMAIL].
+- If this agreement is translated, the English version governs.
+- For United States government users, Plenum is "commercial computer software" and is licensed only with the rights in this agreement.
+
+## 20. Contact
+
+[LICENSOR NAME] · [CONTACT EMAIL]

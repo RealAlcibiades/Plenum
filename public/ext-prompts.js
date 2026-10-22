@@ -17,6 +17,8 @@
   const TEMPLATE_MAX = 4000;
   const DESCRIPTION_MAX = 200;
   const LOADING = 'Loading saved prompts…';
+  // How long a slash message waits for the saved-prompt list. After this the message goes as typed, as it does when the list fails.
+  const LOOKUP_MS = 3000;
 
   // The editor's draft, or null when no editor is open. It is kept in memory only, so a redraw keeps it and a reload does not.
   let editor = null;
@@ -44,10 +46,12 @@
   // button shows Stop, and the page treats that press as a stop, so nothing is held then.
   document.addEventListener('submit', e => {
     if (passing || e.target !== MuseUI.el.form) return;
-    // Enter during a lookup does nothing. The text stays in the composer, so it can be sent again afterwards.
+    // Enter during a lookup does nothing. The text stays in the composer, so it can be sent again afterwards. It says so, so
+    // the key press is not lost without a word.
     if (lookingUp) {
       e.preventDefault();
       e.stopImmediatePropagation();
+      MuseUI.toast('Still looking up the saved prompt. Press Enter again in a moment.');
       return;
     }
     const text = MuseUI.el.input.value.trim();
@@ -60,20 +64,34 @@
     sendWithSaved(text, hit, projectId);
   }, true);
 
+  // The project's saved prompts. A list that does not answer within LOOKUP_MS rejects, so the message is not held forever.
+  function listSaved(projectId) {
+    let timer = null;
+    const limit = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('The saved prompts did not answer in time.')), LOOKUP_MS);
+    });
+    const list = MuseUI.api(`/api/prompts?project=${encodeURIComponent(projectId)}`);
+    return Promise.race([list, limit]).finally(() => clearTimeout(timer));
+  }
+
   // Looks up the project's saved prompts, then sends the message through the page's own submit path. The composer is only
   // changed when the name is saved, and only if it still holds the text that was submitted.
   async function sendWithSaved(text, hit, projectId) {
     try {
       let saved = [];
       try {
-        const data = await MuseUI.api(`/api/prompts?project=${encodeURIComponent(projectId)}`);
+        const data = await listSaved(projectId);
         saved = Array.isArray(data?.prompts) ? data.prompts : [];
       } catch {
         // Without the list the message goes as typed, and the page reports any problem with it.
       }
       const input = MuseUI.el.input;
-      // The composer changed while the list loaded. Leave the new text alone, so the user can send it with Enter.
-      if (input.value.trim() !== text) return;
+      // The composer changed while the list loaded. Leave the new text alone and say so, since the held message is not sent.
+      // The user can send what is there with Enter.
+      if (input.value.trim() !== text) {
+        MuseUI.toast(`Not sent: the composer changed while /${hit[1]} was looked up. Press Enter to send what is there.`, 'bad');
+        return;
+      }
       const found = saved.find(p => p.name === hit[1].toLowerCase());
       if (found) input.value = expandTemplate(found.template, hit[2].trim());
       passing = true;

@@ -7,7 +7,7 @@ import * as events from './lib/events.mjs';
 import { checkRequest, ensureToken, isRefusal, tokenSource, token } from './lib/auth.mjs';
 import {
   CATALOG, ALIASES, parseRef, splitRef, labelFor, streamChat, providerStatus, ADVISOR_SYSTEM, advisorMessages, historyFor,
-  anthropicKey, testAnthropicKey, EFFORTS, billingFor,
+  anthropicKey, testAnthropicKey, EFFORTS, billingFor, isSubscriptionToken, SUBSCRIPTION_TOKEN_REFUSAL,
 } from './lib/providers.mjs';
 import { summarizeUsage, totalUsage } from './lib/pricing.mjs';
 import { runCli, openSignIn, museSignedIn } from './lib/accounts.mjs';
@@ -22,11 +22,20 @@ import { DEFAULT_COUNCIL, normalizeCouncil, runCouncil } from './lib/council.mjs
 import { CODER_REFS, planBuild, runBuild } from './lib/delegate.mjs';
 import { geminiSignIn, geminiUsage } from './lib/gemini.mjs';
 import { normalizeRoute, runSend, runBroadcast, runRoute, RelayLog, hashText } from './lib/relay.mjs';
-import { effectiveSettings, denyPatternsOf, chatModeOf } from './lib/projects.mjs';
-import { forgetProjectSessions, forgetSession } from './lib/sessions.mjs';
+import { effectiveSettings, denyPatternsOf, chatModeOf, approvalModeOf, approvalSummary, approveAllBlockedOf, approveAllCoversOf, codersCannotAskOf, normalizeAppCovers, normalizeProjectSettings } from './lib/projects.mjs';
+import { forgetProjectSessions, forgetSession, getSession, sessionEnabled } from './lib/sessions.mjs';
+import { buildFocusOf, FOCUS_REMINDER } from './lib/focus.mjs';
 import { keepArchive, peekArchive } from './lib/archive.mjs';
 import { accrueReply, budgetState, checkBudget, spendOf } from './lib/budget.mjs';
 import { findExtRoute } from './lib/routes/index.mjs';
+import { legalSummary, termsAccepted, termsGate } from './lib/legal.mjs';
+import { canStart as canStartDrive, hotkeyStatus, listDrives, normalizeIdleMinutes, normalizeStopOverride } from './lib/drive.mjs';
+import { bridge as computerBridge } from './lib/computer/bridge.mjs';
+import { createComputerRun } from './lib/computer/run.mjs';
+import { appName, normalizeLogDays, normalizeLogMB, normalizePaceMs, normalizeRunSettings, paceOf, retentionOf, settingsFromPrefs } from './lib/computer/policy.mjs';
+import { computerSupportDetail } from './lib/computer/support.mjs';
+import { permissionHelp } from './lib/platform/computer.mjs';
+import { available as browserAvailable } from './lib/browser-bridge.mjs';
 import { folderRisk } from './lib/guard.mjs';
 import { buildSystem } from './lib/prompt.mjs';
 import { apiProvider } from './lib/api-providers.mjs';
@@ -64,6 +73,7 @@ const APPROVAL_TIMEOUT_MS = (() => {
 const BODY_LIMIT = 16_000_000;
 const CHAT_BODY_LIMIT = 40_000_000;
 const THEMES = ['system', 'dark', 'light'];
+const APPROVAL_VALUES = ['ask', 'auto', 'all'];
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 // Static files come from this fixed map, so no request path is joined onto the disk. The file for an entry is found on each request
@@ -75,6 +85,8 @@ const STATIC = {
   '/markdown.js': { file: 'markdown.js', type: 'text/javascript; charset=utf-8' },
   '/music.js': { file: 'music.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
+  // The bar of the computer-use overlay: the desktop app loads it into its own small window (desktop/computer/overlay.cjs).
+  '/overlay.html': { file: 'overlay.html', type: 'text/html; charset=utf-8' },
   '/icon.png': { file: 'icon.png', type: 'image/png' },
   '/mark.svg': { file: 'mark.svg', type: 'image/svg+xml' },
 };
@@ -87,12 +99,20 @@ function staticAsset(pathname) {
 
 // Project id -> AbortController for the run in progress. One run per project.
 const running = new Map();
+// Drive id -> the computer run that is live, so a route can reach the run of a drive (the "Type it for me" box, lib/routes/computer.mjs).
+const liveComputerRuns = new Map();
 // Approval id -> { finish, fullDetail } for a tool call waiting on the user. fullDetail is the whole diff when the card shows a capped one, else null.
 const pendingApprovals = new Map();
 // Said once at the start of every chat turn in a project that is in plan mode.
 const PLAN_NOTICE = 'Plan mode: Plenum will not edit files or run commands in this project.';
 // Said when a build is asked for in a project that is in plan mode (a build runs coders that write files).
 const PLAN_BUILD_REFUSED = 'This project is in plan mode, so Plenum will not build or edit files. Turn plan mode off to build.';
+// Said once per project (and thread) per launch, at the first chat turn that runs in Approve all (UI-ARCH: the notice is not
+// repeated every turn; the red button and the Mode menu stay as the reminder). The second text is for a project that also lets
+// Approve all answer blocked-command cards.
+const APPROVE_ALL_NOTICE = 'Approve all is on for this project. Edits and commands run without asking; a command that a built-in rule blocks still shows its card. Credential folders and Plenum\'s own files stay off limits, and system folders stay read-only.';
+const APPROVE_ALL_BLOCKED_NOTICE = 'Approve all is on for this project, and it also answers blocked-command cards. Edits and commands, including ones Plenum\'s rules block, run without asking. Credential folders and Plenum\'s own files stay off limits, and system folders stay read-only.';
+const approveAllSaid = new Set();
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
@@ -136,14 +156,42 @@ async function readBody(req, limit = BODY_LIMIT) {
   const text = Buffer.concat(chunks).toString('utf8');
   if (!text) return {};
   // Node's parse error can quote part of the input (a key, in a malformed key request), so its text is never sent back.
+  // A body of JSON null counts as an empty body (B-69): the routes read fields from the body, and null has none.
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) ?? {};
   } catch {
     throw httpError(400, 'The request body is not valid JSON.');
   }
 }
 
 const projectId = abs => createHash('sha1').update(abs.toLowerCase()).digest('hex').slice(0, 12);
+
+// Forgetting a project keeps what protects it, so adding the same folder again (the id is made from the path) brings it back:
+// the spend limit and the running spend, plan mode, the deny patterns and the rest of its settings (B-30). The chat already
+// survives, because transcripts are keyed by the id. What widens a run is not carried over: a project's own Auto-approve or
+// Approve all, its "also answers blocked-command cards" switch and its Approve all coverage start again from the app's values,
+// so re-adding a folder never turns a risky mode back on by itself. At most 50 forgotten projects are kept, oldest first out.
+const KEEP_FORGOTTEN = 50;
+// The longest project name kept (B-72): the same limit as the file-name and image-name caps elsewhere in Plenum.
+const PROJECT_NAME_MAX = 80;
+function keepForgotten(st, project) {
+  if (!project || (!project.settings && !project.spend)) return;
+  const settings = project.settings && typeof project.settings === 'object' && !Array.isArray(project.settings) ? { ...project.settings } : null;
+  if (settings) {
+    if (settings.approvals === 'auto' || settings.approvals === 'all') settings.approvals = null;
+    delete settings.approveAllBlocked;
+    delete settings.approveAllCovers;
+  }
+  st.forgotten ??= {};
+  delete st.forgotten[project.id];
+  st.forgotten[project.id] = { settings, spend: project.spend ?? null };
+  const ids = Object.keys(st.forgotten);
+  for (const old of ids.slice(0, Math.max(0, ids.length - KEEP_FORGOTTEN))) delete st.forgotten[old];
+}
+
+// The per-project switch 'The model may start computer use itself' (off by default; Project settings). Read on its own, so only a stored
+// true counts. When it is on, chat turns in the desktop app get ctx.startComputer, which the start_computer_use tool calls.
+const computerSelfStartOf = project => project?.settings?.computerSelfStart === true;
 
 const findLastIndex = (list, pred) => {
   for (let i = list.length - 1; i >= 0; i--) if (pred(list[i])) return i;
@@ -159,7 +207,8 @@ async function resolveFolder(input) {
   if (!abs) throw httpError(400, `Folder not found: ${raw}`);
   if (!(await fs.stat(abs)).isDirectory()) throw httpError(400, `Not a folder: ${abs}`);
   if (path.parse(abs).root === abs) throw httpError(400, 'Drive roots are not allowed. Pick a project folder.');
-  if (/\\(windows|program files( \(x86\))?|programdata)(\\|$)/.test(abs.toLowerCase())) {
+  // Anchored to the drive root (B-55): a folder named windows or programdata deeper in a project path is not a system folder.
+  if (/^[a-z]:\\(windows|program files( \(x86\))?|programdata)(\\|$)/.test(abs.toLowerCase())) {
     throw httpError(400, 'System folders are not allowed.');
   }
   // Home, Plenum's own folder, and any parent of a credential folder are refused, with the reason folderRisk gives.
@@ -168,11 +217,12 @@ async function resolveFolder(input) {
   return abs;
 }
 
-// The saved council, read through normalizeCouncil before use. A hand-edited state.json with a council that is not
-// valid (for example one with no moderator) gets a plain message instead of a crash.
-function savedCouncil() {
+// The council a project uses, read through normalizeCouncil before use: the project's own council when it has one, else the
+// app's saved one (B-4). A hand-edited state.json with a council that is not valid (for example one with no moderator) gets a
+// plain message instead of a crash.
+function savedCouncil(project) {
   try {
-    return normalizeCouncil(store.get().council ?? DEFAULT_COUNCIL);
+    return normalizeCouncil(effectiveSettings(store.get(), project).council ?? DEFAULT_COUNCIL);
   } catch (err) {
     throw httpError(400, `The saved council is not valid: ${err.message} Open the Council panel and save a valid one.`);
   }
@@ -183,6 +233,14 @@ function projectById(id) {
   if (!project) throw httpError(400, 'No such project. Add a folder with /add <path>.');
   return project;
 }
+
+// True when the project's folder is no longer there (moved, renamed or deleted). A route that reads or runs in the folder checks
+// this first, so a missing folder is reported as such, not as an empty tree, "not a repo" or a raw tool error (B-73).
+async function folderGone(project) {
+  const info = await fs.stat(project.path).catch(() => null);
+  return !info?.isDirectory();
+}
+const missingFolder = project => httpError(400, `The project folder is missing: ${project.path}. Put it back, or remove the project.`);
 
 // Music settings: the style is whatever key the browser's music engine offers (checked there).
 const MUSIC_DEFAULT = { on: false, style: 'synth', volume: 60, effects: true };
@@ -203,7 +261,15 @@ function publicState({ messages = true } = {}) {
   const log = active ? (messages ? store.transcript(active.id) : (st.chats?.[active.id] ?? [])) : [];
   return {
     // chatMode is 'normal' or 'plan' (see chatModeOf). The plan button in public/ext-plan.js reads it from here.
-    projects: st.projects.map(p => ({ id: p.id, name: p.name, path: p.path, chatMode: chatModeOf(p) })),
+    // Each entry also says what the project's runs use now (B-4), so the composer can show what the server will do:
+    //   approvals       the mode its runs use: 'ask', 'auto' or 'all' (approvalModeOf)
+    //   ownApprovals    the project's own value, or null when it follows the app's (the Mode menu's "Use app default")
+    //   model, effort   the model and effort its runs use (the project's own, else the app's)
+    //   approveAllBlocked, approveAllCovers, codersCannotAsk   the project's Approve all and coder switches (lib/projects.mjs)
+    projects: st.projects.map(p => {
+      const eff = effectiveSettings(st, p);
+      return { id: p.id, name: p.name, path: p.path, chatMode: chatModeOf(p), ...approvalSummary(st, p), model: eff.model ?? st.model, effort: eff.effort };
+    }),
     // Each project's running total of tokens and cost, by project id, worked out from the replies still in its transcript
     // (totalUsage in lib/pricing.mjs). public/ext-cost.js shows it. st.chats is read directly so that listing a project
     // does not create an empty transcript for it. It is kept out of the project entries, which carry no counters.
@@ -215,39 +281,67 @@ function publicState({ messages = true } = {}) {
     model: st.model,
     advisor: st.advisor,
     advisorAuto: st.advisorAuto,
-    approvals: st.approvals,
+    // The app's own approval mode ('ask', 'auto' or 'all'); a project may set its own (see the project entries above).
+    approvals: APPROVAL_VALUES.includes(st.approvals) ? st.approvals : 'ask',
+    // Whether Approve all also answers the computer-use and browser cards (the app's value; a project may override it).
+    approveAllCovers: approveAllCoversOf(st, null),
     // How many approval cards are waiting for Approve or Deny now. The desktop app counts it to alert the user (desktop/alerts.cjs).
     approvalsWaiting: pendingApprovals.size,
     effort: st.effort,
     theme: st.theme,
+    // Whether the License Agreement is accepted (lib/legal.mjs). The page and the desktop app read legal.required.
+    legal: legalSummary(st),
+    // The message of the last save that failed, or null (lib/store.mjs). While it is set, the change on screen is not in the file
+    // and is lost on restart; public/ext-store-health.js shows it.
+    saveFailure: store.saveFailure(),
     council: st.council ?? DEFAULT_COUNCIL,
     music: st.music ?? MUSIC_DEFAULT,
     relay: st.relay ?? RELAY_DEFAULT,
     sessionMode: st.sessionMode ?? 'transcript',
     coders: CODER_REFS,
+    // The drives a model is running (lib/drive.mjs) and the state of the stop key. The drive bar and pill read them from here, and
+    // every state event carries them, so a window that reconnects sees them at once.
+    drives: listDrives(),
+    driveHotkey: hotkeyStatus(),
+    // How a computer run is paced and how much of its log is kept (each read with a default; lib/computer/policy.mjs).
+    computerSettings: { paceMs: paceOf(st), logDays: retentionOf(st).days, logMB: retentionOf(st).maxBytes / (1024 * 1024) },
     ...(messages ? { messages: log } : { messageCount: log.length, lastMessageTs: log.at(-1)?.ts ?? 0 }),
   };
 }
 
-// A chosen theme is written into the page itself, so it never flashes the other theme while loading.
+// A chosen theme is written into the page itself, so it never flashes the other theme while loading. While the terms are not
+// accepted, data-legal="pending" is written the same way, and one rule in style.css hides the app behind the agreement screen.
+// Both attributes go in with one replace of the opening tag.
 function withTheme(html) {
-  const { theme } = store.get();
-  return theme === 'dark' || theme === 'light' ? html.replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`) : html;
+  const st = store.get();
+  const attrs = [];
+  if (st.theme === 'dark' || st.theme === 'light') attrs.push(`data-theme="${st.theme}"`);
+  if (!termsAccepted(st)) attrs.push('data-legal="pending"');
+  return attrs.length ? html.replace('<html lang="en">', `<html lang="en" ${attrs.join(' ')}>`) : html;
 }
 
 // Asks the user to approve a tool action. Resolves true/false, and false on timeout or stop.
 // A denial can carry the user's reason: finish puts it on the payload (the card object the caller passed), where the caller
 // reads it. Only the answer is resolved, so a reason can never turn a denial into an approval.
+// A card of a computer run carries kind 'computer' and, when it is about a screenshot, frame { run, n, w, h, marker? } (the page
+// draws the picture from /api/computer/frame and puts a ring at the marker). The optional second argument is an object that
+// receives { approvalId }, so the caller can close the card itself. requester.close(approvalId, reason) answers one of this
+// requester's waiting cards as denied and tells the page to remove it ({ type: 'approval-closed', approvalId }); a run that is
+// stopped closes its cards that way.
 function approvalRequester(send, signal) {
-  return payload => new Promise(resolve => {
+  const own = new Set();
+  const request = (payload, handle) => new Promise(resolve => {
     if (signal.aborted) return resolve(false);
     const approvalId = randomUUID();
+    own.add(approvalId);
+    if (handle !== null && typeof handle === 'object') handle.approvalId = approvalId;
     let expired = false;
     let settled = false;
     const finish = (allow, reason = '') => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
       pendingApprovals.delete(approvalId);
+      own.delete(approvalId);
       if (!allow && reason) payload.reason = reason;
       resolve(allow);
       // Every window is told how the card ended, so one that did not answer it can replace the card. Said once.
@@ -271,9 +365,20 @@ function approvalRequester(send, signal) {
       ...(fullDetail ? { hasMore: true } : {}),
       ...(payload.defaultDeny ? { defaultDeny: true } : {}),
       ...(payload.blocked ? { blocked: true } : {}),
+      ...(payload.kind ? { kind: payload.kind } : {}),
+      ...(payload.frame ? { frame: payload.frame } : {}),
     });
     events.publishState('approvals');
   });
+  request.close = (approvalId, reason = '') => {
+    if (!own.has(approvalId)) return false;
+    const entry = pendingApprovals.get(approvalId);
+    if (!entry) return false;
+    entry.finish(false, cleanReason(reason));
+    send({ type: 'approval-closed', approvalId });
+    return true;
+  };
+  return request;
 }
 
 // The model that wrote the newest chat reply in this project. A CLI session resumes only if its own seat wrote it.
@@ -283,18 +388,61 @@ function lastChatModel(projectId) {
   return null;
 }
 
+// Whether this chat turn resumes the model's native CLI session (lib/sessions.mjs openSession: native mode, a CLI that resumes by id,
+// a session that has finished a turn, and no other model answering since). A resumed turn is sent only the new message, so the system
+// text of the first turn is all the session has seen of Build focus.
+function resumesNativeSession(projectId, ref) {
+  if (!sessionEnabled(ref)) return false;
+  const rec = getSession(projectId, ref);
+  if (!(rec?.sessionId && rec.lastUsedAt)) return false;
+  const last = lastChatModel(projectId);
+  return last == null || last === ref;
+}
+
+// Saves the state file at the end of a run and, when the save fails, says so in the run's stream as an error event (B-28): the reply is
+// on screen but is lost on restart. It never throws, so a failed save cannot replace the error a handler is already reporting; the
+// failure also stays in publicState().saveFailure. send is the run's send, or null when no stream is open.
+async function saveReporting(send) {
+  try {
+    await store.saveOrFail();
+    return true;
+  } catch (err) {
+    try {
+      send?.({ type: 'error', message: err.message });
+    } catch {
+      // The stream is gone; saveFailure still tells every window.
+    }
+    return false;
+  }
+}
+
 // tools is the project's CLI options (effectiveSettings(...).tools). Only a chat turn passes it; the advisor stays read-only.
 // denyPatterns is the project's own list (denyPatternsOf), added to the built-in deny list for every command this turn runs.
 // readOnly is a chat turn in a project in plan mode, and every advisor call (a review or the auto-advisor), whether or not
 // the project is in plan mode: streamChat gets readOnly, no ctx (so an API model gets no tools) and no
 // native session (a resumed Codex session keeps the sandbox it started with, and a plan turn must not replace that session).
-async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode, effort, send, signal, requestApproval, agent, tools, denyPatterns = [], readOnly = false, images = [], documents = [] }) {
+// mode is 'ask', 'auto' or 'all' (approvalModeOf in lib/projects.mjs); a read-only run is never given more than the caller's mode
+// can do for it: streamChat maps Gemini to plan and Muse Code to ask for every read-only run, so none gets yolo or --disable-approval.
+// answerBlocked is the project's "Approve all also answers blocked-command cards" switch (it matters only when mode is 'all').
+// covers is { computer, browser }: whether Approve all also answers those cards (approveAllCoversOf); ctx.covers carries it to the
+// computer-use and browser tools, which ask lib/tools.mjs coveredByApproveAll(ctx, 'computer' | 'browser').
+// computer is { settings, task } when the person started a computer run with this message (Start in the Computer panel is the
+// consent; settings come from normalizeRunSettings), else null. The run is made here, where the turn's stream, its tool list and its
+// approvals are, and it is ctx.computer for the whole turn: run.start() comes before the first model request, the system text gains
+// the run's rules, and run.finish() comes before the reply is stored. The reply keeps computerRun (what the run did) and never the
+// provider's blocks, which hold the screenshots. selfStart is true when the model may start a run itself (the project's switch):
+// ctx.startComputer(input) then builds one from the project's remembered choices and shows the start card first.
+// browser is true when the model may use the Browser pane this turn (ctx.browser; the tools register themselves with a `when`).
+async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode, effort, send, signal, requestApproval, agent, tools, denyPatterns = [], answerBlocked = false, covers, readOnly = false, images = [], documents = [], computer = null, selfStart = false, browser = false }) {
   send({ type: 'start', kind, model: ref, label: labelFor(ref) });
   const out = { api: [], tools: [] };
   const ctx = {
     root,
+    ref, // the model asking; the delegate tool reads it for the per-model agent limits (lib/tools/40-delegate.mjs)
     projectId: pid, // files the checkpoints taken before a write (lib/checkpoints.mjs)
     denyPatterns, // the project's own deny patterns, read by denyListHit (lib/tools.mjs)
+    answerBlocked, // Approve all answers blocked-command cards too (lib/tools.mjs answersBlocked)
+    covers, // Approve all also answers computer-use and browser cards (lib/tools.mjs coveredByApproveAll)
     mode,
     signal,
     out,
@@ -302,7 +450,53 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
     approve: requestApproval,
     queueUpdate: payload => queueUpdate({ home: store.HOME, summary: payload.summary, files: payload.files }),
     tools, // read by the delegate tool, which hands it on to the coder
+    browser: browser === true, // the model may use the Browser pane this turn (lib/tools/60-browser.mjs offers its tools on it)
   };
+  // The computer run of this turn, if any: the one the person started, or the one the model starts through ctx.startComputer.
+  let run = null;
+  const makeRun = (settings, task, consent) => {
+    const project = projectById(pid);
+    return createComputerRun({
+      project, settings, task, ref, modelName: labelFor(ref), bridge: computerBridge, approve: requestApproval, closeApproval: requestApproval.close,
+      emit: send, out, signal, budget: { project, log: store.transcript(pid), ref }, mode, covers, consent,
+    });
+  };
+  if (computer) {
+    run = makeRun(computer.settings, computer.task, 'drawer');
+    ctx.computer = run;
+    system = `${system}\n\n${run.systemText}`;
+  } else if (selfStart) {
+    ctx.startComputer = async (input = {}) => {
+      const refuse = output => ({ ok: false, summary: 'Computer use not started', output });
+      if (run) return refuse('A run is already going.');
+      try {
+        const support = await computerSupportDetail(ref);
+        if (support.level === 'no') return refuse(support.message);
+        const probe = await computerBridge.probe();
+        if (!probe.supported) return refuse(probe.reason || 'Computer use is not available on this computer.');
+        const busy = canStartDrive('computer', pid);
+        if (busy) return refuse(busy);
+        const windows = await computerBridge.windows();
+        const chosen = settingsFromPrefs(store.get().computerPrefs?.[pid], { windows, displays: probe.displays, app: input.app, scope: input.scope });
+        const settings = normalizeRunSettings(chosen, { windows, displays: probe.displays, defaults: { paceMs: paceOf(store.get()) } });
+        const task = String(input.task ?? '').trim().slice(0, 2000);
+        if (!task) return refuse('Say what the computer run is for.');
+        run = makeRun(settings, task, 'card');
+        const begun = await run.start();
+        if (!begun.ok) {
+          // A run that could not start at all (busy, no desktop) is dropped, so the model may try again; a declined one stays, since
+          // the person said no for this message.
+          if (!begun.declined) run = null;
+          return refuse(begun.declined ? 'The user did not allow computer use. Do not ask again; say what you need instead.' : begun.message);
+        }
+        if (run.drive) liveComputerRuns.set(run.drive.id, run);
+        ctx.computer = run;
+        return { ok: true, summary: 'Computer use started', output: `Computer use is on for this task. ${run.systemText} Take a screenshot to begin.` };
+      } catch (err) {
+        return refuse(err.message);
+      }
+    };
+  }
   let text = '';
   let error = false;
   // 'length' when the reply stopped at the model's output limit (see onStop in streamChat). The page marks such a reply.
@@ -310,10 +504,27 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
   // One record per model request that reported its tokens (see onUsage in streamChat). They become the reply's usage below.
   const reports = [];
   try {
+    // The computer run starts before the first model request: its checks (and, for a run the model started, its card) come first, and a
+    // run that is not allowed to start ends the turn with a plain note instead of a model call.
+    let go = true;
+    if (run) {
+      const begun = await run.start();
+      if (!begun.ok) {
+        go = false;
+        if (!begun.declined) {
+          error = true;
+          send({ type: 'error', message: begun.message });
+        }
+      } else if (run.drive) {
+        liveComputerRuns.set(run.drive.id, run);
+      }
+    }
     const session = kind === 'chat' && !readOnly ? { projectId: pid, emit: send, lastReplyModel: lastChatModel(pid) } : null;
-    for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => reports.push(rec), onStop: r => { stop = r; } })) {
-      text += delta;
-      send({ type: 'delta', text: delta });
+    if (go) {
+      for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => reports.push(rec), onStop: r => { stop = r; } })) {
+        text += delta;
+        send({ type: 'delta', text: delta });
+      }
     }
   } catch (err) {
     if (!signal.aborted) {
@@ -321,12 +532,25 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
       send({ type: 'error', message: err.message });
     }
   }
+  // The run ends before the reply is stored: it releases the keys, hides the on-screen bar and closes its log, and says what it did.
+  // A stop reason the run already has (Stop, the stop key, a limit) wins over the way the turn ended.
+  let computerRun = null;
+  if (run) {
+    try {
+      computerRun = await run.finish(error ? 'error' : signal.aborted ? 'cancelled' : 'done');
+    } catch (err) {
+      send({ type: 'notice', kind: 'computer', text: `The computer run could not be closed cleanly: ${err.message}` });
+    }
+    for (const [id, live] of liveComputerRuns) if (live === run) liveComputerRuns.delete(id);
+  }
   // A run that finished with nothing to show is reported, not silently dropped.
-  if (!error && !signal.aborted && !text.trim() && !out.tools.length) {
+  if (!error && !signal.aborted && !text.trim() && !out.tools.length && !run?.declined) {
     error = true;
     send({ type: 'error', message: `${labelFor(ref)} finished without a reply. Try again, or lower the effort (the Effort selector).` });
   }
-  const api = out.api.length ? out.api : null;
+  // The provider's blocks of a computer run hold the screenshots and the toolset calls, so they are never kept: a later request
+  // without the toolset would refuse them, and the frames belong to the run log, not to state.json.
+  const api = run ? null : out.api.length ? out.api : null;
   // What the reply used and cost (summarizeUsage in lib/pricing.mjs): tokens and an estimated price for an API model,
   // tokens only for a subscription CLI, and null for the offline echo model. A reply whose model reported no tokens is
   // kept as "not reported". A run that was stopped or failed is marked partial, since its last request may have used
@@ -335,7 +559,7 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
   // The reply's cost goes into the project's running spend once, here, before the reply is stored, so a spend record that
   // starts now begins from the transcript without this reply (lib/budget.mjs). A subscription CLI reply adds nothing.
   accrueReply(projectById(pid), store.transcript(pid), usage);
-  if (text.trim() || out.tools.length || api) {
+  if (text.trim() || out.tools.length || api || (computerRun && computerRun.id)) {
     store.addMessage(pid, {
       role: 'assistant',
       kind,
@@ -343,6 +567,7 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
       content: text,
       ...(out.tools.length ? { tools: out.tools } : {}),
       ...(api ? { api } : {}),
+      ...(computerRun && computerRun.id ? { api: null, computerRun } : {}),
       ...(usage ? { usage } : {}),
       ...(stop ? { stop } : {}),
       ...(signal.aborted ? { aborted: true } : {}),
@@ -369,6 +594,8 @@ async function refuseAtCap(project, messages, ref) {
 async function handleTurn(req, res, { review }) {
   const body = await readBody(req, CHAT_BODY_LIMIT);
   const project = projectById(body.project);
+  // Checked before anything is stored, so no message is saved against a folder that is not there (B-73).
+  if (await folderGone(project)) throw missingFolder(project);
   if (running.has(project.id)) throw httpError(409, 'This project is already running. Use /cancel first.');
 
   const ac = new AbortController();
@@ -388,6 +615,10 @@ async function handleTurn(req, res, { review }) {
 
   try {
     const st = store.get();
+    // What this project's runs use (B-4): its own model, effort and approval mode where it sets them, the app's where it does not.
+    // 'all' is Approve all. Settings that no longer validate read as ask (approvalModeOf).
+    const eff = effectiveSettings(st, project);
+    const mode = approvalModeOf(st, project);
     const log = store.transcript(project.id);
     const root = project.path;
     let ref;
@@ -400,6 +631,9 @@ async function handleTurn(req, res, { review }) {
     // Notices from prompt parts (a part that failed is left out of the prompt). They are sent once the reply's stream opens.
     const promptNotices = [];
     let planMode = false;
+    // The settings of the computer run this message starts (normalizeRunSettings), or null, and the task the person typed.
+    let computerSettings = null;
+    let computerTask = '';
     // Pictures and PDFs that came with this message (never kept: the transcript gets their names and sizes, see below).
     let images = [];
     let documents = [];
@@ -416,9 +650,11 @@ async function handleTurn(req, res, { review }) {
       system = await buildSystem('advisor', { root, projectId: project.id, project, ref, base: [ADVISOR_SYSTEM] });
       messages = advisorMessages({ question, answer: log[answerIdx].content, diff: await workingDiff(root), cwd: root });
     } else {
+      // A message that is not text (an object, a number) used to be sent on as "[object Object]" (B-71).
+      if (body.message != null && typeof body.message !== 'string') throw httpError(400, 'The message must be text.');
       const text = String(body.message ?? '').trim();
       if (!text) throw httpError(400, 'Empty message.');
-      ref = body.model ? parseRef(body.model) : st.model;
+      ref = body.model ? parseRef(body.model) : (eff.model ?? st.model);
       kind = 'chat';
       await refuseAtCap(project, log, ref);
       const { provider } = splitRef(ref);
@@ -433,6 +669,20 @@ async function handleTurn(req, res, { review }) {
       planMode = chatModeOf(project) === 'plan';
       const toolLoop = ownTools && !planMode;
       if (planMode) agent = false;
+      // A computer run is started by the person for this one message (Start in the Computer panel is the consent). Everything that
+      // can refuse it does so here, before the message is stored and before anything is shown on the screen.
+      if (body.computer !== undefined && body.computer !== null && body.computer !== false) {
+        if (planMode) throw httpError(400, 'Plan mode is on, so Plenum will not control the computer here.');
+        const support = await computerSupportDetail(ref);
+        if (support.level === 'no') throw httpError(400, support.message);
+        if (!computerBridge.available) throw httpError(400, 'Computer use needs the desktop app.');
+        const probe = await computerBridge.probe();
+        if (!probe.supported) throw httpError(400, [probe.reason, permissionHelp(process.platform, probe)].filter(Boolean).join(' ') || 'Computer use is not available on this computer.');
+        const busy = canStartDrive('computer', project.id);
+        if (busy) throw httpError(409, busy);
+        computerSettings = normalizeRunSettings(body.computer, { windows: await computerBridge.windows(), displays: probe.displays, defaults: { paceMs: paceOf(st) } });
+        computerTask = text;
+      }
       // Files that came in the body: pictures in `images`, anything in `attachments`. Each is judged by its bytes. Text is
       // checked and wrapped here, a PDF is kept for Claude through an API key, and anything else is refused below.
       const uploads = splitUploads(body);
@@ -453,14 +703,23 @@ async function handleTurn(req, res, { review }) {
       const tooMuch = checkMessageTotals({ images, inline: got.inline, documents });
       if (tooMuch) throw httpError(400, tooMuch);
       question = expanded.text;
-      // The text files go into the last user message for every model, after the message itself.
-      messages = [...historyFor(log, ref, { textOnly: !toolLoop }), { role: 'user', content: withInline(expanded.text, got.inline) }];
+      // The text files go into the last user message for every model, after the message itself. A resumed Native session is sent only
+      // this message, and its system text went with the first turn, so with Build focus on the message carries the one-line reminder
+      // (lib/focus.mjs). The stored message keeps the text as typed. A turn that does not go to the CLI session (Claude through the API,
+      // a computer run, a plan turn) has the focus text in its system prompt and gets no reminder.
+      const viaCliSession = !planMode && !computerSettings && !(provider === 'anthropic' && (await claudeRoute()) === 'api') && resumesNativeSession(project.id, ref);
+      const focusReminder = viaCliSession && buildFocusOf(project) ? `\n\n${FOCUS_REMINDER}` : '';
+      messages = [...historyFor(log, ref, { textOnly: !toolLoop }), { role: 'user', content: withInline(expanded.text, got.inline) + focusReminder }];
       // The project's AGENTS.md, read on every chat turn so an edit shows on the next message. Null when there is none.
       rules = await loadProjectRules(root);
-      system = await buildSystem('chat', { root, projectId: project.id, project, agent: toolLoop, readOnly: planMode, mode: st.approvals === 'auto' ? 'auto' : 'ask', ref, rules, emit: notice => promptNotices.push(notice) });
+      system = await buildSystem('chat', { root, projectId: project.id, project, agent: toolLoop, readOnly: planMode, mode, ref, rules, emit: notice => promptNotices.push(notice) });
       // Only the name and size of each picture and file are saved, never its bytes.
       const kept = describeUploads(images, { inline: got.inline, documents });
-      store.addMessage(project.id, { role: 'user', kind: 'chat', content: text, attached: expanded.attached, ...(kept.length ? { images: kept } : {}) });
+      // A computer run shows as a chip under the message: the apps it may use and whether it sees one window or a display.
+      const computerNote = computerSettings
+        ? { computer: { task: true, apps: computerSettings.scope === 'window' ? [appName(computerSettings.targetWindow.exe)] : computerSettings.allow.map(a => appName(a.exe)), scope: computerSettings.scope } }
+        : {};
+      store.addMessage(project.id, { role: 'user', kind: 'chat', content: text, attached: expanded.attached, ...(kept.length ? { images: kept } : {}), ...computerNote });
       events.publishState('run');
     }
 
@@ -477,15 +736,29 @@ async function handleTurn(req, res, { review }) {
     if (planMode) send({ type: 'notice', text: PLAN_NOTICE });
     if (rules) send({ type: 'notice', text: `Using AGENTS.md (${rules.text.length} characters) from this project.` });
     for (const notice of promptNotices) send(notice);
+    // Approve all is announced once per project (and thread) per launch, on a chat turn that can act. The red button and the Mode
+    // menu keep saying it after that. A plan-mode turn changes nothing, so it does not use up the notice.
+    const answerBlocked = approveAllBlockedOf(project);
+    if (mode === 'all' && kind === 'chat' && !planMode) {
+      const key = `${project.id}:${typeof body.thread === 'string' ? body.thread.slice(0, 64) : ''}`;
+      if (!approveAllSaid.has(key)) {
+        approveAllSaid.add(key);
+        send({ type: 'notice', kind: 'approve-all', text: answerBlocked ? APPROVE_ALL_BLOCKED_NOTICE : APPROVE_ALL_NOTICE });
+      }
+    }
 
-    const mode = st.approvals === 'auto' ? 'auto' : 'ask';
     const requestApproval = approvalRequester(send, ac.signal);
     // Only a chat turn gets the project's CLI options. A review (advisor) is read-only, like the council and the reviewers.
     // A plan-mode turn gets none either, as no relay hop does: nothing in the options can widen a read-only run.
     const tools = kind === 'chat' && !planMode ? effectiveSettings(st, project).tools : undefined;
     const denyPatterns = kind === 'chat' ? denyPatternsOf(project) : [];
     const turn = await runTurn({
-      ref, system, messages, root, kind, projectId: project.id, mode, effort: st.effort, send, signal: ac.signal, requestApproval, agent: agent && kind === 'chat', tools, denyPatterns, readOnly: review || planMode, images, documents,
+      ref, system, messages, root, kind, projectId: project.id, mode, effort: eff.effort, send, signal: ac.signal, requestApproval, agent: agent && kind === 'chat', tools, denyPatterns, answerBlocked, covers: approveAllCoversOf(st, project), readOnly: review || planMode, images, documents,
+      // The computer run this message starts (the person pressed Start in the Computer panel), the project's switch that lets the model
+      // start one itself, and whether the model may use the Browser pane (on unless the pane's switch is off; desktop app only).
+      computer: computerSettings ? { settings: computerSettings, task: computerTask } : null,
+      selfStart: kind === 'chat' && !planMode && !computerSettings && computerSelfStartOf(project) && computerBridge.available,
+      browser: kind === 'chat' && !planMode && browserAvailable() && st.browser?.agent !== false,
     });
     // A plan turn runs outside the model's native CLI session, so that session has not seen it. Forgetting the session makes
     // the next normal turn start a new one with the whole chat, plan included.
@@ -539,7 +812,7 @@ async function handleTurn(req, res, { review }) {
     clearTimeout(timer);
     running.delete(project.id);
     events.publishState('run');
-    await store.persist();
+    await saveReporting(streaming ? send : null);
     if (streaming) res.end();
   }
 }
@@ -579,7 +852,9 @@ async function handleCompact(req, res) {
   const before = log.filter(m => m.kind === 'chat').length;
   if (before < 2) throw httpError(400, 'There is not enough conversation to compact yet.');
 
-  const st = store.get();
+  // st is the app state with this project's own model applied (B-4): st.model is the model the summary is written by.
+  const app = store.get();
+  const st = { ...app, model: effectiveSettings(app, project).model ?? app.model };
   const ac = new AbortController();
   running.set(project.id, ac);
   events.publishState('run');
@@ -614,7 +889,7 @@ async function handleCompact(req, res) {
     log.length = 0;
     forgetProjectSessions(project.id);
     store.addMessage(project.id, { role: 'user', kind: 'chat', compact: true, content: `${COMPACT_HEAD}\n\n${summary}` });
-    await store.persist();
+    await store.saveOrFail();
     return json(res, 200, { ...publicState(), compacted: before });
   } finally {
     clearTimeout(timer);
@@ -633,7 +908,12 @@ const PLAN_TIMEOUT_MS = 10 * 60 * 1000;
 // the question first; anything it throws before the stream starts is answered as plain JSON.
 // kind names the run on the events channel (lib/events.mjs): 'council', 'build', 'relay', or what a route module passes as
 // { kind } in the last argument ('run' when none is given). Every event of the run carries the run's id, in the stream and there.
-async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'run' } = {}) {
+// after, when given, is called once the run's events are over and before done, whether the run ended well or not; it stores what the run
+// leaves in the chat. The state file is saved at the end (saveReporting), so a failed save is an error event in this stream (B-28).
+async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'run', after } = {}) {
+  // A run in a folder that is not there is refused before it starts (B-73: council, build, compare and relay). This check comes
+  // before the busy check, so nothing awaits between that check and the run being marked as running.
+  if (await folderGone(project)) throw missingFolder(project);
   if (running.has(project.id)) throw httpError(409, 'This project is already running. Use /cancel first.');
   const ac = new AbortController();
   running.set(project.id, ac);
@@ -647,6 +927,15 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
     if (streaming && !res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(ev)}\n\n`);
   };
   res.on('close', () => { if (!res.writableFinished) ac.abort(); });
+  // What the run leaves in the chat is stored here, once, however the run ended. A failure of the hook is reported in the stream.
+  const finishRun = async () => {
+    if (typeof after !== 'function') return;
+    try {
+      await after();
+    } catch (err) {
+      send({ type: 'error', message: err.message });
+    }
+  };
   try {
     const run = await makeRun({ signal: ac.signal, send });
     streaming = true;
@@ -655,16 +944,19 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
       onEvent?.(ev);
       send(ev);
     }
+    await finishRun();
     send({ type: 'done', aborted: ac.signal.aborted, timedOut });
   } catch (err) {
     if (!streaming) throw err;
+    // What the run left in the chat is stored before the stream says anything more, as in the normal end.
+    await finishRun();
     send({ type: 'error', message: err.message });
     send({ type: 'done', aborted: ac.signal.aborted, timedOut });
   } finally {
     clearTimeout(timer);
     running.delete(project.id);
     events.publishState('run');
-    await store.persist();
+    await saveReporting(streaming ? send : null);
     if (streaming) res.end();
   }
 }
@@ -691,7 +983,8 @@ async function handleCouncil(req, res) {
   if (!question) throw httpError(400, 'Ask the council a question first.');
   let config;
   try {
-    config = normalizeCouncil(body.config ?? store.get().council ?? DEFAULT_COUNCIL);
+    // The project's own council when it has one (B-4), else the app's saved one; a council sent in the body wins.
+    config = normalizeCouncil(body.config ?? effectiveSettings(store.get(), project).council ?? DEFAULT_COUNCIL);
   } catch (err) {
     throw httpError(400, err.message);
   }
@@ -705,19 +998,22 @@ async function handleCouncil(req, res) {
     if (ev.type === 'council-start') saved.seatMeta = ev.seats;
     if (ev.type === 'seat-done') saved.seats[ev.seat] = { ...(saved.seats[ev.seat] ?? {}), [`round${ev.round}`]: ev.text, error: ev.error };
     if (ev.type === 'consensus') saved.result = ev.result;
-  }, { kind: 'council' });
-  if (saved.result || Object.keys(saved.seats).length) {
-    const content = saved.result ? councilText(saved.result) : 'The council was stopped before it reached a verdict.';
-    const seats = saved.seatMeta.map(meta => ({ ...meta, ...(saved.seats[meta.id] ?? {}) }));
-    store.addMessage(project.id, { role: 'assistant', kind: 'council', content, council: { question, seats, result: saved.result } });
-    await store.persist();
-  }
+  }, {
+    kind: 'council',
+    // Stored before the stream says done, and saved with the run's final save, so a failed save shows in the stream (B-28).
+    after: () => {
+      if (!(saved.result || Object.keys(saved.seats).length)) return;
+      const content = saved.result ? councilText(saved.result) : 'The council was stopped before it reached a verdict.';
+      const seats = saved.seatMeta.map(meta => ({ ...meta, ...(saved.seats[meta.id] ?? {}) }));
+      store.addMessage(project.id, { role: 'assistant', kind: 'council', content, council: { question, seats, result: saved.result } });
+    },
+  });
 }
 
 async function handlePlan(req, res) {
   const body = await readBody(req);
   const project = projectById(body.project);
-  const cfg = savedCouncil();
+  const cfg = savedCouncil(project);
   const ref = body.planner ? parseRef(body.planner) : cfg.moderator.ref;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), PLAN_TIMEOUT_MS);
@@ -743,7 +1039,7 @@ async function handleBuild(req, res) {
   // checked. The council and the planner stay read-only and are not touched by plan mode.
   if (chatModeOf(project) === 'plan') throw httpError(409, PLAN_BUILD_REFUSED);
   if (!Array.isArray(body.tasks) || !body.tasks.length) throw httpError(400, 'There are no tasks to run. Make a plan first.');
-  const cfg = savedCouncil();
+  const cfg = savedCouncil(project);
   const reviewer = body.reviewer
     ? { ref: parseRef(body.reviewer), effort: body.effort ?? 'high' }
     : { ref: cfg.moderator.ref, effort: cfg.moderator.effort };
@@ -752,30 +1048,37 @@ async function handleBuild(req, res) {
   const tools = effectiveSettings(store.get(), project).tools;
   // The coders also get the project's id (for checkpoints) and its own deny patterns. The reviewer gets neither.
   const denyPatterns = denyPatternsOf(project);
+  // The mode the coders run in is the project's (B-4): Gemini and Codex coders no longer need Auto-approve (amend-22), and
+  // "Coders that cannot ask" can still make a project refuse them.
+  const mode = approvalModeOf(store.get(), project);
+  const codersCannotAsk = codersCannotAskOf(project);
   const saved = { goal, tasks: [], results: {}, review: null };
   await streamForProject(req, res, project, async ({ signal, send }) => {
     store.addMessage(project.id, { role: 'user', kind: 'build', content: `Build: ${goal || 'the agreed plan'}` });
-    const mode = store.get().approvals === 'auto' ? 'auto' : 'ask';
-    return runBuild({ tasks: body.tasks, root: project.path, mode, signal, approve: approvalRequester(send, signal), reviewer, goal, tools, projectId: project.id, denyPatterns });
+    return runBuild({ tasks: body.tasks, root: project.path, mode, signal, approve: approvalRequester(send, signal), reviewer, goal, tools, projectId: project.id, denyPatterns, codersCannotAsk });
   }, ev => {
     if (ev.type === 'build-start') saved.tasks = ev.tasks;
     if (ev.type === 'task-done') saved.results[ev.id] = { ok: ev.ok, summary: ev.summary, changed: ev.changed, outOfScope: ev.outOfScope, error: ev.error };
     if (ev.type === 'review') saved.review = ev.result;
-  }, { kind: 'build' });
-  const done = Object.values(saved.results);
-  if (done.length) {
-    const ok = done.filter(r => r.ok).length;
-    const verdict = saved.review ? ` Reviewer: ${saved.review.verdict === 'approve' ? 'approved' : 'changes needed'}.` : '';
-    store.addMessage(project.id, { role: 'assistant', kind: 'build', content: `${ok} of ${done.length} tasks finished.${verdict}`, build: saved });
-    await store.persist();
-  }
+  }, {
+    kind: 'build',
+    // Stored before the stream says done, and saved with the run's final save, so a failed save shows in the stream (B-28).
+    after: () => {
+      const done = Object.values(saved.results);
+      if (!done.length) return;
+      const ok = done.filter(r => r.ok).length;
+      const verdict = saved.review ? ` Reviewer: ${saved.review.verdict === 'approve' ? 'approved' : 'changes needed'}.` : '';
+      store.addMessage(project.id, { role: 'assistant', kind: 'build', content: `${ok} of ${done.length} tasks finished.${verdict}`, build: saved });
+    },
+  });
 }
 
 // ---------- relay between seats ----------
 
-// Settings for relays. Missing or bad values are refused with a plain message.
-function normalizeRelay(input) {
-  const r = { ...RELAY_DEFAULT, ...(store.get().relay ?? {}), ...(input ?? {}) };
+// Settings for relays. Missing or bad values are refused with a plain message. `base` is what a missing value falls back to: the
+// app's saved relay settings by default, or a project's effective relay (B-4) when a run is for one project.
+function normalizeRelay(input, base = store.get().relay) {
+  const r = { ...RELAY_DEFAULT, ...(base ?? {}), ...(input ?? {}) };
   const countdownSec = Number(r.countdownSec);
   if (!Number.isInteger(countdownSec) || countdownSec < 0 || countdownSec > 10) throw httpError(400, 'The countdown must be a whole number from 0 to 10 seconds.');
   if (r.hops !== null && (!Number.isInteger(r.hops) || r.hops < 1 || r.hops > 50)) throw httpError(400, 'The hop limit must be empty (no limit) or a whole number from 1 to 50.');
@@ -792,10 +1095,12 @@ function relayLogFor(projectId) {
   return relayLogs.get(projectId);
 }
 
-// The council seats, each with its newest reply in this project's chat (empty when it has not answered).
-function relaySeats(projectId) {
-  const seats = normalizeCouncil(store.get().council ?? DEFAULT_COUNCIL).seats;
-  const log = store.transcript(projectId);
+// The council seats of this project (its own council when it has one, else the app's: B-4), each with its newest reply in the
+// project's chat (empty when it has not answered). `project` is a project record or a project id.
+function relaySeats(project) {
+  const record = typeof project === 'string' ? projectById(project) : project;
+  const seats = normalizeCouncil(effectiveSettings(store.get(), record).council ?? DEFAULT_COUNCIL).seats;
+  const log = store.transcript(record.id);
   return seats.map(seat => {
     let reply = '';
     for (let i = log.length - 1; i >= 0 && !reply; i--) {
@@ -833,13 +1138,15 @@ function saveRelayHop(project, seats, ev, kind) {
 async function handleRelaySend(req, res) {
   const body = await readBody(req);
   const project = projectById(body.project);
-  const seats = relaySeats(project.id);
+  const seats = relaySeats(project);
   const source = relaySource(seats, String(body.sourceId ?? ''));
   const targets = Array.isArray(body.targets) ? body.targets.map(String) : [];
   const broadcast = targets.length === 1 && targets[0] === 'all';
   if (!broadcast && targets.length !== 1) throw httpError(400, 'Choose one seat to send to, or all seats.');
   const note = String(body.note ?? '').trim().slice(0, 2000);
-  const mode = store.get().approvals === 'auto' ? 'auto' : 'ask';
+  // Relay hops are read-only runs: whatever the mode, Gemini gets plan and Muse Code ask (lib/providers.mjs), and relay.mjs maps
+  // 'all' to 'ask' anyway. The project's mode is still what is passed.
+  const mode = approvalModeOf(store.get(), project);
   const tools = effectiveSettings(store.get(), project).tools;
   const kind = broadcast ? 'broadcast' : 'send';
   return streamForProject(req, res, project, async ({ signal }) => {
@@ -859,9 +1166,11 @@ async function handleRelaySend(req, res) {
 async function handleRelayRoute(req, res) {
   const body = await readBody(req);
   const project = projectById(body.project);
-  const seats = relaySeats(project.id);
+  const seats = relaySeats(project);
   const source = relaySource(seats, String(body.sourceId ?? ''));
-  const settings = normalizeRelay({});
+  const st = store.get();
+  const eff = effectiveSettings(st, project);
+  const settings = normalizeRelay({}, eff.relay);
   const input = body.route ?? {};
   let route;
   try {
@@ -873,8 +1182,7 @@ async function handleRelayRoute(req, res) {
     throw httpError(400, err.message);
   }
   const note = String(body.note ?? '').trim().slice(0, 2000);
-  const st = store.get();
-  const mode = st.approvals === 'auto' ? 'auto' : 'ask';
+  const mode = approvalModeOf(st, project);
   const log = relayLogFor(project.id);
   // A route starts unpaused. The pause is cleared only once streamForProject accepts the route, so a route refused for a busy
   // project leaves the pause of the run that is going on as it was.
@@ -885,8 +1193,8 @@ async function handleRelayRoute(req, res) {
       isPaused: () => relayPaused.has(project.id),
       onHop: rec => log.push(rec),
       mode,
-      tools: effectiveSettings(st, project).tools,
-      history: historyFor(store.transcript(project.id), st.model, { textOnly: true }),
+      tools: eff.tools,
+      history: historyFor(store.transcript(project.id), eff.model ?? st.model, { textOnly: true }),
       dedupe: settings.dedupe,
       note,
     });
@@ -907,7 +1215,7 @@ async function handleApi(req, res, url) {
   const st = store.get();
   // Route modules in lib/routes/ answer their own endpoints first.
   const ext = findExtRoute(req.method, url.pathname);
-  if (ext) return await ext.handler({ req, res, url, json, readBody, httpError, store, projectById, streamForProject, publicState, approvalRequester, running, relaySeats, events });
+  if (ext) return await ext.handler({ req, res, url, json, readBody, httpError, store, projectById, streamForProject, publicState, approvalRequester, running, relaySeats, events, computerRun: id => liveComputerRuns.get(id) ?? null });
   switch (`${req.method} ${url.pathname}`) {
     // One server-sent stream per window (lib/events.mjs). The first event is hello, with the state without messages.
     case 'GET /api/events':
@@ -919,58 +1227,154 @@ async function handleApi(req, res, url) {
     case 'GET /api/state':
       return json(res, 200, publicState());
 
-    case 'GET /api/tree':
-      return json(res, 200, { files: await listTree(projectById(url.searchParams.get('project')).path) });
+    case 'GET /api/tree': {
+      const project = projectById(url.searchParams.get('project'));
+      if (await folderGone(project)) throw missingFolder(project);
+      return json(res, 200, { files: await listTree(project.path) });
+    }
 
     case 'POST /api/projects': {
       const body = await readBody(req);
       const abs = await resolveFolder(body.path);
       const id = projectId(abs);
       if (!st.projects.some(p => p.id === id)) {
-        st.projects.push({ id, name: String(body.name ?? '').trim() || path.basename(abs), path: abs });
+        // The name is capped (B-72) after the fallback, so both the typed name and the folder's name are bounded.
+        const name = (String(body.name ?? '').trim() || path.basename(abs)).slice(0, PROJECT_NAME_MAX).replace(/[\ud800-\udbff]$/, '');
+        const project = { id, name, path: abs };
+        // A folder that was forgotten and is added again (the id comes from the path) gets back what it had saved: its limits,
+        // its running spend, plan mode, deny patterns and the rest of its settings (B-30; see keepForgotten).
+        const kept = st.forgotten?.[id];
+        if (kept) {
+          if (kept.settings) project.settings = kept.settings;
+          if (kept.spend) project.spend = kept.spend;
+          delete st.forgotten[id];
+        }
+        st.projects.push(project);
       }
       st.activeProject = id;
-      await store.persist();
+      await store.saveOrFail();
       return json(res, 200, publicState());
     }
 
     case 'POST /api/projects/remove': {
       const body = await readBody(req);
       if (running.has(body.project)) throw httpError(409, 'That project is busy. Use /cancel first.');
+      keepForgotten(st, st.projects.find(p => p.id === body.project));
       st.projects = st.projects.filter(p => p.id !== body.project);
       if (st.activeProject === body.project) st.activeProject = st.projects[0]?.id ?? null;
-      await store.persist();
+      await store.saveOrFail();
       return json(res, 200, publicState());
     }
 
     case 'POST /api/settings': {
       const body = await readBody(req);
-      if (body.model) st.model = parseRef(body.model);
-      if (body.advisor === 'off') st.advisor = null;
-      else if (body.advisor) st.advisor = parseRef(body.advisor);
-      if (typeof body.advisorAuto === 'boolean') st.advisorAuto = body.advisorAuto;
-      if (body.approvals === 'ask' || body.approvals === 'auto') st.approvals = body.approvals;
-      if (body.effort !== undefined) {
-        if (!EFFORTS.includes(body.effort)) throw httpError(400, `Effort must be one of: ${EFFORTS.join(', ')}.`);
-        st.effort = body.effort;
+      // Every field is checked and kept in `next` first, and st is changed only when all of them passed (B-32). A refused save
+      // leaves the live state, and so the next run, exactly as it was.
+      const next = {};
+      if (body.model) next.model = parseRef(body.model);
+      if (body.advisor === 'off') next.advisor = null;
+      else if (body.advisor) next.advisor = parseRef(body.advisor);
+      if (typeof body.advisorAuto === 'boolean') next.advisorAuto = body.advisorAuto;
+      // 'all' is Approve all. A value that is not one of the three is refused, not ignored.
+      if (body.approvals !== undefined) {
+        if (!APPROVAL_VALUES.includes(body.approvals)) throw httpError(400, 'Approvals must be ask, auto or all.');
+        next.approvals = body.approvals;
       }
-      if (body.theme !== undefined) {
-        if (!THEMES.includes(body.theme)) throw httpError(400, `Theme must be one of: ${THEMES.join(', ')}.`);
-        st.theme = body.theme;
-      }
-      if (body.council !== undefined) {
+      // Whether Approve all also answers the computer-use and browser cards (both on unless turned off). A project may override it.
+      if (body.approveAllCovers !== undefined) {
         try {
-          st.council = normalizeCouncil(body.council);
+          next.approveAllCovers = normalizeAppCovers(body.approveAllCovers, st.approveAllCovers);
         } catch (err) {
           throw httpError(400, err.message);
         }
       }
-      if (body.music !== undefined) st.music = normalizeMusic({ ...(st.music ?? MUSIC_DEFAULT), ...body.music });
-      if (body.relay !== undefined) st.relay = normalizeRelay(body.relay);
-      if (body.sessionMode === 'native' || body.sessionMode === 'transcript') st.sessionMode = body.sessionMode;
-      if (body.activeProject) st.activeProject = projectById(body.activeProject).id;
-      await store.persist();
+      if (body.effort !== undefined) {
+        if (!EFFORTS.includes(body.effort)) throw httpError(400, `Effort must be one of: ${EFFORTS.join(', ')}.`);
+        next.effort = body.effort;
+      }
+      if (body.theme !== undefined) {
+        if (!THEMES.includes(body.theme)) throw httpError(400, `Theme must be one of: ${THEMES.join(', ')}.`);
+        next.theme = body.theme;
+      }
+      if (body.council !== undefined) {
+        try {
+          next.council = normalizeCouncil(body.council);
+        } catch (err) {
+          throw httpError(400, err.message);
+        }
+      }
+      if (body.music !== undefined) next.music = normalizeMusic({ ...(st.music ?? MUSIC_DEFAULT), ...body.music });
+      if (body.relay !== undefined) next.relay = normalizeRelay(body.relay);
+      if (body.sessionMode === 'native' || body.sessionMode === 'transcript') next.sessionMode = body.sessionMode;
+      // The pause limit of a model-driven run, in minutes, and the stop key's override (null for the default key). Both are
+      // checked by lib/drive.mjs and read there from state.json (driveIdleMinutes, driveStopKey).
+      if (body.driveIdleMinutes !== undefined) next.driveIdleMinutes = normalizeIdleMinutes(body.driveIdleMinutes);
+      if (body.driveStopKey !== undefined) next.driveStopKey = normalizeStopOverride(body.driveStopKey);
+      // How a computer run is paced and how long its log is kept (lib/computer/policy.mjs): the pause between actions in milliseconds
+      // (100 to 2000), and the days (1 to 90) and megabytes (50 to 5000) of run log to keep. null puts the default back.
+      if (body.computerPaceMs !== undefined) next.computerPaceMs = normalizePaceMs(body.computerPaceMs);
+      if (body.computerLogDays !== undefined) next.computerLogDays = normalizeLogDays(body.computerLogDays);
+      if (body.computerLogMB !== undefined) next.computerLogMB = normalizeLogMB(body.computerLogMB);
+      if (body.activeProject) next.activeProject = projectById(body.activeProject).id;
+      Object.assign(st, next);
+      await store.saveOrFail();
       return json(res, 200, publicState());
+    }
+
+    // Changes only the approval settings of one project and leaves every other setting of it as it is (POST /api/project-settings
+    // replaces the whole object, so the Mode menu uses this). Every key is optional, and at least one must be sent:
+    //   approvals          'ask', 'auto' or 'all'; null or '' follows the app ("Use app default")
+    //   approveAllBlocked  true or false: Approve all also answers blocked-command cards
+    //   approveAllCovers   { computer, browser }, each true, false or null (null follows the app)
+    //   codersCannotAsk    'run' or 'refuse'
+    // The answer is the project's approvalSummary (lib/projects.mjs), the same fields its entry in the page state carries.
+    case 'POST /api/project-approvals': {
+      const body = await readBody(req);
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) throw httpError(400, 'Send an object with the project id and the approval setting to change.');
+      const project = projectById(body.project);
+      const next = project.settings && typeof project.settings === 'object' && !Array.isArray(project.settings) ? { ...project.settings } : {};
+      let changed = false;
+      try {
+        if (body.approvals !== undefined) {
+          next.approvals = normalizeProjectSettings({ approvals: body.approvals }).approvals;
+          changed = true;
+        }
+        if (body.approveAllBlocked !== undefined) {
+          if (normalizeProjectSettings({ approveAllBlocked: body.approveAllBlocked }).approveAllBlocked) next.approveAllBlocked = true;
+          else delete next.approveAllBlocked;
+          changed = true;
+        }
+        if (body.approveAllCovers !== undefined) {
+          if (body.approveAllCovers === null || typeof body.approveAllCovers !== 'object' || Array.isArray(body.approveAllCovers)) {
+            if (body.approveAllCovers !== null) normalizeProjectSettings({ approveAllCovers: body.approveAllCovers });
+            delete next.approveAllCovers;
+          } else {
+            const merged = { ...(next.approveAllCovers && typeof next.approveAllCovers === 'object' ? next.approveAllCovers : {}) };
+            for (const [key, value] of Object.entries(body.approveAllCovers)) {
+              if (value === null) delete merged[key];
+              else merged[key] = value;
+            }
+            const covers = normalizeProjectSettings({ approveAllCovers: merged }).approveAllCovers;
+            if (covers) next.approveAllCovers = covers;
+            else delete next.approveAllCovers;
+          }
+          changed = true;
+        }
+        if (body.codersCannotAsk !== undefined) {
+          if (normalizeProjectSettings({ codersCannotAsk: body.codersCannotAsk }).codersCannotAsk === 'refuse') next.codersCannotAsk = 'refuse';
+          else delete next.codersCannotAsk;
+          changed = true;
+        }
+      } catch (err) {
+        throw httpError(400, err.message);
+      }
+      if (!changed) throw httpError(400, 'Send approvals, approveAllBlocked, approveAllCovers or codersCannotAsk.');
+      // A project that is left with nothing but "follow the app" goes back to having no settings.
+      if (Object.entries(next).some(([key, value]) => !(key === 'approvals' && value === null))) project.settings = next;
+      else delete project.settings;
+      await store.saveOrFail();
+      events.publishState('settings');
+      return json(res, 200, { project: project.id, ...approvalSummary(store.get(), project) });
     }
 
     case 'POST /api/clear': {
@@ -980,7 +1384,7 @@ async function handleApi(req, res, url) {
       keepArchive(project.id, [...store.transcript(project.id)], 'clear');
       store.transcript(project.id).length = 0;
       forgetProjectSessions(project.id);
-      await store.persist();
+      await store.saveOrFail();
       return json(res, 200, publicState());
     }
 
@@ -1061,7 +1465,8 @@ async function handleApi(req, res, url) {
       return json(res, 200, {
         claude: providers.anthropic.route === 'cli'
           ? { route: 'cli', connected: cli.loggedIn, email: cli.email, plan: cli.plan }
-          : { route: 'api', connected: providers.anthropic.credentials, source: providers.anthropic.source },
+          // refused is set when the only credential found is a Claude subscription token, which the API route does not send.
+          : { route: 'api', connected: providers.anthropic.credentials, source: providers.anthropic.source, ...(providers.anthropic.refused ? { refused: providers.anthropic.refused } : {}) },
         muse: { installed: providers.muse.installed, signedIn: museSignedIn(), metaApiKey: providers.muse.metaApiKey },
         gemini: { installed: providers.gemini.installed, signedIn: providers.gemini.signedIn, email: providers.gemini.email },
         // The Codex CLI prints its login status on stderr, so both streams are checked.
@@ -1073,6 +1478,8 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       const key = String(body.key ?? '').trim();
       if (key.length < 20 || key.length > 300 || /\s/.test(key)) throw httpError(400, 'That does not look like an API key.');
+      // A Claude subscription token (sk-ant-oat...) is never saved or sent to the API; it works only inside Claude Code.
+      if (isSubscriptionToken(key)) throw httpError(400, SUBSCRIPTION_TOKEN_REFUSAL);
       // A save that would be refused (no keychain, or a Node-only run) stops before the key is sent to Anthropic.
       try {
         assertCanSave();
@@ -1166,11 +1573,20 @@ const server = http.createServer(async (req, res) => {
     // A request from another site is refused before the token is looked at (the Host check above does the same for DNS rebinding).
     if (req.method === 'POST' && req.headers.origin && !ORIGINS.has(req.headers.origin)) throw httpError(403, 'Cross-origin request blocked.');
     // Every /api/ request, GET included, must carry this launch's token (lib/auth.mjs). The page and the other files are not gated.
-    if (url.pathname.startsWith('/api/')) {
+    // One GET is let through without it: an artifact preview, which a sandboxed frame loads and which cannot send a header
+    // (lib/routes/artifacts.mjs). Its address holds a random id (122 bits) that lives for an hour, the content is the model's own
+    // reply, and its response carries its own policy (sandbox, no network, frame-ancestors 'self'), so it reaches nothing else.
+    const tokenFree = req.method === 'GET' && url.pathname === '/api/artifacts/view';
+    if (url.pathname.startsWith('/api/') && !tokenFree) {
       const bad = checkRequest(req);
       if (bad) throw bad;
     }
     if (req.method === 'POST' && !String(req.headers['content-type'] ?? '').startsWith('application/json')) throw httpError(415, 'Send JSON.');
+
+    // The terms gate (lib/legal.mjs): until the License Agreement is accepted, every POST except the legal ones, and the reads that
+    // reach a provider, answer 403 with terms: true. It runs before any route, so no provider can be reached around it.
+    const gate = termsGate({ method: req.method, pathname: url.pathname, route: findExtRoute(req.method, url.pathname), st: store.get() });
+    if (gate) throw gate;
 
     if (req.method === 'POST' && url.pathname === '/api/chat') return await handleTurn(req, res, { review: false });
     if (req.method === 'POST' && url.pathname === '/api/review') return await handleTurn(req, res, { review: true });
@@ -1193,7 +1609,7 @@ const server = http.createServer(async (req, res) => {
     if (res.headersSent) return res.end();
     // Marks the token refusal, so a page can tell it from a provider's own 401 (an invalid API key) that a route passes on.
     if (isRefusal(err)) res.setHeader('x-plenum-auth', 'token');
-    json(res, err.status ?? 400, { error: err.message });
+    json(res, err.status ?? 400, err.terms === true ? { error: err.message, terms: true } : { error: err.message });
   }
 });
 

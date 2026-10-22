@@ -21,10 +21,16 @@
   const MISSING = 'The file is missing now, so a restore creates it empty.';
   const BINARY = 'Binary file, no diff.';
   const TOO_LARGE = 'The file is too large to compare.';
+  // The seconds a restore card waits: the server stops waiting after the same five minutes (APPROVAL_TIMEOUT_MS in server.mjs).
+  const APPROVAL_SECONDS = 300;
+  const REASON = 'Reason for denying (optional)';
+  // Shown on the card while plan mode is on (amend-31): a restore is the person's own change, so it goes ahead.
+  const PLAN_NOTICE = 'Plan mode is on: the model will not write files, but your own change here is saved.';
 
   // Counts the loads, so a late reply never paints over a newer drawer.
   let loadSeq = 0;
-  // The restore in progress, or null: { ctl, root }. Only one runs at a time.
+  // The restore in progress, or null: { ctl, root, answered }. Only one runs at a time. answered is set once the person has
+  // answered its card, after which closing the drawer no longer cancels the restore.
   let pending = null;
   // Whether the list is grouped by file. It stays as it was left while the page is open.
   let grouped = false;
@@ -273,8 +279,8 @@
 
   async function restore(view, item) {
     if (pending) return;
-    const ctl = new AbortController();
-    pending = { ctl, root: view.root };
+    const run = { ctl: new AbortController(), root: view.root, answered: false };
+    pending = run;
     lock(view, true);
     setStatus(view, 'Checking the files…', '');
     // Becomes true once the stream says how the restore ended. A stream that ends without that was cut short.
@@ -285,7 +291,7 @@
       const res = await MuseUI.request('/api/checkpoints/restore', {
         method: 'POST',
         body: { project: view.project.id, id: item.id },
-        signal: ctl.signal,
+        signal: run.ctl.signal,
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -295,7 +301,7 @@
         MuseUI.claimRun?.(ev.runId);
         if (ev.type === 'approval') {
           setStatus(view, 'Waiting for your approval…', '');
-          showApproval(view, ev, item);
+          showApproval(view, ev, item, run);
         } else if (ev.type === 'restored') {
           ended = true;
           const files = Array.isArray(ev.files) ? ev.files : [];
@@ -304,7 +310,9 @@
           MuseUI.toast(files.length === 1 ? `Restored ${files[0]}` : `Restored ${files.length} files`);
         } else if (ev.type === 'declined') {
           ended = true;
-          setStatus(view, 'Nothing was restored.', '');
+          // The reason, if one was typed, is shown here only. Nothing else reads it.
+          const reason = typeof ev.reason === 'string' ? ev.reason.trim() : '';
+          setStatus(view, reason ? `Nothing was restored. Your reason: ${reason}` : 'Nothing was restored.', '');
         } else if (ev.type === 'error') {
           ended = true;
           setStatus(view, String(ev.message || 'The restore failed.'), 'bad');
@@ -312,8 +320,12 @@
       });
       if (!ended) setStatus(view, 'The restore stopped before it finished. Nothing was changed.', '');
     } catch (err) {
-      if (err.name === 'AbortError') setStatus(view, 'The restore was cancelled. Nothing was changed.', '');
-      else setStatus(view, err.message, 'bad');
+      if (err.name === 'AbortError') {
+        // The drawer was closed while the restore waited, so it was cancelled. The toast says so, since the drawer is hidden.
+        const text = 'The restore was cancelled. Nothing was changed.';
+        setStatus(view, text, '');
+        MuseUI.toast(text);
+      } else setStatus(view, err.message, 'bad');
     } finally {
       view.ask.replaceChildren();
       pending = null;
@@ -323,7 +335,10 @@
 
   // The approval card the server asked for. It uses the look of the approval card in the chat. Approve and Deny answer
   // through /api/approve, the same call the chat's card makes. Show changes puts the diff of this restore above the buttons.
-  function showApproval(view, ev, item) {
+  // The card counts down to the server's timeout from the moment it is shown, as the chat's card does. Deny takes an optional
+  // reason; the server returns it with the denial and the drawer shows it. It goes to no model: a restore has no chat step.
+  // run is the restore this card belongs to: { ctl, root, answered }.
+  function showApproval(view, ev, item, run) {
     const card = make('div', 'approval ext-checkpoints-card');
     card.setAttribute('role', 'alertdialog');
     card.setAttribute('aria-label', 'Approval needed');
@@ -331,20 +346,43 @@
     head.prepend(MuseUI.icon('shield'));
     card.append(head, MuseUI.span('approval-summary', String(ev.summary ?? '')));
     if (ev.detail) card.append(make('pre', 'approval-detail', String(ev.detail)));
+    if (currentProject()?.chatMode === 'plan') card.append(MuseUI.span('approval-note', PLAN_NOTICE));
     const changes = make('div', 'ext-checkpoints-changes');
     changes.hidden = true;
+    const why = make('input', 'approval-reason');
+    why.type = 'text';
+    why.maxLength = 300;
+    why.placeholder = REASON;
+    why.setAttribute('aria-label', REASON);
     const actions = make('div', 'approval-actions');
     const yes = MuseUI.button('primary', 'Approve restore');
     const no = MuseUI.button('ghost', 'Deny');
     const changesBtn = MuseUI.button('ghost small', SHOW);
     changesBtn.setAttribute('aria-expanded', 'false');
     changesBtn.addEventListener('click', changesToggle(view, item, changesBtn, changes));
-    const decide = async allow => {
+    const hint = MuseUI.span('hint', '');
+    const shownAt = Date.now();
+    // Set once the card is answered or has timed out. Nothing can answer it after that.
+    let answered = false;
+    let tick = 0;
+    const lockCard = () => {
       yes.disabled = true;
       no.disabled = true;
+      why.disabled = true;
+    };
+    const decide = async allow => {
+      if (answered) return;
+      answered = true;
+      clearInterval(tick);
+      lockCard();
+      // Set before the answer is sent, so closing the drawer while the answer is on its way cannot cancel the restore.
+      run.answered = true;
       setStatus(view, allow ? 'Restoring…' : 'Cancelling…', '');
+      const body = allow
+        ? { approvalId: ev.approvalId, allow: true }
+        : { approvalId: ev.approvalId, allow: false, reason: why.value.trim().slice(0, 300) };
       try {
-        await MuseUI.api('/api/approve', { approvalId: ev.approvalId, allow });
+        await MuseUI.api('/api/approve', body);
       } catch (err) {
         MuseUI.toast(err.message, 'bad');
       }
@@ -352,8 +390,35 @@
     };
     yes.addEventListener('click', () => decide(true));
     no.addEventListener('click', () => decide(false));
-    actions.append(yes, no, changesBtn, MuseUI.span('hint', 'Times out after 5 minutes.'));
-    card.append(changes, actions);
+    // Enter in the reason box denies, as the chat's card does. Nothing approves from there.
+    why.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.isComposing && !e.repeat) {
+        e.preventDefault();
+        decide(false);
+      }
+    });
+    // The hint counts down. At zero the server has already denied the card, so nothing is left to answer.
+    const paint = () => {
+      const left = Math.max(0, Math.ceil((shownAt + APPROVAL_SECONDS * 1000 - Date.now()) / 1000));
+      if (left > 0) {
+        hint.textContent = `Waiting for you. Times out in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+        return;
+      }
+      answered = true;
+      run.answered = true;
+      clearInterval(tick);
+      lockCard();
+      hint.textContent = 'Timed out: nothing was restored.';
+    };
+    paint();
+    if (!answered) {
+      tick = setInterval(() => {
+        if (card.isConnected) paint();
+        else clearInterval(tick);
+      }, 1000);
+    }
+    actions.append(yes, no, changesBtn, hint);
+    card.append(changes, why, actions);
     view.ask.replaceChildren(card);
     card.scrollIntoView({ block: 'nearest' });
     // Deny takes the focus, so a stray Enter cannot approve an overwrite.
@@ -361,9 +426,11 @@
   }
 
   // A restore waiting for approval is cancelled when its drawer is closed or drawn again, so a card nobody can see never
-  // holds the project busy until it times out. Aborting the request makes the server treat the card as denied.
+  // holds the project busy until it times out. Aborting the request makes the server treat the card as denied. A restore
+  // that has been answered is not cancelled: the server has the answer and finishes the restore. The cancel is announced
+  // by a toast in restore(), since the drawer is hidden.
   function dropStale() {
-    if (pending && (MuseUI.el.drawer.hidden || !pending.root.isConnected)) pending.ctl.abort();
+    if (pending && !pending.answered && (MuseUI.el.drawer.hidden || !pending.root.isConnected)) pending.ctl.abort();
   }
   new MutationObserver(dropStale).observe(MuseUI.el.drawerBody, { childList: true });
   new MutationObserver(dropStale).observe(MuseUI.el.drawer, { attributes: true, attributeFilter: ['hidden'] });

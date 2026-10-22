@@ -1,7 +1,11 @@
 const $ = id => document.getElementById(id);
 
 // The desktop app draws its own title bar, so the stylesheet keeps the window buttons clear.
-if (/\bElectron\//.test(navigator.userAgent)) document.documentElement.dataset.shell = 'desktop';
+if (/\bElectron\//.test(navigator.userAgent)) {
+  document.documentElement.dataset.shell = 'desktop';
+  // macOS draws its window buttons at the top left, so the title bar keeps clear of them there (B-68).
+  document.documentElement.dataset.platform = /Macintosh/.test(navigator.userAgent) ? 'darwin' : 'other';
+}
 
 const el = {
   projects: $('projects'),
@@ -15,7 +19,8 @@ const el = {
   advisor: $('advisorSel'),
   auto: $('autoAdv'),
   effort: $('effortSel'),
-  approvalBtns: [...document.querySelectorAll('.seg-btn[data-approvals]')],
+  // The Mode menu's button (ext-approvals.js builds the menu). It replaces the Ask first and Auto-approve buttons.
+  modeBtn: $('modeBtn'),
   modeBtns: [...document.querySelectorAll('.seg-btn[data-mode]')],
   board: $('board'),
   boardSeats: $('boardSeats'),
@@ -47,6 +52,15 @@ const el = {
   settingsBtn: $('settingsBtn'),
   themeBtn: $('themeBtn'),
   themeValue: $('themeValue'),
+  settingsPage: $('settingsPage'),
+  settingsPick: $('settingsPick'),
+  settingsBack: $('settingsBack'),
+  settingsSearch: $('settingsSearch'),
+  settingsClose: $('settingsClose'),
+  settingsNav: $('settingsNav'),
+  settingsContent: $('settingsContent'),
+  settingsStash: $('settingsStash'),
+  composerWrap: $('composerWrap'),
   drawer: $('drawer'),
   drawerTitle: $('drawerTitle'),
   drawerBody: $('drawerBody'),
@@ -57,6 +71,11 @@ const el = {
   paneGrip: $('paneGrip'),
   paneBack: $('paneBack'),
   paneTabs: $('paneTabs'),
+  paneButtons: $('paneButtons'),
+  paneExpand: $('paneExpand'),
+  paneSlot: $('paneSlot'),
+  titlebarSlot: $('titlebarSlot'),
+  bannerSlot: $('bannerSlot'),
   paneClose: $('paneClose'),
   paneBody: $('paneBody'),
 };
@@ -100,7 +119,15 @@ const RELAY_DEFAULTS = { autoRoute: false, countdownSec: 3, hops: null, stopOnEr
 const HOP_CHOICES = [['none', 'No limit'], ['2', '2'], ['4', '4'], ['8', '8'], ['custom', 'Custom']];
 const STOP_TEXT = { finished: 'every hop ran', limit: 'the hop limit was reached', user: 'stopped by you', error: 'a hop failed', 'paused-forever': 'left paused' };
 const STATE_WORDS = { waiting: 'Waiting', skipped: 'Skipped', stopped: 'Stopped' };
-const GEMINI_EDIT = 'Gemini edits files only when Auto-approve is on. Headless Gemini cannot ask first.';
+const GEMINI_EDIT = 'Gemini edits files only when Auto-approve or Approve all is on. Headless Gemini cannot ask first.';
+// The approval modes of a project: Ask first (the default), Auto-approve, and Approve all (every card answered for you; the
+// credential and system folders, Plenum's own source and the built-in rules stay as the server enforces them). See DECISIONS 22.
+const APPROVAL_MODES = ['ask', 'auto', 'all'];
+const APPROVAL_WORDS = { ask: 'ask first', auto: 'auto-approve', all: 'approve all' };
+const APPROVAL_NAMES = { ask: 'Ask first', auto: 'Auto-approve', all: 'Approve all' };
+const APPROVE_ALL_TITLE = 'Approve all answers every card for you';
+const APPROVE_ALL_ACTION = 'Turn on Approve all';
+const APPROVE_ALL_CONFIRM = 'Edits and commands run at once, inside and outside the project. Gemini runs in its yolo mode and Muse Code with its own prompts off, so Plenum cannot check what they run. Credential folders, system folders and Plenum\'s own source stay off limits. The built-in rules that can wipe a disk or the system still show their card, and nothing answers that card for you unless you turn on "Approve all also answers blocked-command cards" in Project settings. You are responsible for everything that runs while it is on.';
 const GEMINI_EFFORT = 'The Gemini CLI sets its own thinking depth';
 const GEMINI_INSTALL = 'Install the Gemini CLI with npm install --prefix "%USERPROFILE%\\.muse-console\\tools" @google/gemini-cli on Windows, or npm install --prefix "$HOME/.muse-console/tools" @google/gemini-cli on macOS and Linux, then come back here.';
 
@@ -111,7 +138,7 @@ const COMMANDS = [
   { name: 'models', args: '', desc: 'List models and short names' },
   { name: 'advisor', args: '[sonnet|opus|fable|off|auto]', desc: 'Pick the reviewer model. Try /advisor sonnet' },
   { name: 'review', args: '', desc: 'Review the last answer against the working changes' },
-  { name: 'approvals', args: '[ask|auto]', desc: 'Ask before edits and commands, or auto-approve' },
+  { name: 'approvals', args: '[ask|auto|all]', desc: 'Ask before edits and commands, auto-approve them, or approve all for this project' },
   { name: 'effort', args: '[low|medium|high|xhigh|max]', desc: 'How hard the main model thinks (higher is slower and more thorough)' },
   { name: 'plan', args: '<task>', desc: 'Ask for a plan. Edits still follow the approval setting.' },
   { name: 'ask', args: '<model> <message>', desc: 'Ask one model without switching' },
@@ -126,7 +153,8 @@ const COMMANDS = [
   { name: 'clear', aliases: ['reset'], args: '', desc: 'Clear this project’s chat' },
   { name: 'cancel', aliases: ['stop'], args: '', desc: 'Stop the running request' },
   { name: 'theme', args: '[system|dark|light]', desc: 'Follow Windows, or always use the dark or light look' },
-  { name: 'settings', args: '', desc: 'App settings: appearance, desktop alerts and sessions' },
+  { name: 'settings', args: '', desc: 'Open Settings: appearance, accounts, safety, updates and the rest' },
+  { name: 'legal', args: '', desc: 'License agreement, privacy, open-source licences and safety notices' },
   { name: 'music', args: '[on|off|style]', desc: 'Background music: turn it on or off, or pick a style' },
   { name: 'accounts', aliases: ['login', 'keys'], args: '', desc: 'Sign in and manage keys' },
   { name: 'gemini', args: '', desc: 'Open Accounts at the Gemini card' },
@@ -148,12 +176,22 @@ const TOOL_NAMES = {
   edit_file: 'Edit file', run_command: 'Run command', propose_update: 'Propose update',
   Read: 'Read file', Glob: 'Find files', Grep: 'Search', Write: 'Write file', Edit: 'Edit file', NotebookEdit: 'Edit notebook',
   Bash: 'Run command', PowerShell: 'Run command', WebFetch: 'Fetch page', WebSearch: 'Search the web',
+  // The steps of a computer run (lib/computer/run.mjs names them computer.<action>), and the two tools it adds.
+  'computer.click': 'Click', 'computer.right_click': 'Right-click', 'computer.middle_click': 'Middle-click', 'computer.double_click': 'Double-click',
+  'computer.triple_click': 'Triple-click', 'computer.drag': 'Drag', 'computer.move': 'Move pointer', 'computer.scroll': 'Scroll',
+  'computer.mouse_down': 'Mouse down', 'computer.mouse_up': 'Mouse up', 'computer.type': 'Type', 'computer.key': 'Key', 'computer.hold': 'Hold key',
+  'computer.screenshot': 'Screenshot', 'computer.zoom': 'Zoom', 'computer.cursor': 'Pointer position', 'computer.wait': 'Wait',
+  confirm_with_user: 'Confirm', hand_over: 'Your turn',
 };
 const TOOL_ICONS = {
   list_dir: 'folder', read_file: 'file', search_text: 'search', write_file: 'file-plus',
   edit_file: 'pencil', run_command: 'terminal', propose_update: 'update',
   Read: 'file', Glob: 'folder', Grep: 'search', Write: 'file-plus', Edit: 'pencil', NotebookEdit: 'pencil',
   Bash: 'terminal', PowerShell: 'terminal', WebFetch: 'layers', WebSearch: 'search',
+  'computer.click': 'play', 'computer.right_click': 'play', 'computer.middle_click': 'play', 'computer.double_click': 'play', 'computer.triple_click': 'play',
+  'computer.drag': 'play', 'computer.move': 'play', 'computer.scroll': 'play', 'computer.mouse_down': 'play', 'computer.mouse_up': 'play',
+  'computer.type': 'pencil', 'computer.key': 'pencil', 'computer.hold': 'pencil', 'computer.screenshot': 'expand', 'computer.zoom': 'expand',
+  'computer.cursor': 'gauge', 'computer.wait': 'gauge', confirm_with_user: 'shield', hand_over: 'user',
 };
 
 const THEMES = { system: 'System', dark: 'Dark', light: 'Light' };
@@ -166,7 +204,13 @@ let catalog = [];
 let aliases = {};
 let providers = null;
 let notes = [];
-let abortCtl = null;
+// The text of the last chat send and the project it went to, kept until the run is known to have gone through (B-5). Retry in
+// ext-connection.js puts this text back in the composer after a refused or failed send; it is never sent again by itself.
+let lastSent = null;
+// The run this page has in flight for each project, keyed by project id (B-8). Stop, Esc and a finished run touch only their own
+// project's controller, so an idle project never stops another project's reply.
+const runs = new Map();
+const activeRun = () => runs.get(S.activeProject) ?? null;
 let updates = [];
 // The overlay of applied updates, as GET /api/updates reports it ({ active, generations, rollback }), and the automatic rollback this
 // window still shows in the Updates panel after it told the server it had seen it.
@@ -177,6 +221,10 @@ let streamEl = null;
 let paletteItems = [];
 let paletteIndex = 0;
 let drawerRender = null;
+// Counts every opening, closing and refresh of the drawer. A renderer whose answer comes late compares it with the count it
+// started under, and writes nothing when the drawer has moved on (B-62). Comparing the renderer alone is not enough: the same
+// drawer can be opened again while an older answer is still on its way.
+let drawerGen = 0;
 let mode = 'chat';        // what Send does: 'chat' asks the main model, 'council' asks every seat
 let routeRun = null;      // the auto relay that is running: { limit, hop, paused }
 let routeDraft = null;    // the route panel's choices, kept while it is open
@@ -475,7 +523,7 @@ function cue(name) {
 }
 
 function busyNow() {
-  return Boolean(abortCtl) || S.running;
+  return Boolean(activeRun()) || S.running;
 }
 
 // A details element whose open state survives redraws: the choice is kept in `store` under `key`.
@@ -501,6 +549,43 @@ function stickBottom() {
 
 function stream() {
   return streamEl;
+}
+
+// The box a project's live run draws into (B-9). It sits in the transcript only while its project is on screen. renderChat puts it
+// back after every redraw, so a settings change, or a switch away and back, never wipes a reply, approval card or tool line that is
+// still arriving (B-10). The box is dropped when its run ends, and then the saved transcript shows the reply.
+const runBoxes = new Map();
+function runBox(project = S.activeProject) {
+  let box = runBoxes.get(project);
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'run-box';
+    runBoxes.set(project, box);
+  }
+  if (project === S.activeProject && streamEl && !box.isConnected) streamEl.append(box);
+  return box;
+}
+
+function dropRunBox(project) {
+  const box = runBoxes.get(project);
+  runBoxes.delete(project);
+  box?.remove();
+}
+
+// Swaps a card for its rebuilt copy. A control that had the focus keeps it: the control at the same place in the new card takes it,
+// and what was typed in a field is carried over. A rebuild therefore never drops the focus to the page (B-11).
+function replaceKeepingFocus(oldNode, newNode) {
+  const FOCUSABLE = 'button, input, textarea, select, [tabindex]';
+  const at = document.activeElement;
+  const focused = oldNode.isConnected && at instanceof Element && oldNode.contains(at) ? at : null;
+  const index = focused ? [...oldNode.querySelectorAll(FOCUSABLE)].indexOf(focused) : -1;
+  const oldFields = [...oldNode.querySelectorAll('input, textarea')];
+  const newFields = [...newNode.querySelectorAll('input, textarea')];
+  oldFields.forEach((field, i) => {
+    if (newFields[i] && newFields[i].type === field.type && field.value) newFields[i].value = field.value;
+  });
+  oldNode.replaceWith(newNode);
+  if (index >= 0) [...newNode.querySelectorAll(FOCUSABLE)][index]?.focus({ preventScroll: true });
 }
 
 // A menu chip (a select inside a .pick label): a click on the chip's icon or label opens the menu.
@@ -603,6 +688,8 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
   const head = span('approval-head', 'Approval needed');
   head.prepend(icon('shield'));
   card.append(head, span('approval-summary', ev.summary));
+  // A card of a computer run can carry the screenshot the model is acting on, with a ring at the point.
+  if (ev.frame && typeof ev.frame.run === 'string' && Number.isInteger(ev.frame.n)) card.append(frameShot(ev.frame));
   let pre = null;
   if (ev.detail) {
     pre = document.createElement('pre');
@@ -758,6 +845,8 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
   }
   actions.append(yes, no, hint);
   card.append(actions);
+  // A command card (run_command, or a Bash or PowerShell request) gets the untrusted-commands strip above Approve and Deny. It informs; the card still asks.
+  if (/^(?:Coder: )?(?:Run: |Run command: )/.test(ev.summary ?? '')) window.MuseUI?.notice?.('untrusted-commands', { before: actions });
   // The card is not in the page yet, so scrolling and focus wait one frame. A new card scrolls into view and takes focus, unless
   // the user may be typing: a text field, a select or an editable area outside the card has the focus (even an empty one, as
   // after a send), or a drawer is open over the chat. Then the card only scrolls into view, so a word typed there cannot answer it.
@@ -769,7 +858,8 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
     const drawerOpen = !el.drawer.hidden;
     const typing = drawerOpen || (!idle && !card.contains(at) && (at.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(at.tagName)));
     if (first) card.scrollIntoView({ block: 'nearest' });
-    if (!typing && (first || idle)) {
+    // Only the first showing takes the focus. A card built again (a build view repaints on every event) never does (B-11).
+    if (!typing && first) {
       (denyFirst ? no : yes).focus({ preventScroll: true });
       // The delay starts only the first time the card takes focus. A card built again on the next update keeps the same moment.
       ev.keysFrom ??= performance.now() + APPROVAL_KEY_DELAY;
@@ -823,6 +913,15 @@ function messageNodes(m) {
     const t = makeTurn('user', { label: 'You', when: m.ts });
     t.body.textContent = m.content;
     if (m.images?.length) t.body.append(imageChips(m.images));
+    // A message that started a computer run says so under its text: the apps the model may use.
+    if (m.computer) {
+      const chip = span('chip', '');
+      chip.append(icon('shield'), span('img-name', `Computer use${Array.isArray(m.computer.apps) && m.computer.apps.length ? ` · ${m.computer.apps.join(', ')}` : ''}`));
+      const row = document.createElement('div');
+      row.className = 'chips msg-images';
+      row.append(chip);
+      t.body.append(row);
+    }
     return [t.article];
   }
   if (m.kind === 'advisor') {
@@ -833,8 +932,27 @@ function messageNodes(m) {
   if (m.kind === 'council') return [councilEl(councilFromSaved(m))];
   if (m.kind === 'build') return [buildEl(buildFromSaved(m))];
   const nodes = [];
-  for (const tool of m.tools ?? []) {
-    nodes.push(toolEl(tool.name, tool.summary, tool.ok ? 'done' : 'failed', tool.result));
+  const toolRows = (m.tools ?? []).map(tool => toolEl(tool.name, tool.summary, tool.ok ? 'done' : 'failed', tool.result));
+  if (m.computerRun) {
+    // A finished computer run takes three lines of the transcript: what it did, a way to see the runs, and its steps folded away.
+    const run = m.computerRun;
+    const head = document.createElement('div');
+    head.className = 'computer-run';
+    head.append(icon('shield'), span('cr-text', ` Computer run · ${(run.apps ?? []).join(', ') || 'no app'} · ${run.actions ?? 0} actions · ${stopWordOf(run.stopReason)}`));
+    const review = button('ghost small', 'Past runs');
+    review.addEventListener('click', () => openComputerRuns());
+    head.append(review);
+    nodes.push(head);
+    if (toolRows.length) {
+      const steps = document.createElement('details');
+      steps.className = 'computer-steps';
+      const sum = document.createElement('summary');
+      sum.textContent = `Show ${toolRows.length} ${toolRows.length === 1 ? 'step' : 'steps'}`;
+      steps.append(sum, ...toolRows);
+      nodes.push(steps);
+    }
+  } else {
+    nodes.push(...toolRows);
   }
   if ((m.content ?? '').trim() || !nodes.length) {
     const t = makeTurn('assistant', { label: modelName(m.model) || 'Assistant', provider: providerOf(m.model), when: m.ts });
@@ -989,7 +1107,6 @@ function renderTop() {
   el.advisor.value = S.advisor ?? 'off';
   el.auto.checked = !!S.advisorAuto;
   el.effort.value = S.effort ?? 'high';
-  for (const b of el.approvalBtns) b.setAttribute('aria-pressed', String(b.dataset.approvals === (S.approvals ?? 'ask')));
 }
 
 // "Muse Wonder (new, Oct 2026)" -> ["Muse Wonder", "new, Oct 2026"].
@@ -1068,6 +1185,14 @@ function renderProjects() {
     forget.setAttribute('aria-label', `Forget ${p.name}`);
     forget.addEventListener('click', e => { e.stopPropagation(); removeProject(p); });
     row.append(tile, span('pn', p.name), span('pp', parentHint(p.path)), forget);
+    // The status dot: breathing while this project runs in this window (or the server reports it running on screen).
+    if (runs.has(p.id) || (active && S.running)) {
+      const dot = span('pi-dot', '');
+      dot.dataset.tone = 'running';
+      dot.setAttribute('aria-hidden', 'true');
+      row.append(dot);
+      row.dataset.running = '';
+    }
     row.addEventListener('click', () => switchProject(p));
     row.addEventListener('keydown', e => {
       if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
@@ -1096,6 +1221,9 @@ function renderChat() {
     host = m.kind === 'council' && m.role === 'assistant' ? nodes[0] : null;
   }
   for (const n of notes) streamEl.append(n.startsWith('Error: ') ? errorEl(n.slice(7)) : systemTurn(n));
+  // The live run of this project, if it has one, goes back under the saved messages (B-9, B-10).
+  const live = S.activeProject ? runBoxes.get(S.activeProject) : null;
+  if (live) streamEl.append(live);
   el.chat.replaceChildren(streamEl);
   el.chat.scrollTop = el.chat.scrollHeight;
 }
@@ -1120,7 +1248,7 @@ function renderStatus() {
       el.statusbar.append(item(g.installed && g.signedIn, !g.installed ? 'Gemini not installed' : g.signedIn ? 'Gemini' : 'Gemini sign-in needed', `Gemini: open Accounts. ${GEMINI_EDIT}`));
     }
   }
-  if (S.running || abortCtl) {
+  if (S.running || activeRun()) {
     const working = span('run-state', 'Working…');
     working.prepend(span('spinner'));
     el.statusbar.append(working);
@@ -1139,6 +1267,8 @@ function setBusy(busy) {
   el.send.setAttribute('aria-label', el.send.title);
   el.hint.textContent = busy ? BUSY_HINT : idleHint();
   renderStatus();
+  // The project's status dot follows its run (renderProjects reads the runs map).
+  renderProjects();
 }
 
 function idleHint() {
@@ -1273,7 +1403,11 @@ function readSSE(res, onEvent) {
 // One streamed run at a time per project. The chat, a council, a build and a relay all share it.
 // Resolves to false when the request never got going (so the caller can keep what the user typed).
 async function runStream(url, body, onEvent, { tick } = {}) {
-  abortCtl = new AbortController();
+  // The run belongs to the project on screen when it starts. Its controller and its box are keyed by that project (B-8, B-9).
+  const project = S.activeProject;
+  const ctl = new AbortController();
+  runs.set(project, ctl);
+  const box = runBox(project);
   setBusy(true);
   const began = Date.now();
   const clock = setInterval(() => {
@@ -1286,17 +1420,20 @@ async function runStream(url, body, onEvent, { tick } = {}) {
   // The server ends a run with a done event, or reports a failed run with an error event. A stream that ends with neither was cut
   // short, so it is reported below. Without that the message would vanish with no error, since the page redraws from the server.
   let reported = false;
+  // Set when the run failed (a refused send, a dropped stream or an error event), so its text stays in lastSent for Retry (B-5).
+  let failed = false;
   liveRunId = '';
   // Every event of the stream carries the run's id. The first one tells which run is ours, so the events channel (which carries
   // every run) does not draw it a second time. Each event is also announced to the page's panels as 'muse:stream'.
   const watch = ev => {
     if (ev.runId && !liveRunId) liveRunId = ev.runId;
     if (ev.type === 'done' || ev.type === 'error') reported = true;
+    if (ev.type === 'error') failed = true;
     window.dispatchEvent(new CustomEvent('muse:stream', { detail: ev }));
     onEvent(ev);
   };
   try {
-    const res = await request(url, { method: 'POST', body, signal: abortCtl.signal });
+    const res = await request(url, { method: 'POST', body, signal: ctl.signal });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (tokenRefused(res)) showTokenCard();
@@ -1307,16 +1444,22 @@ async function runStream(url, body, onEvent, { tick } = {}) {
   } catch (err) {
     ok = false;
     if (err.name !== 'AbortError') {
+      failed = true;
       notes.push(`Error: ${err.message}`);
-      stream().append(errorEl(err.message));
+      box.append(errorEl(err.message));
     }
   } finally {
     clearInterval(clock);
-    abortCtl = null;
+    if (runs.get(project) === ctl) runs.delete(project);
+    // B-5: a run that finished without failing lets its send's text go, so Retry never offers an old message. A failed one keeps it.
+    if (!failed && lastSent?.project === project) lastSent = null;
+    dropRunBox(project);
     routeRun = null;
     renderRouteBar();
-    setBusy(false);
+    // Only this project's run has ended. Another project's Stop stays as it is (B-8).
+    setBusy(Boolean(activeRun()));
     await refresh();
+    setBusy(busyNow());
     await loadUpdates();
     // The run is over, however it ended (Stop included): the next queued message, if there is one, starts now.
     scheduleDrain();
@@ -1333,9 +1476,14 @@ function streamTurn(url, body) {
 
 // Draws the events of a chat turn, a review or a relay into the transcript: the turns, the tool lines and the approval cards.
 // It serves a run of this window (streamTurn) and a run started in another window (foreignFeed). Returns { onEvent, tick }.
-function turnRenderer() {
+function turnRenderer(project = S.activeProject) {
+  // The box of this run's project, so its events never paint into another project's transcript (B-9).
+  const box = runBox(project);
   const tools = new Map();
   const lanes = new Map();
+  // The model's note between computer actions (the current line), and the card that offers to type a step for the person.
+  let thought = null;
+  const typeIt = typeItTracker(box);
   let hopFrom = '';
   let stepNote = null;
   const lane = seat => {
@@ -1353,7 +1501,7 @@ function turnRenderer() {
     if (ln.kind === 'relay' && hopFrom) t.article.insertBefore(relayLine(hopFrom), t.body);
     t.body.innerHTML = html;
     t.article.classList.add('fresh');
-    stream().append(t.article);
+    box.append(t.article);
     return { article: t.article, body: t.body, text: '', queued: false };
   };
   // Text arrives in many small pieces; the reply is redrawn at most once per frame.
@@ -1371,7 +1519,7 @@ function turnRenderer() {
     if (!stepNote || !stepNote.isConnected) {
       stepNote = document.createElement('div');
       stepNote.className = 'relay-step';
-      stream().append(stepNote);
+      box.append(stepNote);
     }
     stepNote.textContent = text;
     stickBottom();
@@ -1391,13 +1539,33 @@ function turnRenderer() {
         ln.current.text += ev.text;
         paint(ln.current);
         break;
+      case 'thought': {
+        // A computer run narrates each action. A note that is fresh, or comes after a step, starts a new line.
+        if (ev.fresh === true || !thought || !thought.isConnected) {
+          thought = thoughtLine();
+          box.append(thought);
+        }
+        thought.textContent += String(ev.text ?? '');
+        stickBottom();
+        break;
+      }
+      case 'approval-closed': {
+        // A run that was stopped closes its waiting cards; the server says which, and the card goes.
+        const card = [...box.querySelectorAll('.approval[data-approval-id]')].find(c => c.dataset.approvalId === ev.approvalId);
+        card?.remove();
+        break;
+      }
+      case 'drive':
+        typeIt.sync(ev.drive);
+        break;
       case 'tool': {
+        thought = null;
         if (ln.current && !ln.current.text) ln.current.article.remove();
         ln.current = null;
         const d = toolEl(ev.name, ev.summary, 'running');
         d.classList.add('fresh');
         tools.set(ev.id, d);
-        stream().append(d);
+        box.append(d);
         stickBottom();
         break;
       }
@@ -1409,7 +1577,7 @@ function turnRenderer() {
       case 'approval':
         if (ln.current && !ln.current.text) ln.current.article.remove();
         ln.current = null;
-        stream().append(approvalEl(ev));
+        box.append(approvalEl(ev));
         cue('approval');
         stickBottom();
         break;
@@ -1418,13 +1586,18 @@ function turnRenderer() {
         ln.current = null;
         // Kept in the notes so the end-of-turn refresh does not wipe it.
         notes.push(`Error: ${ev.message}`);
-        stream().append(errorEl(ev.message));
+        box.append(errorEl(ev.message));
         cue('error');
         stickBottom();
         break;
       case 'notice':
         // A short note from the server, such as a session that had to start again with the transcript.
-        stream().append(systemTurn(ev.text));
+        box.append(systemTurn(ev.text));
+        // The server sends the Approve all notice once per thread per launch, and the end-of-run refresh would drop it, so it is kept
+        // in the notes (drawn after the transcript, and cleared when the next message is sent).
+        if (ev.kind === 'approve-all') notes.push(ev.text);
+        // amend-22: a Codex or Gemini coder that cannot ask shows the cli-no-ask strip above the composer (the notices module draws it).
+        if (ev.kind === 'cli-no-ask') window.MuseUI?.notice?.('cli-no-ask', { before: el.form });
         stickBottom();
         break;
       case 'hop-skipped':
@@ -1452,7 +1625,7 @@ function turnRenderer() {
         stepNote = null;
         if (!ev.ok) {
           notes.push(`Error: ${ev.error || 'A hop failed.'}`);
-          stream().append(errorEl(ev.error || 'A hop failed.'));
+          box.append(errorEl(ev.error || 'A hop failed.'));
         }
         break;
       case 'relay-paused':
@@ -1489,25 +1662,29 @@ function turnRenderer() {
 // Images picked in the composer (public/ext-images.js) go with the next chat message to a model that takes them. A queued
 // message brings the images it was queued with. Without that script there are none.
 const pickedImages = () => window.MuseImages?.list() ?? [];
-// The reason a model cannot take the images, in the server's words, or '' when it can (or when there are none).
-const imageRefusal = (list, model) => (list.length && window.MuseImages && !window.MuseImages.takes(model) ? window.MuseImages.REFUSAL : '');
+// The reason a model cannot take the images in list, in the server's words, or '' when it can (or when there are none). The list
+// is the composer's files, or the files a queued message was queued with (B-94). public/ext-images.js takes(model, files) checks it.
+const imageRefusal = (list, model) => (list.length && window.MuseImages && !window.MuseImages.takes(model, list) ? window.MuseImages.REFUSAL : '');
 
-async function sendMessage(text, model, images) {
+// computer (optional) is the settings of a computer run that this message starts (see sendComputer); appNames are its apps, for the chip.
+async function sendMessage(text, model, images, computer, appNames) {
   if (text.length > 14_000_000) return toast('That message is too long to send (over 14 million characters). Split it up or attach the file with @path.', 'bad');
   if (!S.activeProject) {
     openAddForm();
     return toast('Add a project folder first.', 'bad');
   }
-  if (S.running && !abortCtl) return toast('This project is already running. Use /cancel first.', 'bad');
+  if (S.running && !activeRun()) return toast('This project is already running. Use /cancel first.', 'bad');
   const sent = images ?? pickedImages();
   const refusal = imageRefusal(sent, model);
   if (refusal) return toast(refusal, 'bad');
   if (!images) window.MuseImages?.clear();
   notes = [];
-  S.messages.push({ role: 'user', kind: 'chat', content: text, ts: Date.now(), ...(sent.length ? { images: sent.map(({ name, size }) => ({ name, size })) } : {}) });
+  S.messages.push({ role: 'user', kind: 'chat', content: text, ts: Date.now(), ...(sent.length ? { images: sent.map(({ name, size }) => ({ name, size })) } : {}), ...(computer ? { computer: { task: true, apps: appNames ?? [] } } : {}) });
   renderChat();
   stream().lastElementChild?.classList.add('fresh');
-  await streamTurn('/api/chat', { project: S.activeProject, message: text, model, ...(sent.length ? { images: sent.map(({ name, mime, data }) => ({ name, mime, data })) } : {}) });
+  // B-5: the text is kept until the run is known to have gone through, so Retry can put back what the server refused.
+  lastSent = { text, images: sent, project: S.activeProject };
+  await streamTurn('/api/chat', { project: S.activeProject, message: text, model, ...(sent.length ? { images: sent.map(({ name, mime, data }) => ({ name, mime, data })) } : {}), ...(computer ? { computer } : {}) });
 }
 
 // ---------- queued follow-ups ----------
@@ -1561,7 +1738,12 @@ function dropOtherProjects() {
 async function drainQueue() {
   dropOtherProjects();
   if (!followUps.length || busyNow()) return;
-  const next = followUps.shift();
+  const next = followUps[0];
+  // The queued files are checked before the message leaves the queue. When the model cannot take them, the message stays at the
+  // head with the reason, and Edit or Remove deal with it (B-94).
+  const refusal = imageRefusal(next.images ?? [], undefined);
+  if (refusal) return toast(refusal, 'bad');
+  followUps.shift();
   syncQueue();
   await sendMessage(next.text, undefined, next.images);
 }
@@ -1601,7 +1783,8 @@ function removeQueued(item) {
 function editQueued(item) {
   const i = followUps.indexOf(item);
   if (i < 0) return;
-  if (el.input.value.trim()) return toast('The composer already has text. Send or clear it first.', 'bad');
+  // Files already in the composer are refused too, so the restored files never mix with the ones in the composer (B-94).
+  if (el.input.value.trim() || pickedImages().length) return toast('The composer already has text or files. Send or clear it first.', 'bad');
   followUps.splice(i, 1);
   el.input.value = item.text;
   if (item.images?.length) {
@@ -1664,10 +1847,10 @@ function syncQueue() {
 // page is redrawn when the run, the project or the chat has changed, and the next queued message starts once the project is idle.
 // While the channel is up, the server sends every change and this does nothing.
 async function watchRun() {
-  if (abortCtl || events.connected) return;
+  if (runs.size || events.connected) return;
   try {
     const next = await api('/api/state');
-    if (abortCtl || events.connected) return;
+    if (runs.size || events.connected) return;
     const changed = next.running !== S.running || next.activeProject !== S.activeProject || next.messages.length !== S.messages.length;
     if (changed) {
       S = next;
@@ -1683,17 +1866,19 @@ setInterval(watchRun, 5000);
 // /compact: the main model writes a summary, which then replaces the chat.
 async function compact() {
   if (!S.activeProject) return toast('Add a project folder first.', 'bad');
-  if (S.running || abortCtl) return toast('This project is already running. Use /cancel first.', 'bad');
+  if (S.running || activeRun()) return toast('This project is already running. Use /cancel first.', 'bad');
   if (S.messages.filter(m => m.kind === 'chat').length < 2) return toast('There is not enough conversation to compact yet.');
-  abortCtl = new AbortController();
+  const project = S.activeProject;
+  const ctl = new AbortController();
+  runs.set(project, ctl);
   setBusy(true);
   const t = makeTurn('assistant', { label: modelName(S.model), provider: providerOf(S.model) });
   t.article.classList.add('fresh');
   t.body.innerHTML = THINKING.replace('Thinking', 'Summarising the conversation');
-  stream().append(t.article);
+  runBox(project).append(t.article);
   el.chat.scrollTop = el.chat.scrollHeight;
   try {
-    const res = await request('/api/compact', { method: 'POST', body: { project: S.activeProject }, signal: abortCtl.signal });
+    const res = await request('/api/compact', { method: 'POST', body: { project }, signal: ctl.signal });
     const data = await res.json().catch(() => ({}));
     if (tokenRefused(res)) showTokenCard();
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -1703,9 +1888,11 @@ async function compact() {
   } catch (err) {
     toast(err.name === 'AbortError' ? 'Compacting was cancelled. The chat is unchanged.' : err.message, 'bad');
   } finally {
-    abortCtl = null;
-    setBusy(false);
+    if (runs.get(project) === ctl) runs.delete(project);
+    dropRunBox(project);
+    setBusy(Boolean(activeRun()));
     await refresh();
+    setBusy(busyNow());
     scheduleDrain();
   }
 }
@@ -1713,6 +1900,8 @@ async function compact() {
 async function review() {
   if (!S.activeProject) return toast('Add a project folder first.', 'bad');
   if (!S.advisor) return toast('The advisor is off. Try /advisor sonnet.', 'bad');
+  // A review is a new run, so a message from an earlier failed send is no longer what Retry should offer (B-5).
+  lastSent = null;
   await streamTurn('/api/review', { project: S.activeProject });
 }
 
@@ -1774,19 +1963,24 @@ function councilFromSaved(m) {
   const c = m.council ?? {};
   const seats = (c.seats ?? []).map(s => {
     const rounds = {};
-    for (const r of [1, 2]) {
+    // The server saves one roundN key for each round a seat ran (server.mjs, seat-done). Every one is read, not only rounds 1 and 2 (B-31).
+    const ran = Object.keys(s).map(k => /^round(\d+)$/.exec(k)).filter(Boolean).map(x => Number(x[1])).sort((a, b) => a - b);
+    for (const r of ran) {
       const text = s[`round${r}`];
-      if (typeof text === 'string') rounds[r] = { text, state: 'done', ...seatMeta(text) };
+      // An empty text is a round that gave no answer (it failed, see below), so it is not shown as done (B-15).
+      if (typeof text === 'string' && text) rounds[r] = { text, state: 'done', ...seatMeta(text) };
     }
     if (s.error) {
-      const r = rounds[1] ? 2 : 1;
+      // A failed seat never runs a later round, so the error belongs to the last round it saved (B-15).
+      const r = ran.length ? ran[ran.length - 1] : 1;
       rounds[r] = { ...(rounds[r] ?? {}), text: rounds[r]?.text ?? '', state: 'failed', error: s.error };
     }
     return { id: s.id, label: s.label, ref: s.ref ?? '', role: s.role, effort: s.effort, rounds };
   });
   return {
     question: c.question ?? '',
-    rounds: seats.some(s => s.rounds[2]) ? 2 : 1,
+    // The count comes from what was saved: a council stopped after round 2 of 3 shows 2, a full three-round run shows 3 (B-31).
+    rounds: Math.max(1, ...seats.flatMap(s => Object.keys(s.rounds).map(Number))),
     seats,
     mod: null,
     modText: '',
@@ -1894,7 +2088,7 @@ function seatColEl(cd, s) {
   const head = document.createElement('header');
   head.className = 'seat-col-head';
   head.append(span('sc-name', s.label));
-  const latest = [2, 1].map(r => s.rounds[r]).find(r => r && r.confidence != null);
+  const latest = [3, 2, 1].map(r => s.rounds[r]).find(r => r && r.confidence != null);
   if (latest) {
     const conf = span('sc-conf', `Confidence ${latest.confidence}`);
     const bar = document.createElement('progress');
@@ -1918,7 +2112,7 @@ function roundEl(cd, s, r) {
   const sum = document.createElement('summary');
   const words = { waiting: 'Waiting', running: 'Working', done: 'Done', failed: 'Failed' };
   let label = words[data.state] ?? '';
-  if (data.state === 'done' && r === 2 && data.changed) label = data.changed === 'yes' ? 'Changed its view' : 'Kept its view';
+  if (data.state === 'done' && r > 1 && data.changed) label = data.changed === 'yes' ? 'Changed its view' : 'Kept its view';
   sum.append(span('round-name', `Round ${r}`), span('round-state', label));
   d.append(sum);
   const body = document.createElement('div');
@@ -2139,6 +2333,8 @@ function planPanel(cd, slot, tasks) {
   cancel.addEventListener('click', () => panel.remove());
   foot.append(run, cancel);
   panel.append(head, list, foot);
+  // The delegation strip sits above Run: pressing Run lets coders change files in the scopes shown (delegation).
+  window.MuseUI?.notice?.('delegation', { before: foot });
   return panel;
 }
 
@@ -2255,7 +2451,7 @@ async function runBuild(cd, slot, tasks) {
       queued = false;
       if (!live.isConnected) return;
       const next = buildEl(run);
-      live.replaceWith(next);
+      replaceKeepingFocus(live, next);
       live = next;
       stickBottom();
     });
@@ -2516,7 +2712,7 @@ async function askCouncil(question) {
   renderChat();
   const cd = liveCouncil(text, config);
   let live = councilEl(cd, true);
-  stream().append(live);
+  runBox().append(live);
   live.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   let queued = false;
   const paint = () => {
@@ -2526,7 +2722,7 @@ async function askCouncil(question) {
       queued = false;
       if (!live.isConnected) return;
       const next = councilEl(cd);
-      live.replaceWith(next);
+      replaceKeepingFocus(live, next);
       live = next;
       stickBottom();
     });
@@ -2548,6 +2744,8 @@ function setMode(next) {
   const atEnd = el.chat.scrollHeight - el.chat.scrollTop - el.chat.clientHeight < 80;
   renderBoard();
   if (atEnd) el.chat.scrollTop = el.chat.scrollHeight;
+  // Council takes its first strip above the board in a launch (multi-provider): every seat is asked, so the spend and the providers say so.
+  if (next === 'council') window.MuseUI?.notice?.('multi-provider', { before: el.board });
 }
 
 function renderBoard() {
@@ -2963,15 +3161,16 @@ async function toggleRelayPause() {
 }
 
 async function renderRelayLog(body) {
+  const gen = drawerGen;
   body.append(para('The last hops in this project: when, which seats, how many characters, and a short fingerprint of the text. The text itself is never kept.'));
   let records = [];
   try {
     records = (await api(`/api/relay/log?project=${encodeURIComponent(S.activeProject ?? '')}`)).records ?? [];
   } catch (err) {
-    body.append(para(err.message));
+    if (gen === drawerGen) body.append(para(err.message));
     return;
   }
-  if (drawerRender !== renderRelayLog) return;
+  if (gen !== drawerGen) return;
   const list = document.createElement('div');
   list.className = 'log-list';
   if (!records.length) list.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'No relays yet. Use Send to on a reply, or start a route.' }));
@@ -3021,8 +3220,8 @@ function applyState(next, { chat } = {}) {
   if (switched) notes = [];
   renderShell();
   const changed = typeof next.messageCount === 'number' && (next.messageCount !== S.messages.length || (next.lastMessageTs ?? 0) !== (S.messages.at(-1)?.ts ?? 0));
-  if (chat !== false && !abortCtl && !foreign && (switched || changed)) refresh();
-  if (!S.running && !abortCtl) scheduleDrain();
+  if (chat !== false && !activeRun() && !foreign && (switched || changed)) refresh();
+  if (!S.running && !activeRun()) scheduleDrain();
 }
 
 // ---------- the events channel ----------
@@ -3113,7 +3312,7 @@ const KIND_WORDS = { council: 'A council', build: 'A build', compare: 'A compari
 function foreignFeed(ev) {
   if (!foreign || foreign.runId !== ev.runId) {
     if (foreignDone.has(ev.runId)) return;
-    const run = { runId: ev.runId, kind: ev.kind, ready: false, queue: [], ...turnRenderer() };
+    const run = { runId: ev.runId, kind: ev.kind, project: ev.project, ready: false, queue: [], ...turnRenderer(ev.project) };
     foreign = run;
     refresh().then(() => {
       if (foreign !== run) return;
@@ -3130,6 +3329,7 @@ function foreignFeed(ev) {
   // is lost (the server sends one after it). A relay carries on after an error in one hop, so only its done ends it.
   if (ev.event.type === 'done' || (ev.event.type === 'error' && foreign.kind !== 'relay')) {
     foreignDone.add(foreign.runId);
+    dropRunBox(foreign.project);
     foreign = null;
     refresh();
   }
@@ -3140,15 +3340,15 @@ function noteOtherRun(ev) {
   noted.add(ev.runId);
   // A panel of this window that started the run claims it from its first event; that arrives a moment after this one.
   setTimeout(() => {
-    if (claimed.has(ev.runId) || ev.project !== S.activeProject || abortCtl) return;
-    stream().append(systemTurn(`${KIND_WORDS[ev.kind] ?? 'A run'} is running in another window.`));
+    if (claimed.has(ev.runId) || ev.project !== S.activeProject || activeRun()) return;
+    runBox().append(systemTurn(`${KIND_WORDS[ev.kind] ?? 'A run'} is running in another window.`));
     stickBottom();
   }, 400);
 }
 
 events.on('run', ev => {
   if (ev.project !== S.activeProject || ev.runId === liveRunId || claimed.has(ev.runId)) return;
-  if (abortCtl) return;
+  if (activeRun()) return;
   if (DRAWN_KINDS.includes(ev.kind)) foreignFeed(ev);
   else noteOtherRun(ev);
 });
@@ -3214,9 +3414,13 @@ function takeOverlay(info) {
   api('/api/updates/ack-rollback', {}).catch(() => {});
 }
 
+// A settings change keeps the transcript. Only a switch to another project redraws it, so a reply, approval card or plan that is
+// still arriving stays on the page (B-10). Everything else is drawn from the new state without touching the chat.
 async function update(body) {
+  const before = S.activeProject;
   S = await api('/api/settings', body);
-  renderAll();
+  if (S.activeProject !== before) renderAll();
+  else renderShell();
 }
 
 async function addFolder(path) {
@@ -3248,6 +3452,7 @@ function findProject(arg) {
 
 function openAddForm() {
   el.addForm.hidden = false;
+  window.MuseUI?.notice?.('untrusted-commands', { into: el.addForm });
   el.addPath.focus();
 }
 
@@ -3334,6 +3539,7 @@ function musicCommand(arg) {
 // ---------- drawers ----------
 
 function openDrawer(title, render) {
+  drawerGen++;
   el.drawerTitle.textContent = title;
   el.drawerBody.replaceChildren();
   el.drawer.hidden = false;
@@ -3343,6 +3549,7 @@ function openDrawer(title, render) {
 }
 
 function closeDrawer() {
+  drawerGen++;
   el.drawer.hidden = true;
   el.scrim.hidden = true;
   drawerRender = null;
@@ -3350,8 +3557,11 @@ function closeDrawer() {
 
 function refreshDrawer() {
   if (drawerRender && !el.drawer.hidden) {
+    drawerGen++;
     el.drawerBody.replaceChildren();
     drawerRender(el.drawerBody);
+  } else if (settingsShown) {
+    settingsRedraw();
   }
 }
 
@@ -3377,7 +3587,8 @@ function claudeCliCard(c) {
     : 'Sign in with your Claude account. A sign-in window opens; finish in your browser, then press Refresh here.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
-  const signIn = button('primary small', c.connected ? 'Sign in again' : 'Sign in with Claude');
+  // The button names the product, not the provider's own sign-in button (LEGAL provider_risks, Trademarks).
+  const signIn = button('primary small', c.connected ? 'Sign in again' : 'Sign in to Claude Code');
   signIn.addEventListener('click', async () => {
     try {
       await api('/api/accounts/claude/login', {});
@@ -3393,6 +3604,8 @@ function claudeCliCard(c) {
   });
   actions.append(signIn, refreshBtn);
   card.append(actions);
+  // The strip sits above the Sign in row (provider-terms). It informs, and the sign-in still runs when the button is pressed.
+  window.MuseUI?.notice?.('provider-terms', { before: actions });
   return card;
 }
 
@@ -3462,7 +3675,7 @@ function museCard(m) {
   if (m.metaApiKey) card.append(para('META_API_KEY is set on this computer. It overrides the Meta account sign-in and decides which account is billed.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
-  const signIn = button('primary small', m.signedIn ? 'Sign in again' : 'Sign in with Meta account');
+  const signIn = button('primary small', m.signedIn ? 'Sign in again' : 'Sign in to Muse Code');
   signIn.disabled = !m.installed;
   signIn.addEventListener('click', async () => {
     try {
@@ -3476,6 +3689,8 @@ function museCard(m) {
   refreshBtn.addEventListener('click', () => refreshDrawer());
   actions.append(signIn, refreshBtn);
   card.append(actions);
+  // The strip sits above the Sign in row (provider-terms). It informs, and the sign-in still runs when the button is pressed.
+  window.MuseUI?.notice?.('provider-terms', { before: actions });
   return card;
 }
 
@@ -3487,7 +3702,7 @@ function codexCard(c) {
     : c.status || 'Sign in with your ChatGPT account. A sign-in window opens in your browser.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
-  const signIn = button('primary small', c.loggedIn ? 'Sign in again' : 'Sign in with ChatGPT');
+  const signIn = button('primary small', c.loggedIn ? 'Sign in again' : 'Sign in to Codex');
   signIn.disabled = !c.installed;
   signIn.addEventListener('click', async () => {
     try {
@@ -3501,6 +3716,8 @@ function codexCard(c) {
   refreshBtn.addEventListener('click', () => refreshDrawer());
   actions.append(signIn, refreshBtn);
   card.append(actions);
+  // The strip sits above the Sign in row (provider-terms). It informs, and the sign-in still runs when the button is pressed.
+  window.MuseUI?.notice?.('provider-terms', { before: actions });
   return card;
 }
 
@@ -3517,10 +3734,10 @@ function geminiCard(g) {
       : g.signedIn
         ? `Gemini has a saved sign-in${g.email ? ` for ${g.email}` : ''}.`
         : 'Sign in with your Google account. A sign-in window opens; choose Sign in with Google there, then press Refresh here.'));
-  card.append(para('Gemini runs headless, so it edits files only in Auto-approve mode.'));
+  card.append(para('Gemini runs headless, so it edits files only when Auto-approve or Approve all is on.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
-  const signIn = button('primary small', g?.signedIn ? 'Sign in again' : 'Sign in with Gemini');
+  const signIn = button('primary small', g?.signedIn ? 'Sign in again' : 'Sign in to Gemini CLI');
   signIn.disabled = !g?.installed;
   signIn.addEventListener('click', async () => {
     try {
@@ -3537,18 +3754,23 @@ function geminiCard(g) {
   });
   actions.append(signIn, refreshBtn);
   card.append(actions);
+  // The strip sits above the Sign in row (provider-terms). It informs, and the sign-in still runs when the button is pressed.
+  window.MuseUI?.notice?.('provider-terms', { before: actions });
   return card;
 }
 
 async function renderAccounts(body) {
+  const gen = drawerGen;
   body.append(para('Checking your accounts…'));
   let a;
   try {
     a = await api('/api/accounts');
   } catch (err) {
-    body.replaceChildren(para(err.message));
+    if (gen === drawerGen) body.replaceChildren(para(err.message));
     return;
   }
+  // The drawer was closed or refreshed while the answer was on its way, so it is not painted here (B-62).
+  if (gen !== drawerGen) return;
   body.replaceChildren(claudeCard(a.claude), museCard(a.muse), codexCard(a.codex), geminiCard(a.gemini));
   body.append(Object.assign(document.createElement('p'), { textContent: 'Keys and sign-ins stay on this computer. Plenum sends them only to the provider they belong to.' }));
   if (accountsFocus) {
@@ -3558,19 +3780,22 @@ async function renderAccounts(body) {
 }
 
 function openAccounts() {
-  openDrawer('Accounts', renderAccounts);
+  openSettingsPage('accounts');
 }
 
 async function renderUpdates(body) {
+  const gen = drawerGen;
   try {
     const data = await api('/api/updates');
     updates = data.updates;
     takeOverlay(data.overlay);
   } catch (err) {
-    body.append(para(err.message));
+    if (gen === drawerGen) body.append(para(err.message));
     return;
   }
+  // The badge is kept up to date whatever drawer is open. The drawer itself is painted only if it is still the one that asked (B-62).
   renderBadge();
+  if (gen !== drawerGen) return;
   if (!updates.length) {
     body.append(Object.assign(document.createElement('div'), { className: 'empty', textContent: 'Nothing to review. When Claude proposes a change to Plenum, it appears here.' }));
   }
@@ -3615,7 +3840,8 @@ function overlayCard() {
   const reset = button('ghost small', 'Remove all applied updates');
   reset.title = 'Delete every applied update and restart with the shipped files';
   reset.addEventListener('click', () => {
-    if (confirm('Remove every applied update and restart?')) restartWith('/api/updates/reset');
+    confirmBox({ title: 'Remove every applied update?', body: 'Plenum deletes every applied update and restarts with the files it shipped with.', action: 'Remove and restart', tone: 'danger' })
+      .then(yes => { if (yes) restartWith('/api/updates/reset'); });
   });
   row.append(back, reset);
   card.append(details, row);
@@ -3678,7 +3904,15 @@ async function waitForServer() {
 
 async function applyUpdate(u) {
   const names = u.files.map(f => f.path).join(', ');
-  if (!confirm(`Apply "${u.summary}"?\n\nFiles: ${names}\n\nThe update is kept beside Plenum's data, and the files Plenum was installed with are not touched. Plenum restarts. If it cannot start with the update, it goes back to the version before.`)) return;
+  // Apply update is one of the two notices that ask in a dialog (UI-ARCH 7); Cancel is focused. The notice's registry id is
+  // 'self-update' (apply-update is only its alias on the server), so the page asks by the id: the registry text and "Don't show again" apply.
+  const ok = await window.MuseUI.risk('self-update', {
+    title: `Apply "${u.summary}"?`,
+    body: `Files: ${names}. The update is kept beside Plenum's data, and the files Plenum was installed with are not touched. Plenum restarts. If it cannot start with the update, it goes back to the version before.`,
+    action: 'Apply and restart',
+    focusCancel: true,
+  });
+  if (!ok) return;
   await restartWith('/api/updates/apply', { id: u.id });
 }
 
@@ -3757,6 +3991,7 @@ function usageCard(mark, key, title, u) {
 }
 
 async function renderUsage(body) {
+  const gen = drawerGen;
   const wait = document.createElement('div');
   wait.className = 'empty';
   wait.innerHTML = THINKING.replace('Thinking', 'Asking each provider');
@@ -3765,10 +4000,10 @@ async function renderUsage(body) {
   try {
     u = await api('/api/usage');
   } catch (err) {
-    body.replaceChildren(para(err.message));
+    if (gen === drawerGen) body.replaceChildren(para(err.message));
     return;
   }
-  if (drawerRender !== renderUsage) return;
+  if (gen !== drawerGen) return;
   body.replaceChildren(
     usageCard('M', 'muse', 'Muse Code', u.muse),
     usageCard('X', 'codex', 'Codex', u.codex),
@@ -3784,7 +4019,7 @@ async function renderUsage(body) {
 }
 
 function openUpdates() {
-  openDrawer('Updates to Plenum', renderUpdates);
+  openSettingsPage('updates');
 }
 
 function renderCommands(body) {
@@ -3822,6 +4057,622 @@ function renderCommands(body) {
   body.append(Object.assign(document.createElement('p'), { textContent: 'Enter sends. Shift+Enter adds a line. Esc stops a run. @path/to/file attaches a file.' }));
 }
 
+// ---------- computer use: the Computer panel, /computer, the cards of a run and the list of past runs ----------
+
+// Start in the panel is the consent (UI-ARCH 10.5): the person's settings go with the next chat message, and the server checks them
+// before anything is stored or shown (POST /api/chat, `computer`; lib/computer/policy.mjs normalizeRunSettings). Nothing in this
+// block reaches the screen: the run, its cards and its limits are the server's. The panel remembers its choices per project
+// (POST /api/computer/prefs), so the usual run is: type the task, pick a window, Start.
+
+// Looks that style.css does not carry are set through the style object, which the page's policy allows (a style attribute it does not).
+const looks = (node, props) => {
+  Object.assign(node.style, props);
+  return node;
+};
+
+// A screenshot of a run is a PNG the server keeps. Its route wants the Plenum token, which an <img> cannot send, so the page reads it
+// with the token and shows it as a data: image (img-src 'self' data:). A few are kept, so a card that is built again does not read it twice.
+const frameCache = new Map();
+async function frameDataUrl(runId, n) {
+  const key = `${runId}/${n}`;
+  if (frameCache.has(key)) return frameCache.get(key);
+  const res = await request(`/api/computer/frame?run=${encodeURIComponent(runId)}&n=${encodeURIComponent(n)}`);
+  if (!res.ok) throw new Error('The screenshot is not available.');
+  const blob = await res.blob();
+  const url = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('The screenshot could not be read.'));
+    reader.readAsDataURL(blob);
+  });
+  frameCache.set(key, url);
+  if (frameCache.size > 8) frameCache.delete(frameCache.keys().next().value);
+  return url;
+}
+
+// The picture on a computer-use card: the screenshot the model is acting on, with a ring at the point it is about to act on. The ring is
+// placed by percentage, so it stays on its point at any card width. A click on the picture makes it as wide as the card.
+function frameShot(frame) {
+  const shot = span('approval-shot', '');
+  looks(shot, { position: 'relative', display: 'inline-block', maxWidth: '100%' });
+  const img = document.createElement('img');
+  img.className = 'approval-frame';
+  img.alt = 'Screenshot the model is acting on';
+  looks(img, { display: 'block', maxWidth: '100%', maxHeight: '320px', width: 'auto', height: 'auto', borderRadius: '8px', border: '1px solid var(--line-2)', cursor: 'zoom-in' });
+  frameDataUrl(frame.run, frame.n).then(url => { img.src = url; }, () => { img.replaceWith(quietNote('The screenshot is not available.')); });
+  shot.append(img);
+  if (frame.marker && frame.w > 0 && frame.h > 0) {
+    const ring = span('approval-marker', '');
+    ring.setAttribute('aria-hidden', 'true');
+    looks(ring, {
+      position: 'absolute', width: '22px', height: '22px', marginLeft: '-11px', marginTop: '-11px', borderRadius: '50%', pointerEvents: 'none',
+      border: '2px solid var(--accent)', boxShadow: '0 0 0 2px var(--bg)',
+      left: `${Math.min(100, Math.max(0, (frame.marker.x / frame.w) * 100))}%`, top: `${Math.min(100, Math.max(0, (frame.marker.y / frame.h) * 100))}%`,
+    });
+    shot.append(ring);
+  }
+  img.addEventListener('click', () => {
+    const big = img.dataset.big !== '1';
+    img.dataset.big = big ? '1' : '0';
+    looks(img, big ? { maxHeight: 'none', width: '100%', cursor: 'zoom-out' } : { maxHeight: '320px', width: 'auto', cursor: 'zoom-in' });
+  });
+  return shot;
+}
+
+// The model's notes between actions, as short grey lines. A run narrates each step; a note is two lines tall until it is clicked.
+function thoughtLine() {
+  const line = document.createElement('div');
+  line.className = 'thought note-quiet';
+  line.tabIndex = 0;
+  line.title = 'Click to show all of it';
+  const clamp = on => looks(line, on
+    ? { display: '-webkit-box', webkitLineClamp: '2', webkitBoxOrient: 'vertical', overflow: 'hidden', cursor: 'pointer' }
+    : { display: 'block', webkitLineClamp: 'unset', overflow: 'visible', cursor: 'pointer' });
+  clamp(true);
+  let closed = true;
+  const flip = () => { closed = !closed; clamp(closed); };
+  line.addEventListener('click', flip);
+  line.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    flip();
+  });
+  return line;
+}
+
+// "Your turn": the model asked the person to do a step (hand_over), so the run waits for Resume. A password or a code can be typed here
+// instead of in the app: Plenum brings the program the run was using to the front and types it there (POST /api/computer/type). The
+// text is held in this function for the length of the request, cleared from the box at once, and kept nowhere: the model does not see
+// it, and neither the transcript, the run log nor any provider request carries it. drive is the drive summary of the waiting run.
+function typeItCard(drive) {
+  const card = document.createElement('div');
+  card.className = 'approval fresh typeit';
+  card.setAttribute('role', 'group');
+  card.setAttribute('aria-label', 'Your turn');
+  const head = span('approval-head', 'Your turn');
+  head.prepend(icon('user'));
+  const asks = drive.note ? `The model asks: "${drive.note}"` : 'The model asks you to do a step.';
+  const note = span('approval-note', 'Do it yourself in the app, then press Resume on the bar. For a password or a code you can type it here instead. Plenum types it into the window the model was using. The model never sees it, and Plenum does not keep it.');
+  const box = document.createElement('input');
+  box.type = 'password';
+  box.className = 'approval-reason';
+  box.autocomplete = 'off';
+  box.spellcheck = false;
+  box.maxLength = 512;
+  box.placeholder = 'Text to type for you';
+  box.setAttribute('aria-label', 'Text for Plenum to type into the window');
+  const typeBtn = button('primary small', 'Type it for me');
+  typeBtn.disabled = true;
+  const status = span('hint', '');
+  status.setAttribute('role', 'status');
+  const actions = document.createElement('div');
+  actions.className = 'approval-actions';
+  actions.append(typeBtn, status);
+  box.addEventListener('input', () => { typeBtn.disabled = box.value === ''; });
+  const send = async () => {
+    if (box.value === '' || typeBtn.disabled) return;
+    let secret = box.value;
+    box.value = '';
+    typeBtn.disabled = true;
+    box.disabled = true;
+    status.textContent = 'Typing…';
+    try {
+      const done = await api('/api/computer/type', { id: drive.id, text: secret });
+      status.textContent = `Typed into ${done.app}. Press Resume on the bar when you are done.`;
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      secret = '';
+      box.disabled = false;
+      box.focus({ preventScroll: true });
+    }
+  };
+  typeBtn.addEventListener('click', send);
+  box.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    send();
+  });
+  card.append(head, span('approval-summary', asks), note, box, actions);
+  return card;
+}
+
+// Keeps one "Your turn" card in step with the run's drive events (the stream of a computer run carries them). The card appears when the
+// model hands a step over and goes when the run resumes or stops.
+function typeItTracker(box) {
+  let card = null;
+  let waitingId = null;
+  const drop = () => {
+    card?.remove();
+    card = null;
+    waitingId = null;
+  };
+  return {
+    sync(drive) {
+      if (!drive || drive.kind !== 'computer') return;
+      const waiting = drive.state === 'paused' && drive.pausedBy === 'model';
+      if (!waiting) {
+        if (waitingId === drive.id) drop();
+        return;
+      }
+      if (waitingId === drive.id && card?.isConnected) return;
+      drop();
+      waitingId = drive.id;
+      card = typeItCard(drive);
+      box.append(card);
+      stickBottom();
+    },
+  };
+}
+
+// ---------- the Computer panel ----------
+
+const COMPUTER_MAX_APPS = 32;
+const COMPUTER_UNKNOWN = [['ask', 'Ask each time'], ['refuse', 'Refuse'], ['allow', 'Any app, no asking']];
+const COMPUTER_EDGES = [[1280, '1280 px (default)'], [1600, '1600 px'], [2000, '2000 px'], [2576, '2576 px']];
+const COMPUTER_CONFIRMS = [
+  ['send', 'Sending messages or email'], ['buy', 'Buying or paying'], ['delete', 'Deleting or discarding'],
+  ['submit', 'Submitting forms'], ['terms', 'Agreeing to terms'], ['signin', 'Signing in'],
+];
+const clipText = (text, n) => (String(text).length > n ? `${String(text).slice(0, n - 1)}…` : String(text));
+
+// Opens the panel (the + menu, /computer and MuseUI.openComputer). task fills the first box.
+function openComputer(task = '') {
+  if (!S.activeProject) {
+    openAddForm();
+    return toast('Add a project folder first.', 'bad');
+  }
+  const first = typeof task === 'string' ? task : '';
+  return openDrawer('Computer use', body => renderComputer(body, first));
+}
+
+async function renderComputer(body, firstTask) {
+  const gen = drawerGen;
+  body.append(para('Checking this computer…'));
+  let probe;
+  let wins;
+  let prefs;
+  try {
+    [probe, wins, prefs] = await Promise.all([
+      api('/api/computer/probe'),
+      api('/api/computer/windows').catch(() => ({ windows: [] })),
+      api(`/api/computer/prefs?project=${encodeURIComponent(S.activeProject)}`).then(r => r.prefs).catch(() => null),
+    ]);
+  } catch (err) {
+    if (gen !== drawerGen) return;
+    const again = button('ghost small', 'Try again');
+    again.addEventListener('click', () => refreshDrawer());
+    body.replaceChildren(para(err.message), again);
+    return;
+  }
+  if (gen !== drawerGen) return;
+  body.replaceChildren();
+  const project = S.projects.find(p => p.id === S.activeProject);
+  const hotkey = probe.hotkey?.label ?? 'Ctrl+Alt+Esc';
+  const stopped = line => {
+    body.append(para(line));
+    const past = button('ghost small', 'Past runs');
+    past.addEventListener('click', () => openComputerRuns());
+    body.append(past);
+  };
+  if (!probe.available) return stopped('Computer use needs the desktop app.');
+  if (project?.chatMode === 'plan') return stopped(`Plan mode is on for ${project.name}, so Plenum will not control the computer here. Turn Plan off first.`);
+  if (!probe.supported) {
+    body.append(para([probe.reason, probe.help].filter(Boolean).join(' ') || 'Computer use is not available on this computer.'));
+    if (probe.platform === 'darwin') {
+      const ask = button('primary small', 'Request permissions');
+      ask.addEventListener('click', async () => {
+        ask.disabled = true;
+        try {
+          await api('/api/computer/request-permissions', {});
+          toast('Asked. Grant them in System Settings, then restart Plenum.');
+        } catch (err) {
+          toast(err.message, 'bad');
+        }
+        ask.disabled = false;
+      });
+      body.append(ask, quietNote('Restart Plenum after granting them.'));
+    }
+    return undefined;
+  }
+  const ready = (probe.models ?? []).filter(m => m.ready);
+  if (!ready.length) {
+    return stopped('No model here can use the computer. Add an Anthropic API key in Accounts for Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 or Opus 5, or an OpenAI or Google AI key.');
+  }
+
+  // ---- what the person chose ----
+  const usable = (wins.windows ?? []).filter(w => !w.denied);
+  const barred = (wins.windows ?? []).filter(w => w.denied);
+  const displays = probe.displays ?? [];
+  const exeOf = w => String(w.exe ?? '').toLowerCase();
+  const d = {
+    task: firstTask || '',
+    choice: '',
+    apps: new Set(),
+    model: '',
+    steps: prefs && 'steps' in prefs ? prefs.steps : 200,
+    minutes: prefs?.minutes ?? 30,
+    confirmEvery: prefs?.confirmEvery === true,
+    unknownApps: prefs?.unknownApps ?? 'ask',
+    maxEdge: prefs?.maxEdge ?? 1280,
+    numberGuard: prefs?.numberGuard !== false,
+    confirm: Object.fromEntries(COMPUTER_CONFIRMS.map(([id]) => [id, prefs?.confirm?.[id] !== false])),
+  };
+  const remembered = new Set((prefs?.allowExes ?? []).map(e => String(e).toLowerCase()));
+  if (prefs?.scope === 'display' && displays.length) {
+    d.choice = `d:${displays[0].id}`;
+    for (const w of usable) if (remembered.has(exeOf(w))) d.apps.add(exeOf(w));
+  } else if (prefs?.targetExe) {
+    const hit = usable.find(w => exeOf(w) === String(prefs.targetExe).toLowerCase());
+    if (hit) d.choice = `w:${hit.id}`;
+  }
+  const current = project?.model ?? S.model;
+  d.model = ready.find(m => m.ref === current)?.ref ?? ready.find(m => m.ref === prefs?.model)?.ref ?? ready.find(m => m.ref === 'anthropic:claude-opus-5-5')?.ref ?? ready[0].ref;
+
+  const form = document.createElement('div');
+  form.className = 'relay-form';
+  form.append(para('Let a model see your screen and use the mouse and keyboard for one task.'));
+
+  // 1. The task.
+  const taskBox = document.createElement('textarea');
+  taskBox.className = 'cu-task';
+  taskBox.rows = 4;
+  taskBox.maxLength = 2000;
+  taskBox.value = d.task;
+  taskBox.placeholder = 'What should the model do?';
+  taskBox.setAttribute('aria-label', 'The task');
+  looks(taskBox, { width: '100%', minHeight: '84px', padding: '8px 10px', resize: 'vertical', borderRadius: '9px', border: '1px solid var(--line-2)', background: 'var(--bg)', color: 'var(--text)', font: 'inherit', fontSize: '13px' });
+  taskBox.addEventListener('input', () => { d.task = taskBox.value; paint(); });
+  form.append(fieldRow('Task', taskBox, 'Say it as you would to a person. The model asks before it sends, buys, deletes or signs in.'));
+
+  // 2. What the model sees.
+  const pick = document.createElement('select');
+  pick.setAttribute('aria-label', 'What the model sees');
+  const placeholder = new Option('Choose a window or a display', '', true, true);
+  placeholder.disabled = true;
+  pick.append(placeholder);
+  if (usable.length) {
+    const group = document.createElement('optgroup');
+    group.label = 'Windows';
+    for (const w of usable) {
+      const option = new Option(`${w.app} — ${clipText(w.title || '(no title)', 70)}`, `w:${w.id}`);
+      option.title = w.title;
+      group.append(option);
+    }
+    pick.append(group);
+  }
+  if (displays.length) {
+    const group = document.createElement('optgroup');
+    group.label = 'Whole display';
+    displays.forEach((disp, i) => group.append(new Option(`${disp.label || `Display ${i + 1}`} (every window on it)`, `d:${disp.id}`)));
+    pick.append(group);
+  }
+  pick.value = d.choice;
+  pick.addEventListener('change', () => { d.choice = pick.value; paintApps(); paint(); });
+  const refreshWins = button('ghost small', 'Refresh');
+  refreshWins.addEventListener('click', () => refreshDrawer());
+  const pickRow = document.createElement('div');
+  pickRow.className = 'hop-row';
+  pickRow.append(pick, refreshWins);
+  const seeNote = span('field-note', '');
+  const seeWarn = span('field-note', '');
+  looks(seeWarn, { color: 'var(--warn)' });
+  const field = fieldRow('What the model sees', pickRow);
+  field.append(seeNote, seeWarn);
+  if (barred.length) field.append(span('field-note', 'Password managers and other credential programs are never offered.'));
+  form.append(field);
+
+  // 3. For a display: the apps the model may use.
+  const appsBox = document.createElement('div');
+  appsBox.className = 'field';
+  form.append(appsBox);
+  function paintApps() {
+    appsBox.replaceChildren();
+    const display = d.choice.startsWith('d:');
+    appsBox.hidden = !display;
+    if (!display) return;
+    appsBox.append(span('field-label', 'Apps the model may use'));
+    const byExe = new Map();
+    for (const w of usable) {
+      const key = exeOf(w);
+      if (!byExe.has(key)) byExe.set(key, { first: w, count: 0 });
+      byExe.get(key).count += 1;
+    }
+    const rows = [...byExe.entries()].sort((a, b) => Number(d.apps.has(b[0])) - Number(d.apps.has(a[0])) || Number(remembered.has(b[0])) - Number(remembered.has(a[0])));
+    for (const [key, { first, count }] of rows) {
+      const row = switchRow(first.app, `${clipText(first.title || '(no title)', 60)}${count > 1 ? ` · ${count} windows` : ''}`, d.apps.has(key), on => {
+        if (on && d.apps.size >= COMPUTER_MAX_APPS) {
+          toast(`Pick at most ${COMPUTER_MAX_APPS} apps.`, 'bad');
+          return paintApps();
+        }
+        if (on) d.apps.add(key); else d.apps.delete(key);
+        paint();
+      });
+      if (first.flag) row.lastElementChild.append(' ', span('pill warn', first.flag === 'browser' ? 'browser' : 'runs commands'));
+      appsBox.append(row);
+    }
+    for (const w of barred) {
+      const row = document.createElement('div');
+      row.className = 'note-quiet';
+      row.append(`${w.app} `, span('pill', 'never allowed'));
+      appsBox.append(row);
+    }
+    if (!rows.length) appsBox.append(span('field-note', 'No windows are open. Open the apps the task needs, then press Refresh.'));
+  }
+
+  // 4. The model.
+  const modelSel = document.createElement('select');
+  modelSel.setAttribute('aria-label', 'Model');
+  for (const m of probe.models ?? []) {
+    const option = new Option(`${m.name}${m.note ? ` (${m.note})` : ''}`, m.ref);
+    option.disabled = !m.ready;
+    modelSel.append(option);
+  }
+  modelSel.value = d.model;
+  modelSel.addEventListener('change', () => { d.model = modelSel.value; paint(); });
+  form.append(fieldRow('Model', modelSel, 'Only models that can use the computer are offered. Their requests go to the model\'s provider with a screenshot each.'));
+
+  // 5. Limits and checks.
+  const more = document.createElement('details');
+  more.className = 'cu-more';
+  const moreSum = document.createElement('summary');
+  more.append(moreSum);
+  const moreBody = document.createElement('div');
+  moreBody.className = 'relay-form';
+  looks(moreBody, { marginTop: '12px' });
+  more.append(moreBody);
+  const steps = document.createElement('input');
+  steps.type = 'number';
+  steps.min = '10';
+  steps.max = '2000';
+  steps.step = '1';
+  steps.value = String(d.steps ?? 200);
+  steps.disabled = d.steps === null;
+  steps.setAttribute('aria-label', 'Up to this many actions');
+  const noLimit = switchRow('No limit on actions', '', d.steps === null, on => {
+    d.steps = on ? null : Math.min(2000, Math.max(10, Math.floor(Number(steps.value)) || 200));
+    steps.disabled = on;
+    paint();
+  });
+  steps.addEventListener('change', () => { d.steps = Math.min(2000, Math.max(10, Math.floor(Number(steps.value)) || 200)); steps.value = String(d.steps); paint(); });
+  moreBody.append(fieldRow('Up to this many actions', steps, '10 to 2000. A click, a key press, a typing step and a scroll are one action each.'), noLimit);
+  const minutes = document.createElement('input');
+  minutes.type = 'number';
+  minutes.min = '1';
+  minutes.max = '480';
+  minutes.step = '1';
+  minutes.value = String(d.minutes);
+  minutes.setAttribute('aria-label', 'Minutes of activity');
+  minutes.addEventListener('change', () => { d.minutes = Math.min(480, Math.max(1, Math.floor(Number(minutes.value)) || 30)); minutes.value = String(d.minutes); paint(); });
+  moreBody.append(fieldRow('Up to this many minutes of activity', minutes, 'Paused time does not count.'));
+  moreBody.append(switchRow('Ask before every action', 'A card before each click, key and typing step. Slow; useful for a first try.', d.confirmEvery, on => { d.confirmEvery = on; paint(); }));
+  const unknown = document.createElement('div');
+  unknown.className = 'seg';
+  unknown.setAttribute('role', 'group');
+  unknown.setAttribute('aria-label', 'Other apps');
+  const unknownField = fieldRow('Other apps', unknown, 'What happens when an action lands in an app that is not in the list.');
+  moreBody.append(unknownField);
+  const paintUnknown = () => {
+    unknown.replaceChildren(...COMPUTER_UNKNOWN.map(([value, label]) => {
+      const b = button('seg-btn', label);
+      b.setAttribute('aria-pressed', String(d.unknownApps === value));
+      b.addEventListener('click', () => { d.unknownApps = value; paintUnknown(); paint(); });
+      return b;
+    }));
+  };
+  const edge = document.createElement('select');
+  edge.setAttribute('aria-label', 'Screenshot size');
+  edge.append(...COMPUTER_EDGES.map(([value, label]) => new Option(label, String(value))));
+  edge.value = String(d.maxEdge);
+  edge.addEventListener('change', () => { d.maxEdge = Number(edge.value); });
+  moreBody.append(fieldRow('Screenshot size', edge, 'The long edge of each screenshot. Larger is sharper and costs more.'));
+  moreBody.append(span('field-label', 'Ask first before the model'));
+  for (const [id, label] of COMPUTER_CONFIRMS) {
+    moreBody.append(switchRow(label, '', d.confirm[id], on => { d.confirm[id] = on; paint(); }));
+  }
+  moreBody.append(switchRow('Block card, bank and id numbers', 'Off: the model may type numbers it reads in your chat or on the screen. Use that for test cards in your own app, not real ones.', d.numberGuard, on => { d.numberGuard = on; paint(); }));
+  form.append(more);
+
+  // 6. The note.
+  const rules = document.createElement('p');
+  rules.className = 'field-note';
+  looks(rules, { border: '1px solid var(--line-2)', borderRadius: '9px', padding: '9px 11px' });
+  form.append(rules);
+
+  // 7. The actions.
+  const start = button('primary', 'Start');
+  const cancel = button('ghost', 'Cancel');
+  const past = button('ghost small', 'Past runs');
+  const missing = span('field-note', '');
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+  actions.append(start, cancel, past);
+  form.append(actions, missing, span('field-note', 'The model starts only after you press Start. Nothing it does changes what Plenum refuses: password managers, Plenum itself and system prompts stay off limits.'));
+  cancel.addEventListener('click', closeDrawer);
+  past.addEventListener('click', () => openComputerRuns());
+  body.append(form);
+  // The danger strip sits above Start. It informs; pressing Start is the consent.
+  window.MuseUI?.notice?.('computer-use', { before: actions });
+
+  // ---- keeping the page in step with the choices ----
+  const stepsText = () => (d.steps === null ? 'no action limit' : `${d.steps} actions`);
+  const asked = () => COMPUTER_CONFIRMS.filter(([id]) => d.confirm[id]).map(([, label]) => label.toLowerCase());
+  function targetWindow() {
+    return d.choice.startsWith('w:') ? usable.find(w => `w:${w.id}` === d.choice) ?? null : null;
+  }
+  function paint() {
+    const win = targetWindow();
+    const display = d.choice.startsWith('d:');
+    unknownField.hidden = !display;
+    seeNote.textContent = win
+      ? `The model sees this window with the menus and dialogs it opens, and can act only in ${win.app}.`
+      : display ? 'The model sees every window on this display. Pick the apps it may use below.' : 'Pick the one window the model works in, or a whole display.';
+    seeWarn.textContent = win?.flag === 'browser' || (display && [...d.apps].some(e => usable.find(w => exeOf(w) === e)?.flag === 'browser'))
+      ? 'A browser gives the model every site you are signed in to. The in-app browser is safer for web tasks.'
+      : win?.flag === 'terminal' ? `In ${win.app} the model can run commands, and Plenum's command rules do not apply there.` : '';
+    moreSum.textContent = `Limits and checks: ${stepsText()} · ${d.minutes} minutes${display ? ` · other apps: ${d.unknownApps === 'allow' ? 'any' : d.unknownApps === 'refuse' ? 'refused' : 'ask'}` : ''}${d.confirmEvery ? ' · ask before every action' : ''}`;
+    const asks = asked();
+    rules.textContent = `Never: typing passwords, codes${d.numberGuard ? ', card or bank details' : ''} (the model asks you to do those steps). ${asks.length ? `Asks first: ${asks.join(', ')}${display && d.unknownApps === 'ask' ? ', and any app not in the list' : ''}. ` : ''}Approve all answers these cards only where Settings allow it. Moving the mouse pauses the run; press Resume to go on. Stop any time with Stop on the bar, or ${hotkey}.`;
+    const reason = !d.task.trim() ? 'Type what the model should do.'
+      : !d.choice ? 'Choose a window or a display.'
+        : display && !d.apps.size && d.unknownApps !== 'allow' ? 'Tick at least one app, or let the model use any app.'
+          : busyNow() ? 'A reply is running in this project. Wait for it to end, or press Esc to stop it.' : '';
+    start.disabled = reason !== '';
+    missing.textContent = reason;
+  }
+  paintUnknown();
+  paintApps();
+  paint();
+
+  start.addEventListener('click', async () => {
+    const win = targetWindow();
+    const display = d.choice.startsWith('d:');
+    const ids = [];
+    if (display) {
+      for (const exe of d.apps) {
+        const w = usable.find(x => exeOf(x) === exe);
+        if (w) ids.push(w.id);
+      }
+    }
+    const settings = {
+      scope: display ? 'display' : 'window',
+      target: d.choice.slice(2),
+      ...(display ? { allow: ids } : {}),
+      steps: d.steps,
+      minutes: d.minutes,
+      confirmEvery: d.confirmEvery,
+      ...(display ? { unknownApps: d.unknownApps } : {}),
+      maxEdge: d.maxEdge,
+      confirm: { ...d.confirm },
+      numberGuard: d.numberGuard,
+      appNames: display ? [...d.apps].map(e => usable.find(x => exeOf(x) === e)?.app).filter(Boolean) : [win?.app].filter(Boolean),
+    };
+    const remember = {
+      scope: settings.scope,
+      ...(win ? { targetExe: win.exe } : {}),
+      allowExes: display ? [...d.apps] : prefs?.allowExes ?? [],
+      steps: d.steps,
+      minutes: d.minutes,
+      confirmEvery: d.confirmEvery,
+      unknownApps: d.unknownApps,
+      maxEdge: d.maxEdge,
+      confirm: { ...d.confirm },
+      numberGuard: d.numberGuard,
+      model: d.model,
+    };
+    start.disabled = true;
+    // The remembered choices are a convenience; a project that cannot keep them still runs.
+    await api('/api/computer/prefs', { project: S.activeProject, prefs: remember }).catch(() => {});
+    closeDrawer();
+    await sendComputer(d.task.trim(), d.model, settings);
+  });
+}
+
+// Sends one computer run as a chat turn: the task is the message and the settings go with it. It never goes through the composer, whose
+// submit would stop a running reply or send the text to the council, and it takes no pictures.
+// settings is what the panel built: { scope, target, allow?, steps, minutes, confirmEvery, unknownApps?, maxEdge, confirm, numberGuard, appNames }.
+async function sendComputer(task, model, settings = {}) {
+  if (!S.activeProject) {
+    openAddForm();
+    return toast('Add a project folder first.', 'bad');
+  }
+  if (busyNow()) return toast('A reply is running in this project. Wait for it to end, or press Esc to stop it.', 'bad');
+  const text = String(task ?? '').trim();
+  if (!text) return toast('Say what the model should do.', 'bad');
+  const { appNames, ...computer } = settings;
+  return sendMessage(text, model, [], computer, Array.isArray(appNames) ? appNames : []);
+}
+
+// ---------- past runs ----------
+
+const STOP_WORDS_PAGE = {
+  done: 'finished', user: 'stopped by you', hotkey: 'stopped with the stop key', idle: 'left paused', limit: 'limit reached',
+  budget: 'spend cap reached', cancelled: 'stopped', error: 'failed', declined: 'not started', interrupted: 'interrupted',
+};
+const stopWordOf = reason => STOP_WORDS_PAGE[String(reason ?? '').split(':')[0].trim()] ?? 'stopped';
+
+// The kept runs: when, which model, which apps, how many actions, how it ended, and how much room the screenshots take. A run can be
+// deleted here; the server keeps runs for a time and a size (Settings) and a live run cannot be deleted.
+function openComputerRuns() {
+  return openDrawer('Computer runs', renderComputerRuns);
+}
+
+async function renderComputerRuns(body) {
+  const gen = drawerGen;
+  body.append(para('Loading…'));
+  let runs;
+  try {
+    runs = (await api('/api/computer/runs')).runs ?? [];
+  } catch (err) {
+    if (gen !== drawerGen) return;
+    body.replaceChildren(para(err.message));
+    return;
+  }
+  if (gen !== drawerGen) return;
+  body.replaceChildren(para('Screenshots, actions and card answers from computer runs, kept on this computer for a few days or until they pass a size limit. Nothing here is sent anywhere.'));
+  if (!runs.length) {
+    body.append(quietNote('No computer runs yet. Start one with /computer.'));
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'log-list';
+  for (const r of runs) {
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    const when = r.startedAt ? new Date(r.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    row.append(span('log-time', when), span('log-hop', modelName(r.model) || r.model || ''), span('log-chars', `${(r.apps ?? []).join(', ') || 'no app'} · ${r.actions} actions · ${r.frames} screenshots · ${sizeText(r.bytes ?? 0)}`));
+    row.append(span('pill', r.live ? 'running' : stopWordOf(r.stopReason)));
+    const del = button('ghost small', 'Delete');
+    del.disabled = r.live === true;
+    del.title = r.live ? 'This run is still going. Stop it first.' : 'Delete this run\'s screenshots and action list';
+    del.addEventListener('click', async () => {
+      const ok = await confirmBox({ title: 'Delete this run?', body: 'Its screenshots and action list are deleted from this computer. This cannot be undone.', action: 'Delete', tone: 'danger', focusCancel: true });
+      if (!ok) return;
+      try {
+        await api('/api/computer/runs/delete', { id: r.id });
+        refreshDrawer();
+      } catch (err) {
+        toast(err.message, 'bad');
+      }
+    });
+    row.append(del);
+    list.append(row);
+  }
+  body.append(list);
+  const all = button('ghost small', 'Delete all runs');
+  all.addEventListener('click', async () => {
+    const ok = await confirmBox({ title: 'Delete every computer run?', body: 'Every run\'s screenshots and action list are deleted from this computer, except a run that is still going. This cannot be undone.', action: 'Delete all', tone: 'danger', focusCancel: true });
+    if (!ok) return;
+    try {
+      await api('/api/computer/runs/delete-all', {});
+      refreshDrawer();
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  });
+  body.append(all);
+}
+
 // ---------- the side pane (MuseUI.pane) ----------
 
 // Panels register a tab in the side pane (artifacts, the browser, review, agents) and open it. This code draws only the tab strip,
@@ -3829,14 +4680,18 @@ function renderCommands(body) {
 // so switching tabs never draws a view again. Nothing about the pane is kept between page loads, except what the panels keep.
 const PANE_ID = /^[a-z0-9-]{1,32}$/;
 const PANE_ICON = /^[a-z0-9-]{1,40}$/;
-const PANE_DEFAULT_W = 440;
 const PANE_MIN_W = 380;   // UI-ARCH: the pane is never narrower than 380 px
 const PANE_STEP = 24;     // one arrow key on the grip moves the edge this far
+// UI-ARCH section 8: 480 px from 1440 px wide, 440 px before that.
+const paneDefaultWidth = () => (window.innerWidth >= 1440 ? 480 : 440);
 const paneDefs = new Map();       // id -> the registered definition
 const paneInstances = new Map();  // id -> an open tab: { id, label, icon, count, tab, view, badgeEl, api, closed }
+const paneTitleBtns = new Map();  // id -> the pane's button in the title bar (a pane registered with titleButton: true)
+const paneCounts = new Map();     // id -> { n, tone }: the count the title bar button shows, kept even while the pane is closed
 let paneActive = null;    // the selected tab's id, or null when no tab is open
 let paneShown = false;    // whether the column is visible. Back and the last tab closing hide it; the tabs stay
-let paneW = PANE_DEFAULT_W;   // the width in px, kept for this page's life only
+let paneExpanded = false; // Expand: the pane takes over the chat column. Kept only while the column shows
+let paneW = null;         // the width in px, kept for this page's life only; null until the grip or MuseUI.pane.width sets it
 let paneDrag = null;      // { pointer, x, w } while the grip is dragged
 
 function paneEvent(action, id) {
@@ -3861,7 +4716,7 @@ function paneWidthLimits() {
 }
 
 function paneCurrentWidth() {
-  return Math.min(paneW, paneWidthLimits().max);
+  return Math.min(paneW ?? paneDefaultWidth(), paneWidthLimits().max);
 }
 
 // Sets the width (a number of pixels, clamped) through the --pane-w property the stylesheet reads. A value that is not a number keeps
@@ -3969,12 +4824,82 @@ function paneSelectTab(id) {
     inst.tab.tabIndex = on ? 0 : -1;
   }
   paneActive = paneInstances.has(id) ? id : null;
+  paneSyncChrome();
 }
 
 // The column shows only while there is a tab to show.
 function paneShowColumn(on) {
   paneShown = Boolean(on) && paneInstances.size > 0;
   el.pane.hidden = !paneShown;
+  if (!paneShown) paneExpanded = false;
+  paneSyncChrome();
+}
+
+// Keeps the title bar's pane buttons, the Expand button and the icon strip in step with what the column shows.
+function paneSyncChrome() {
+  for (const [id, btn] of paneTitleBtns) btn.setAttribute('aria-pressed', String(paneShown && paneActive === id));
+  el.paneExpand.setAttribute('aria-pressed', String(paneExpanded));
+  el.paneExpand.title = paneExpanded ? 'Restore the pane beside the chat' : 'Expand the pane over the chat';
+  el.paneExpand.setAttribute('aria-label', paneExpanded ? 'Restore the pane beside the chat' : 'Expand the pane over the chat');
+  // Until the grip or MuseUI.pane.width sets a width, the pane takes the default for this window (480 px from 1440 px).
+  if (paneShown && paneW === null) el.pane.style.setProperty('--pane-w', `${paneDefaultWidth()}px`);
+  const app = $('app');
+  if (paneExpanded) app.dataset.paneExpanded = '';
+  else delete app.dataset.paneExpanded;
+  // With the column open the chat is narrower, so the title bar drops its secondary labels to keep one line (see style.css).
+  if (paneShown) app.dataset.paneOpen = '';
+  else delete app.dataset.paneOpen;
+  // UI-ARCH section 8: from 1100 to 1439 px, with the pane open (not while expanded) or the Settings page open, the sidebar becomes a
+  // 56 px icon strip.
+  const w = window.innerWidth;
+  if ((paneShown && !paneExpanded || app.hasAttribute('data-settings-open')) && w >= 1100 && w <= 1439) app.dataset.strip = '';
+  else delete app.dataset.strip;
+}
+
+// Expand the pane over the chat column, or give the chat its column back. Only meaningful while the column shows.
+function paneSetExpanded(on) {
+  paneExpanded = Boolean(on) && paneShown;
+  paneSyncChrome();
+  paneEvent(paneExpanded ? 'expand' : 'restore', paneActive);
+}
+
+// The button for a pane that asks for one in the title bar (titleButton: true). Its count is the one set with MuseUI.pane.count.
+function paneDrawTitleBtn(id) {
+  const btn = paneTitleBtns.get(id);
+  const def = paneDefs.get(id);
+  if (!btn || !def) return;
+  const parts = [];
+  if (PANE_ICON.test(def.icon ?? '')) parts.push(icon(def.icon));
+  parts.push(span('pane-btn-label', def.title));
+  const count = paneCounts.get(id);
+  if (count) parts.push(span('badge', count.n > 99 ? '99+' : String(Math.floor(count.n))));
+  btn.replaceChildren(...parts);
+  if (count) btn.lastElementChild.dataset.tone = count.tone ?? '';
+  btn.title = def.title;
+  btn.setAttribute('aria-label', count ? `${def.title}, ${count.n}` : def.title);
+  btn.setAttribute('aria-pressed', String(paneShown && paneActive === id));
+}
+
+// Adds, orders or removes the pane's title bar button, after the pane's own definition is set.
+function paneSyncTitleBtn(def) {
+  if (!def.titleButton) {
+    paneTitleBtns.get(def.id)?.remove();
+    paneTitleBtns.delete(def.id);
+    return;
+  }
+  let btn = paneTitleBtns.get(def.id);
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'pane-btn';
+    btn.dataset.pane = def.id;
+    btn.addEventListener('click', () => paneToggle(def.id));
+    paneTitleBtns.set(def.id, btn);
+  }
+  const later = [...el.paneButtons.children].find(b => b !== btn && paneTabOrder(b.dataset.pane) > def.order);
+  if (later) el.paneButtons.insertBefore(btn, later);
+  else el.paneButtons.append(btn);
+  paneDrawTitleBtn(def.id);
 }
 
 // The tab after the given one, else the one before it, or null when it is the only tab.
@@ -3992,7 +4917,9 @@ function paneRegister(def) {
   if (typeof title !== 'string' || !title.trim()) throw new Error(`Pane ${id} needs a title.`);
   if (typeof render !== 'function') throw new Error(`Pane ${id} needs a render(body, api) function.`);
   if (typeof order !== 'number' || !Number.isFinite(order)) throw new Error(`Pane ${id}: order must be a number.`);
-  const next = { id, title: title.trim(), icon: typeof iconName === 'string' ? iconName : '', order, render, onShow, onHide, onClose };
+  // titleButton: true puts a button for the pane in the title bar; MuseUI.pane.count(id, n) puts a count on it.
+  const titleButton = d.titleButton === true;
+  const next = { id, title: title.trim(), icon: typeof iconName === 'string' ? iconName : '', order, render, onShow, onHide, onClose, titleButton };
   // Registering again replaces the definition. A tab that is open keeps its view and takes the new title and icon.
   paneDefs.set(id, next);
   const inst = paneInstances.get(id);
@@ -4002,6 +4929,7 @@ function paneRegister(def) {
     paneFillTab(inst);
     paneSortTab(inst);
   }
+  paneSyncTitleBtn(next);
   return next;
 }
 
@@ -4115,6 +5043,14 @@ const PANE = {
   isOpen: id => paneInstances.has(id),
   list: paneList,
   width: px => (px === undefined ? paneCurrentWidth() : paneSetWidth(px)),
+  // The count on a pane's title bar button: a number, or null to clear it. tone is 'amber' (waiting on you), 'red' or 'accent'.
+  count: (id, n, tone) => {
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0) paneCounts.set(id, { n: Math.floor(n), tone: tone ?? '' });
+    else paneCounts.delete(id);
+    paneDrawTitleBtn(id);
+  },
+  expanded: () => paneExpanded,
+  expand: on => paneSetExpanded(on),
 };
 
 // The grip on the left edge: a drag, a double-click to reset, and the arrow keys when it has the focus.
@@ -4144,7 +5080,7 @@ const paneDragEnd = e => {
 };
 el.paneGrip.addEventListener('pointerup', paneDragEnd);
 el.paneGrip.addEventListener('pointercancel', paneDragEnd);
-el.paneGrip.addEventListener('dblclick', () => paneSetWidth(PANE_DEFAULT_W));
+el.paneGrip.addEventListener('dblclick', () => paneSetWidth(paneDefaultWidth()));
 el.paneGrip.addEventListener('keydown', e => {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
   e.preventDefault();
@@ -4155,6 +5091,10 @@ window.addEventListener('resize', () => el.paneGrip.setAttribute('aria-valuemax'
 
 el.paneBack.addEventListener('click', () => paneHide());
 el.paneClose.addEventListener('click', () => paneCloseTab());
+el.paneExpand.addEventListener('click', () => paneSetExpanded(!paneExpanded));
+// The icon strip and the Expand state follow the window width (1100 to 1439 px) as well as the column.
+window.addEventListener('resize', () => paneSyncChrome());
+paneSyncChrome();
 
 // The arrow keys, Home and End move between the tabs and select the tab they reach.
 el.paneTabs.addEventListener('keydown', e => {
@@ -4195,7 +5135,7 @@ function settingsRegister(def) {
   if (typeof title !== 'string' || !title.trim()) throw new Error(`Settings ${id} needs a title.`);
   if (typeof render !== 'function') throw new Error(`Settings ${id} needs a render(body, ctx) function.`);
   if (typeof order !== 'number' || !Number.isFinite(order)) throw new Error(`Settings ${id}: order must be a number.`);
-  const next = { id, scope, title: title.trim(), order, render };
+  const next = { id, scope, title: title.trim(), order, render, group: typeof d.group === 'string' ? d.group : null };
   settingsDefs.set(id, next);
   return next;
 }
@@ -4205,16 +5145,6 @@ const settingsSections = scope => [...settingsDefs.values()]
   .filter(d => d.scope === scope)
   .sort((a, b) => a.order - b.order)
   .map(d => ({ ...d }));
-
-// The context a section's render receives. state is read when asked, so it is current.
-function settingsContext() {
-  return {
-    get state() { return S; },
-    update: body => update(body),
-    refresh: () => refreshDrawer(),
-    toast: (message, kind) => toast(message, kind),
-  };
-}
 
 // The line under a setting. It says "Saved" once the server has stored the change, or the server's refusal in red.
 function settingStatus() {
@@ -4228,44 +5158,381 @@ function settingStatus() {
   return { note, saved: () => show('Saved'), failed: message => show(message, true) };
 }
 
-function settingsCard(def) {
+// ---------- the Settings page (MuseUI.settings, UI-ARCH section 5) ----------
+// One page over the chat column and the side pane, under the title bar. A list of groups sits on the left with a search box, and every
+// group's sections stack on the right in the order UI-ARCH section 5 gives. A section comes from MuseUI.settings.register. It goes into
+// the group its id names (SECTION_GROUP) or the group its registration names (group), and otherwise into More at the end. Scope
+// 'project' sections belong to the project settings drawer and are not listed here (settings.open('project') opens that drawer).
+const SETTINGS_GROUPS = [
+  { key: 'project', label: 'This project' },
+  { key: 'rules', label: 'Rules' },
+  { key: 'accounts', label: 'Accounts' },
+  { key: 'api', label: 'API finder' },
+  { key: 'roles', label: 'Roles' },
+  { key: 'agents', label: 'Agents' },
+  { key: 'safety', label: 'Safety' },
+  { key: 'general', label: 'General' },
+  { key: 'updates', label: 'Updates' },
+  { key: 'legal', label: 'Legal' },
+  { key: 'more', label: 'More' },
+];
+const SECTION_GROUP = {
+  rules: 'rules', accounts: 'accounts', 'api-finder': 'api', roles: 'roles', sessions: 'roles', agents: 'agents', approvals: 'safety',
+  appearance: 'general', music: 'general', desktop: 'general', legal: 'legal', updates: 'updates', 'plenum-changes': 'updates',
+};
+const groupOfSection = def => SECTION_GROUP[def.id] ?? (SETTINGS_GROUPS.some(g => g.key === def.group) ? def.group : 'more');
+
+// The page's own parts. The roles controls and the music block were in the title bar and the sidebar; they wait in the page's stash.
+const settingsRolesEl = document.getElementById('rolesControls');
+let settingsShown = false;      // the page is open
+let settingsGroupEls = [];      // the groups as the last draw made them: { key, label, group, nav, cards, match }
+let settingsPicked = null;      // the group a narrow window shows, or the group a wide window was last sent to
+let settingsActive = null;      // the group the list marks as current
+let settingsEmpty = null;       // the line that says nothing matches the search
+let settingsFocusBack = null;   // what had focus before the page opened; closing the page returns focus there
+let settingsItem = null;        // the row a caller asked the page to open at (openSettings(section, id)); a section reads it as ctx.item while it draws
+const settingsNarrow = window.matchMedia('(max-width: 480px)');
+const settingsMedium = window.matchMedia('(max-width: 860px)');
+
+// One section's card. Its render draws into the body. ctx.refresh draws the card again, in place, and the page is left as it is.
+function settingsCard(def, showTitle) {
   const card = document.createElement('section');
   card.className = 'card settings-card';
   card.dataset.section = def.id;
-  const title = document.createElement('h4');
-  title.className = 'card-title';
-  title.textContent = def.title;
   const body = document.createElement('div');
   body.className = 'card-body';
-  card.append(title, body);
-  const fail = err => body.replaceChildren(para(`This section could not load: ${err?.message ?? err}`));
-  try {
-    const out = def.render(body, settingsContext());
-    if (out && typeof out.then === 'function') out.catch(fail);
-  } catch (err) {
-    fail(err);
+  if (showTitle) {
+    const title = document.createElement('h4');
+    title.className = 'card-title';
+    title.textContent = def.title;
+    card.append(title);
   }
+  card.append(body);
+  const fail = err => body.replaceChildren(para(`This section could not load: ${err?.message ?? err}`));
+  const ctx = {
+    get state() { return S; },
+    // The row this open of the page was asked for, such as a notice's id, or null. A section that has rows reads it while it draws.
+    get item() { return settingsItem; },
+    update: patch => update(patch),
+    refresh: () => draw(),
+    toast: (message, kind) => toast(message, kind),
+  };
+  const draw = () => {
+    body.replaceChildren();
+    try {
+      const out = def.render(body, ctx);
+      if (out && typeof out.then === 'function') out.catch(fail);
+    } catch (err) {
+      fail(err);
+    }
+  };
+  draw();
   return card;
 }
 
-// The Settings drawer: one card per app section, in order. It is drawn again by refreshDrawer.
-function openSettings() {
-  openDrawer('Settings', body => {
-    body.append(...settingsSections('app').map(settingsCard));
-  });
+// The project's own settings are in the project drawer, which this card opens (UI-ARCH section 5, This project).
+function projectCard() {
+  const card = document.createElement('section');
+  card.className = 'card settings-card';
+  card.dataset.section = 'project';
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  const project = S.projects.find(p => p.id === S.activeProject);
+  if (!project) {
+    body.append(para('Add a project folder first. Each project keeps its own settings.'));
+  } else {
+    body.append(para(`Settings for ${project.name}: model, effort, approvals, plan and build focus, checks after each turn, blocked commands, tools, isolated copies, the spend limit and the agent settings. Each one follows the app default until you change it.`));
+    const open = button('ghost small', 'Open project settings');
+    open.addEventListener('click', () => settingsOpen('project'));
+    body.append(open);
+  }
+  card.append(body);
+  return card;
 }
 
-// scope 'app' opens the Settings drawer. scope 'project' opens the project settings drawer when a panel defined it.
-function settingsOpen(scope = 'app') {
+// Draws every group and its sections. It runs each time the page opens, as the drawer did, so each section starts from the current
+// settings. The roles controls and the music block go back to the stash first, so they are not lost with the cards.
+function settingsDraw() {
+  drawerGen++;
+  el.settingsStash.append(settingsRolesEl, el.music);
+  el.settingsNav.replaceChildren();
+  el.settingsContent.replaceChildren();
+  el.settingsPick.replaceChildren();
+  const defsByGroup = new Map(SETTINGS_GROUPS.map(g => [g.key, []]));
+  for (const def of settingsSections('app')) defsByGroup.get(groupOfSection(def)).push(def);
+  settingsGroupEls = [];
+  for (const g of SETTINGS_GROUPS) {
+    const defs = defsByGroup.get(g.key);
+    if (g.key !== 'project' && defs.length === 0) continue;
+    const group = document.createElement('section');
+    group.className = 'settings-group';
+    group.dataset.group = g.key;
+    const heading = document.createElement('h2');
+    heading.className = 'settings-group-title';
+    heading.id = `settings-group-${g.key}`;
+    heading.textContent = g.label;
+    group.setAttribute('aria-labelledby', heading.id);
+    const holder = document.createElement('div');
+    holder.className = 'settings-group-body';
+    // A group with one section that has the group's own name does not repeat the name on the card.
+    const cards = g.key === 'project' ? [projectCard()] : defs.map(def => settingsCard(def, !(defs.length === 1 && def.title === g.label)));
+    holder.append(...cards);
+    group.append(heading, holder);
+    const nav = document.createElement('button');
+    nav.type = 'button';
+    nav.className = 'settings-nav-item';
+    nav.textContent = g.label;
+    nav.addEventListener('click', () => settingsPickGroup(g.key));
+    el.settingsNav.append(nav);
+    el.settingsPick.append(new Option(g.label, g.key));
+    el.settingsContent.append(group);
+    settingsGroupEls.push({ key: g.key, label: g.label, group, nav, cards, match: true });
+  }
+  settingsEmpty = document.createElement('div');
+  settingsEmpty.className = 'settings-empty';
+  settingsEmpty.hidden = true;
+  const line = document.createElement('p');
+  const clear = button('ghost small', 'Clear search');
+  clear.addEventListener('click', () => {
+    el.settingsSearch.value = '';
+    settingsApplySearch();
+    el.settingsSearch.focus({ preventScroll: true });
+  });
+  settingsEmpty.append(line, clear);
+  el.settingsContent.append(settingsEmpty);
+}
+
+// Filters the page. A section stays when its words contain the search, and a group stays when its name does.
+function settingsApplySearch() {
+  const raw = el.settingsSearch.value.trim();
+  const q = raw.toLowerCase();
+  let shown = 0;
+  for (const g of settingsGroupEls) {
+    const named = Boolean(q) && g.label.toLowerCase().includes(q);
+    let any = false;
+    for (const card of g.cards) {
+      const hit = !q || named || card.textContent.toLowerCase().includes(q);
+      card.hidden = !hit;
+      if (hit) any = true;
+    }
+    g.match = !q || named || any;
+    g.nav.hidden = !g.match;
+    if (g.match) shown += 1;
+  }
+  if (settingsEmpty) {
+    settingsEmpty.hidden = !(q && shown === 0);
+    settingsEmpty.firstElementChild.textContent = `No settings match "${raw}".`;
+  }
+  settingsSyncView();
+}
+
+// What a narrow window shows. Below 480 px the list comes first and one section follows its pick; a search shows every match.
+// Wide and medium windows show every group.
+function settingsSyncView() {
+  const q = el.settingsSearch.value.trim();
+  const narrow = settingsNarrow.matches;
+  const browsing = narrow && !q;
+  el.settingsPage.dataset.view = narrow ? (browsing && !settingsPicked ? 'list' : 'group') : '';
+  el.settingsBack.hidden = !(narrow && (q || settingsPicked));
+  for (const g of settingsGroupEls) g.group.hidden = !g.match || (browsing && g.key !== settingsPicked);
+}
+
+// Marks the group in the list as current, and in the menu of a medium window.
+function settingsMark(key) {
+  settingsActive = key;
+  for (const g of settingsGroupEls) {
+    if (g.key === key) g.nav.setAttribute('aria-current', 'true');
+    else g.nav.removeAttribute('aria-current');
+  }
+  el.settingsPick.value = key ?? '';
+}
+
+// Sends the page to a group: a scroll on wide windows, and the group alone on a narrow one.
+function settingsPickGroup(key) {
+  const g = settingsGroupEls.find(x => x.key === key);
+  if (!g) return;
+  settingsPicked = key;
+  settingsMark(key);
+  settingsSyncView();
+  el.settingsContent.scrollTop = settingsNarrow.matches ? 0 : Math.max(0, g.group.offsetTop - 12);
+}
+
+// On wide windows the list marks the group the reader has reached.
+function settingsSpy() {
+  if (!settingsShown || settingsMedium.matches) return;
+  const line = el.settingsContent.scrollTop + 40;
+  let current = null;
+  for (const g of settingsGroupEls) if (!g.group.hidden && g.group.offsetTop <= line) current = g.key;
+  if (current === null) current = settingsGroupEls.find(g => !g.group.hidden)?.key ?? null;
+  if (current !== null && current !== settingsActive) settingsMark(current);
+}
+
+// A name for where the page opens: a group ("rules", "accounts", "roles"...) or a section id (see settingsDefs). Anything else opens
+// the top of the page.
+function settingsTarget(where) {
+  const name = typeof where === 'string' ? where.trim() : '';
+  if (!name) return null;
+  if (SETTINGS_GROUPS.some(g => g.key === name)) return name;
+  if (SECTION_GROUP[name]) return SECTION_GROUP[name];
+  const def = settingsDefs.get(name);
+  return def ? groupOfSection(def) : null;
+}
+
+// The chat and the composer cannot be reached while the page is open. The banner slot is left live: the drive bar is in it, paints over
+// the page (ext-drive.css, z-index 35) and its Pause and Stop have to keep working there. style.css keeps the slot's other banners, and
+// anything added to the composer while the page is open, out of reach.
+function settingsInert(on) {
+  el.chat.inert = on;
+  for (const part of el.composerWrap.children) part.inert = on && part !== el.bannerSlot;
+}
+
+// Opens the Settings page, at the group or section named by where. A page that is open is drawn again at the new place. item names a
+// row inside that section (a notice's id for Safety); the section gets it as ctx.item while it draws, and nothing else reads it.
+function openSettingsPage(where, item) {
+  const target = settingsTarget(where);
+  closeDrawer();
+  if (!settingsShown) {
+    settingsFocusBack = document.activeElement;
+    settingsShown = true;
+    $('app').dataset.settingsOpen = '';
+    el.settingsPage.hidden = false;
+    settingsInert(true);
+    el.settingsBtn.setAttribute('aria-pressed', 'true');
+  }
+  el.settingsSearch.value = '';
+  settingsPicked = null;
+  settingsItem = typeof item === 'string' && item ? item : null;
+  try {
+    settingsDraw();
+  } finally {
+    settingsItem = null;
+  }
+  settingsApplySearch();
+  if (target) settingsPickGroup(target);
+  else settingsSpy();
+  paneSyncChrome();
+  el.settingsSearch.focus({ preventScroll: true });
+}
+
+// Closes the page and gives focus back to what had it.
+function closeSettingsPage() {
+  if (!settingsShown) return;
+  settingsShown = false;
+  drawerGen++;
+  el.settingsPage.hidden = true;
+  delete $('app').dataset.settingsOpen;
+  settingsInert(false);
+  el.settingsBtn.setAttribute('aria-pressed', 'false');
+  el.settingsStash.append(settingsRolesEl, el.music);
+  el.settingsNav.replaceChildren();
+  el.settingsContent.replaceChildren();
+  el.settingsPick.replaceChildren();
+  settingsGroupEls = [];
+  settingsEmpty = null;
+  settingsPicked = null;
+  settingsActive = null;
+  el.settingsSearch.value = '';
+  paneSyncChrome();
+  const back = settingsFocusBack;
+  settingsFocusBack = null;
+  // Focus goes back only to something on screen; a control that was hidden meanwhile would lose it.
+  const shown = back && back.isConnected && back !== document.body && !back.closest('.settings-page') && back.getClientRects().length > 0;
+  if (shown && typeof back.focus === 'function') back.focus({ preventScroll: true });
+  else el.input.focus({ preventScroll: true });
+}
+
+// Draws the page again in place: a section's refresh, or a change made in one of them, keeps the search, the pick and the scroll.
+function settingsRedraw() {
+  const top = el.settingsContent.scrollTop;
+  settingsDraw();
+  settingsApplySearch();
+  el.settingsContent.scrollTop = top;
+  settingsSpy();
+}
+
+// scope 'app' opens the Settings page at where (a group or section, see settingsTarget). scope 'project' opens the project settings
+// drawer, which a panel defines.
+function settingsOpen(scope = 'app', where = '', item) {
   if (scope === 'project') {
     if (typeof window.MuseUI?.openProjectSettings === 'function') return window.MuseUI.openProjectSettings();
     return toast('Project settings are not available.', 'bad');
   }
   if (scope !== 'app') throw new Error(`Settings scope must be 'app' or 'project', not "${scope}".`);
-  return openSettings();
+  return openSettingsPage(where, item);
+}
+
+// Ctrl+Comma and the sidebar link open the page at its top. The argument is ignored unless it names a group or section.
+function openSettings(where) {
+  return openSettingsPage(typeof where === 'string' ? where : '');
+}
+
+// MuseUI.openSettings(section, id): the page at a group or section and, with an id, at a row in it. The notices' More link uses it to
+// open Settings > Safety at that notice (UI-ARCH 7). A section that is not named opens the top of the page, as openSettings does.
+function openSettingsAt(section, id) {
+  return openSettingsPage(typeof section === 'string' ? section : '', id);
 }
 
 const SETTINGS = { register: settingsRegister, sections: settingsSections, open: settingsOpen };
+
+// Sections this file owns. Accounts and Updates were drawers; they are sections of the page now (UI-ARCH section 5). The roles controls
+// (the advisor and the review switch) and the music block are moved in from the title bar and the sidebar.
+settingsRegister({
+  id: 'roles',
+  scope: 'app',
+  title: 'Roles',
+  order: 10,
+  render(body) {
+    body.append(settingsRolesEl);
+  },
+});
+settingsRegister({
+  id: 'music',
+  scope: 'app',
+  title: 'Music',
+  order: 15,
+  render(body) {
+    body.append(el.music);
+  },
+});
+settingsRegister({
+  id: 'accounts',
+  scope: 'app',
+  title: 'Accounts',
+  order: 10,
+  render: body => renderAccounts(body),
+});
+// The review of the changes Claude proposes to Plenum (the Updates drawer's content). The app's own version and update status is
+// the Updates section of wave 9, which sorts first.
+settingsRegister({
+  id: 'plenum-changes',
+  scope: 'app',
+  title: 'Changes to Plenum',
+  order: 70,
+  render: body => renderUpdates(body),
+});
+
+// The page's controls: the search, the menu of a medium window, the back button of a narrow one, the scroll that marks the group,
+// and the close button. The updates count shows on Settings, since the Updates link left the sidebar.
+el.settingsPage.tabIndex = -1;
+el.settingsSearch.addEventListener('input', () => settingsApplySearch());
+el.settingsPick.addEventListener('change', () => settingsPickGroup(el.settingsPick.value));
+el.settingsClose.addEventListener('click', () => closeSettingsPage());
+el.settingsBack.addEventListener('click', () => {
+  if (el.settingsSearch.value) {
+    el.settingsSearch.value = '';
+    settingsApplySearch();
+  } else {
+    settingsPicked = null;
+    settingsSyncView();
+    el.settingsNav.querySelector('button')?.focus({ preventScroll: true });
+  }
+});
+el.settingsContent.addEventListener('scroll', () => settingsSpy(), { passive: true });
+// A window that changes width changes the view. The resize event covers a size change that the breakpoint's change event misses.
+settingsNarrow.addEventListener('change', () => settingsSyncView());
+window.addEventListener('resize', () => { if (settingsShown) settingsSyncView(); });
+el.settingsBtn.append(el.updatesBadge);
+
 
 // Appearance: the same choice as the Theme button in the sidebar. The select follows the button when the theme changes elsewhere.
 settingsRegister({
@@ -4394,10 +5661,126 @@ settingsRegister({
   },
 });
 
-// ---------- notices (stubs; public/ext-notices.js replaces both) ----------
-// MuseUI.notice(id, { before, after }) draws a notice strip before or after an element, and MuseUI.risk(id, { action }) asks before a
-// risky switch and resolves to true when it may go on. Until ext-notices.js assigns the real ones, a notice draws nothing and a risk
-// asks nothing, which is today's behaviour.
+// ---------- the confirm dialog (MuseUI.confirm) ----------
+// MuseUI.confirm({ title, body, action, cancel, tone, check, focusCancel }) replaces window.confirm and window.prompt. It resolves
+// true only when the action button is pressed; Cancel, Escape and closing the dialog resolve false. tone 'danger' (or 'bad') makes
+// the action red and puts focus on Cancel, as does focusCancel: true, so Enter never does the risky thing by accident. check is
+// { label, checked }: it adds a checkbox, and the caller reads check.checked after the answer. Every piece of text is set with
+// textContent. The dialog is shown over a scrim, not as a native modal: a modal makes the whole page inert, which would also stop
+// the drive bar and the drive pill (Stop) from being pressed while a question waits. Tab stays inside it and Escape closes it.
+let dialogSeq = 0;
+// Either the app's confirm dialog or the notices' risk dialog (ext-notices.js) counts: Esc belongs to the dialog while one is open.
+const dialogOpen = () => Boolean(document.querySelector('dialog.confirm-dialog[open], dialog.risk-dialog[open]'));
+
+function confirmBox({ title = '', body = '', action = 'OK', cancel = 'Cancel', tone = '', check = null, focusCancel = false } = {}) {
+  return new Promise(resolve => {
+    const id = ++dialogSeq;
+    const danger = tone === 'danger' || tone === 'bad';
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm-dialog';
+    const head = document.createElement('h2');
+    head.className = 'confirm-title';
+    head.id = `confirm-title-${id}`;
+    head.textContent = String(title);
+    const text = document.createElement('p');
+    text.className = 'confirm-body';
+    text.id = `confirm-body-${id}`;
+    text.textContent = String(body);
+    dlg.setAttribute('aria-labelledby', head.id);
+    dlg.setAttribute('aria-describedby', text.id);
+    dlg.setAttribute('aria-modal', 'true');
+    const parts = [head, text];
+    if (check && typeof check === 'object') {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = check.checked === true;
+      box.addEventListener('change', () => { check.checked = box.checked; });
+      const row = document.createElement('label');
+      row.className = 'confirm-check';
+      row.append(box, document.createTextNode(` ${check.label ?? ''}`));
+      parts.push(row);
+    }
+    const cancelBtn = button('ghost', cancel);
+    const actionBtn = button(danger ? 'primary danger' : 'primary', action);
+    const actions = document.createElement('div');
+    actions.className = 'confirm-actions';
+    actions.append(cancelBtn, actionBtn);
+    dlg.append(...parts, actions);
+    // The answer is settled here, from the buttons and from Escape, and not from the close event: a browser may not dispatch that
+    // event for a dialog it closes, and the question would then never resolve and leave the page's controls disabled.
+    // Focus stays in the dialog: Tab wraps inside it, and a focus move outside it is brought back to the safe button.
+    const scrim = document.createElement('div');
+    scrim.className = 'confirm-scrim';
+    const keepFocus = e => {
+      if (!dlg.contains(e.target)) (danger || focusCancel ? cancelBtn : actionBtn).focus();
+    };
+    let settled = false;
+    const finish = answer => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('focusin', keepFocus);
+      scrim.remove();
+      dlg.remove();
+      resolve(answer);
+    };
+    cancelBtn.addEventListener('click', () => finish(false));
+    actionBtn.addEventListener('click', () => finish(true));
+    // Escape: the answer is False and the dialog is removed at once. The browser's own close request gets the same answer.
+    dlg.addEventListener('cancel', e => { e.preventDefault(); finish(false); });
+    dlg.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = [...dlg.querySelectorAll('button, input, select, textarea, a[href]')].filter(el => !el.disabled);
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || !dlg.contains(at))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (at === last || !dlg.contains(at))) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+    document.addEventListener('focusin', keepFocus);
+    document.body.append(scrim, dlg);
+    dlg.show();
+    (danger || focusCancel ? cancelBtn : actionBtn).focus();
+  });
+}
+
+// ---------- the notices surface and the Approve all question ----------
+// MuseUI.notice(id, { before, after }) draws a notice strip before or after an element, and MuseUI.risk(id, { action, title, body,
+// tone, check }) asks before a risky switch and resolves to true when it may go on. public/ext-notices.js replaces both: the strip
+// or dialog, the notice text and Don't show again live there. Until it loads, a notice draws nothing, and a risk asks with the text
+// the caller gave, every time. A risky switch is therefore never turned on without a question.
+// Approve all is asked the same way from every control that can turn it on (the Mode menu, Settings, Project settings, /approvals).
+function askApproveAll() {
+  return window.MuseUI.risk('approve-all', { title: APPROVE_ALL_TITLE, body: APPROVE_ALL_CONFIRM, action: APPROVE_ALL_ACTION, tone: 'danger' });
+}
+
+// Changes the approval settings of one project (POST /api/project-approvals). The patch holds only the fields to change: approvals
+// ('ask', 'auto', 'all' or null for the app default), approveAllBlocked, approveAllCovers or codersCannotAsk. The reply is the
+// project's approval summary, which replaces the page's copy of it, and plenum:approvals tells the panels that paint it.
+async function setProjectApprovals(patch, projectId = S.activeProject) {
+  const r = await api('/api/project-approvals', { project: projectId, ...patch });
+  const p = S.projects.find(x => x.id === r.project);
+  if (p) {
+    p.approvals = r.approvals;
+    p.ownApprovals = r.ownApprovals;
+    p.approveAllBlocked = r.approveAllBlocked;
+    p.approveAllCovers = r.approveAllCovers;
+    p.codersCannotAsk = r.codersCannotAsk;
+  }
+  window.dispatchEvent(new CustomEvent('plenum:approvals', { detail: r }));
+  renderTop();
+  return r;
+}
 
 // ---------- commands ----------
 
@@ -4451,11 +5834,21 @@ async function runCommand(line) {
         return toast(`Effort set to ${EFFORT_LABELS[level]}`);
       }
       case 'approvals': {
+        // The mode of the active project, the same setting the Mode menu changes (see setProjectApprovals).
         const choice = arg.toLowerCase();
-        if (!choice) return toast(`Approvals: ${S.approvals === 'auto' ? 'auto-approve' : 'ask first'}. Set with /approvals ask|auto.`);
-        if (choice !== 'ask' && choice !== 'auto') return toast('Approvals must be ask or auto.', 'bad');
-        await update({ approvals: choice });
-        return toast(S.approvals === 'auto' ? 'Edits and commands run without asking.' : 'Edits and commands wait for your approval.');
+        const project = S.projects.find(p => p.id === S.activeProject);
+        if (!project) return toast('Add a project folder first.', 'bad');
+        if (!choice) return toast(`Approvals: ${APPROVAL_WORDS[project.approvals] ?? 'ask first'}. Set with /approvals ask|auto|all.`);
+        if (!APPROVAL_MODES.includes(choice)) return toast('Approvals must be ask, auto or all.', 'bad');
+        if (choice === 'all' && project.approvals !== 'all' && !(await askApproveAll())) return;
+        await setProjectApprovals({ approvals: choice }, project.id);
+        if (choice === 'all') return toast(`Approve all is on for ${project.name}. Edits and commands run without asking; credential and system folders stay blocked.`);
+        if (choice === 'auto') {
+          // The danger strip where the risk starts (UI-ARCH 7); the notices module draws it, and nothing if it is not loaded.
+          window.MuseUI?.notice?.('auto-approve', { before: el.form });
+          return toast('Edits and commands run without asking.');
+        }
+        return toast('Edits and commands wait for your approval.');
       }
       case 'theme': {
         const theme = arg.toLowerCase();
@@ -4466,11 +5859,21 @@ async function runCommand(line) {
       }
       case 'settings':
         return openSettings();
+      // The Computer panel (UI-ARCH 10.5): /computer opens it with the task typed after it, and /computer runs lists the kept runs.
+      // It is not in COMMANDS yet: the palette list must match BUILT_IN_COMMANDS in lib/prompts.mjs (a saved prompt may not take a built-in
+      // name), and that file is edited with it. Until then /computer runs but the palette does not offer it.
+      case 'computer':
+        if (arg.toLowerCase() === 'runs') return openComputerRuns();
+        return openComputer(arg);
+      // ext-legal.js defines MuseUI.openLegal; the optional call keeps /legal quiet when that panel has not loaded.
+      case 'legal':
+        return window.MuseUI.openLegal?.();
       case 'usage':
       case 'limits':
         return openDrawer('Usage and limits', renderUsage);
+      // B-58: every promise is awaited inside the try, so a rejection reaches the catch below and shows as a toast.
       case 'compact':
-        return compact();
+        return await compact();
       case 'updates':
         return openUpdates();
       case 'accounts':
@@ -4492,50 +5895,50 @@ async function runCommand(line) {
           setMode('council');
           return toast('Council mode. Type a question and press Enter. /council off returns to Chat.');
         }
-        return askCouncil(arg);
+        return await askCouncil(arg);
       }
       case 'build':
         return buildLast();
       case 'relay':
         return openDrawer('Relay route', renderRelayPanel);
       case 'review':
-        return review();
+        return await review();
       case 'ask': {
         const m = arg.match(/^(\S+)\s+([\s\S]+)$/);
         if (!m) return toast('Usage: /ask <model> <message>, for example /ask claude hello', 'bad');
-        return sendMessage(m[2], m[1]);
+        return await sendMessage(m[2], m[1]);
       }
       case 'plan':
         if (!arg) return toast('Usage: /plan <task>', 'bad');
-        return sendMessage(`Make a step-by-step plan for the task below. Do not modify any files yet. List the files you would touch and the main risks.\n\nTask: ${arg}`);
+        return await sendMessage(`Make a step-by-step plan for the task below. Do not modify any files yet. List the files you would touch and the main risks.\n\nTask: ${arg}`);
       case 'add':
         if (!arg) return toast('Usage: /add <folder path>', 'bad');
-        return addFolder(arg);
+        return await addFolder(arg);
       case 'project':
       case 'switch': {
         if (!arg) return toast(S.projects.map(p => p.name).join(', ') || 'No projects yet.');
         const p = findProject(arg);
         if (!p) return toast(`No project "${arg}".`, 'bad');
-        return switchProject(p);
+        return await switchProject(p);
       }
       case 'remove':
       case 'forget': {
         const p = findProject(arg);
         if (!p) return toast(`No project "${arg}".`, 'bad');
-        return removeProject(p);
+        return await removeProject(p);
       }
       case 'clear':
       case 'reset':
         if (!S.activeProject) return toast('No project selected.', 'bad');
         // A short chat is cleared at once. A longer one is asked about first, so a mistyped /clear costs nothing.
-        if (S.messages.filter(m => m.kind === 'chat').length >= 4 && !confirm('Clear this chat? Undo stays available above the composer until you send the next message.')) return;
+        if (S.messages.filter(m => m.kind === 'chat').length >= 4 && !(await confirmBox({ title: 'Clear this chat?', body: 'Undo stays available above the composer until you send the next message.', action: 'Clear chat', tone: 'danger' }))) return;
         S = await api('/api/clear', { project: S.activeProject });
         notes = [];
         renderAll();
         return toast('Chat cleared. Undo is above the composer.');
       case 'cancel':
       case 'stop':
-        return cancelRun();
+        return await cancelRun();
       case 'status':
         await loadProviders();
         return openAccounts();
@@ -4548,8 +5951,9 @@ async function runCommand(line) {
 }
 
 async function cancelRun() {
-  if (abortCtl) {
-    abortCtl.abort();
+  const run = activeRun();
+  if (run) {
+    run.abort();
     return toast('Stopping…');
   }
   if (!S.activeProject) return toast('Nothing is running.');
@@ -4561,8 +5965,9 @@ async function cancelRun() {
 
 el.form.addEventListener('submit', e => {
   e.preventDefault();
-  if (abortCtl) {
-    abortCtl.abort();
+  const run = activeRun();
+  if (run) {
+    run.abort();
     return;
   }
   // A run this page holds no stream for (one started in another window, say) is stopped here the same way. Stop leaves the
@@ -4589,35 +5994,67 @@ el.form.addEventListener('submit', e => {
   else sendMessage(text);
 });
 
+// The names of the active project's saved prompts (ext-prompts.js keeps them), so Enter can send a typed /name that is one of
+// them even when a command starts with the same letters (B-98). Read again at most every 3 seconds, and only while a / is typed.
+const savedNames = { project: '', names: new Set(), at: 0, busy: false };
+function refreshSavedNames() {
+  const project = S.activeProject;
+  if (!project || savedNames.busy) return;
+  if (savedNames.project === project && Date.now() - savedNames.at < 3000) return;
+  savedNames.busy = true;
+  api(`/api/prompts?project=${encodeURIComponent(project)}`)
+    .then(data => {
+      savedNames.project = project;
+      savedNames.names = new Set((Array.isArray(data?.prompts) ? data.prompts : []).map(p => String(p.name)));
+      savedNames.at = Date.now();
+    })
+    .catch(() => {
+      // Without the list, Enter keeps its usual meaning.
+    })
+    .finally(() => {
+      savedNames.busy = false;
+    });
+}
+
 el.input.addEventListener('input', () => {
   autosize();
   paletteIndex = 0;
   updatePalette();
   commandHint();
+  if (el.input.value.startsWith('/')) refreshSavedNames();
 });
 
 el.input.addEventListener('keydown', e => {
+  // While an input method is composing text, its keys belong to the IME: Enter confirms a conversion and Escape cancels it (B-59).
+  if (e.isComposing || e.keyCode === 229) return;
   const paletteOpen = !el.palette.hidden && paletteItems.length;
-  // Enter picks the highlighted command, unless the composer already holds exactly that command or the alias typed (/stop).
+  // Enter picks the highlighted command, unless the composer already holds exactly that command or the alias typed (/stop),
+  // or exactly the name of a saved prompt, which Enter sends as that prompt (B-98).
   const picked = paletteItems[paletteIndex];
   const typedExact = Boolean(picked) && (el.input.value === `/${picked.name}` || (Boolean(picked.alias) && el.input.value === `/${picked.alias}`));
+  const typedSaved = /^\/[a-z0-9-]{1,32}$/i.test(el.input.value) && savedNames.project === S.activeProject && savedNames.names.has(el.input.value.slice(1).toLowerCase());
   if (paletteOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
     e.preventDefault();
     movePalette(e.key === 'ArrowDown' ? 1 : -1);
     return;
   }
-  if (paletteOpen && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !typedExact))) {
+  if (paletteOpen && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !typedExact && !typedSaved))) {
     e.preventDefault();
     pickCommand(paletteIndex);
     return;
   }
-  // Escape closes the list first. Only when no list is open does it stop a run, so a second Escape is the one that stops it.
+  // Escape closes the list first. An open drawer takes the next Escape (the page-wide handler closes it) and the run goes on (B-60).
+  // Only when neither is open does it stop a run, so the Escape after that is the one that stops it.
   if (e.key === 'Escape') {
     if (!el.palette.hidden) {
       hidePalette();
+      // The list took this Escape, so an open drawer stays open.
+      if (!el.drawer.hidden) e.stopPropagation();
       return;
     }
-    if (abortCtl) abortCtl.abort();
+    if (!el.drawer.hidden) return;
+    const run = activeRun();
+    if (run) run.abort();
     else if (S.running) cancelRun();
     return;
   }
@@ -4684,9 +6121,6 @@ el.model.addEventListener('change', () => update({ model: el.model.value }).then
 el.advisor.addEventListener('change', () => update({ advisor: el.advisor.value }).then(() => toast(advisorLine())).catch(onSettingError));
 el.auto.addEventListener('change', () => update({ advisorAuto: el.auto.checked }).catch(onSettingError));
 el.effort.addEventListener('change', () => update({ effort: el.effort.value }).then(() => toast(`Effort set to ${EFFORT_LABELS[S.effort]}`)).catch(onSettingError));
-for (const b of el.approvalBtns) {
-  b.addEventListener('click', () => update({ approvals: b.dataset.approvals }).catch(onSettingError));
-}
 for (const b of el.modeBtns) {
   b.addEventListener('click', () => setMode(b.dataset.mode));
 }
@@ -4746,9 +6180,36 @@ systemIsLight.addEventListener('change', syncTheme);
 el.drawerClose.addEventListener('click', closeDrawer);
 el.scrim.addEventListener('click', closeDrawer);
 
+// F6 moves through the regions of the window: the sidebar, the chat, the composer and the side pane (UI-ARCH section 9).
+function shellRegions() {
+  const side = document.querySelector('.proj-item.active, .proj-item, #addProjectBtn');
+  if (settingsShown) return [side, el.settingsPage].filter(node => node && node.getClientRects().length > 0);
+  const tab = paneShown && paneActive ? paneInstances.get(paneActive)?.tab : null;
+  el.chat.tabIndex = -1;
+  return [side, el.chat, el.input, tab].filter(node => node && node.getClientRects().length > 0);
+}
+
+function cycleRegion(step) {
+  const regions = shellRegions();
+  if (!regions.length) return;
+  const at = regions.findIndex(region => region.contains(document.activeElement));
+  const next = at < 0 ? (step > 0 ? 0 : regions.length - 1) : (at + step + regions.length) % regions.length;
+  regions[next].focus({ preventScroll: true });
+}
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeRelayMenus();
-  if (e.key === 'Escape' && !el.drawer.hidden) closeDrawer();
+  // The Settings page is the layer under a drawer and a dialog. Escape clears its search first, then closes the page.
+  if (e.key === 'Escape' && settingsShown && el.drawer.hidden && !dialogOpen()) {
+    if (el.settingsSearch.value) {
+      el.settingsSearch.value = '';
+      settingsApplySearch();
+    } else {
+      closeSettingsPage();
+    }
+  }
+  // A dialog that is open takes Escape for itself, so the drawer under it stays as it is.
+  if (e.key === 'Escape' && !el.drawer.hidden && !dialogOpen()) closeDrawer();
   // Ctrl+Comma opens Settings from anywhere in the window.
   if (e.key === ',' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
     e.preventDefault();
@@ -4757,6 +6218,24 @@ document.addEventListener('keydown', e => {
   // A slash typed into a field (the composer, the approval reason, the add-project path) is text, so the shortcut leaves it alone.
   const at = document.activeElement;
   const typing = Boolean(at?.isContentEditable) || /^(INPUT|TEXTAREA|SELECT)$/.test(at?.tagName ?? '');
+  // The shell keys (UI-ARCH section 9). Ctrl+\ shows or hides the pane. Ctrl+Shift+B and Ctrl+Shift+D open the Agents and Review
+  // panes when a panel has registered them. Those two work from the composer but not from other text fields, as Ctrl+Shift+P does.
+  const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+  const otherField = typing && at !== el.input;
+  if (mod && !e.shiftKey && e.key === '\\') {
+    e.preventDefault();
+    if (paneShown) paneHide();
+    else paneShow();
+  } else if (mod && e.shiftKey && !otherField && !e.repeat && /^[bd]$/i.test(e.key)) {
+    const id = e.key.toLowerCase() === 'b' ? 'agents' : 'review';
+    if (paneDefs.has(id)) {
+      e.preventDefault();
+      paneToggle(id);
+    }
+  } else if (e.key === 'F6' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    cycleRegion(e.shiftKey ? -1 : 1);
+  }
   if (e.key === '/' && !typing && el.drawer.hidden && !e.metaKey && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
     el.input.focus();
@@ -4793,8 +6272,88 @@ async function boot() {
 }
 
 // The surface the extra panels (public/ext-*.js) build on. It exposes what they need and changes nothing itself.
+// ---------- named slots (MuseUI.slots) and the shared parts (MuseUI.ui) ----------
+
+// A panel puts its piece into a named slot instead of finding a control on the page and placing itself beside it (UI-ARCH section 1),
+// so two panels cannot collide on order. Three slots have a place on the page and take elements, kept in the order given: titlebar
+// (the chips beside the project name), paneTabs (beside the side pane's tabs) and bannerSlot (above the message box). The others hold
+// the definitions their consumers read: plusMenu, turnExtras, shortcutRows and threadDialogExtras. The Settings sections are MuseUI.settings.
+const SLOT_HOSTS = { titlebar: () => el.titlebarSlot, paneTabs: () => el.paneSlot, bannerSlot: () => el.bannerSlot };
+const SLOT_NAMES = ['titlebar', 'paneTabs', 'plusMenu', 'bannerSlot', 'settingsSections', 'turnExtras', 'shortcutRows', 'threadDialogExtras'];
+const SLOT_ID = /^[a-z0-9-]{1,40}$/;
+const slotItems = new Map(SLOT_NAMES.map(name => [name, new Map()])); // name -> Map(id -> { value, order })
+
+function slotRemove(name, id) {
+  const items = slotItems.get(name);
+  const item = items?.get(id);
+  if (!item) return false;
+  if (item.value instanceof Element) item.value.remove();
+  items.delete(id);
+  return true;
+}
+
+// Adds an item to a slot. An item with the same id replaces the one there. Returns { remove() }.
+function slotAdd(name, id, value, order = 50) {
+  if (!slotItems.has(name)) throw new Error(`No slot called "${name}". The slots are ${SLOT_NAMES.join(', ')}.`);
+  if (typeof id !== 'string' || !SLOT_ID.test(id)) throw new Error('A slot item id is 1 to 40 lower-case letters, digits or hyphens.');
+  if (typeof order !== 'number' || !Number.isFinite(order)) throw new Error('A slot order is a number.');
+  const host = SLOT_HOSTS[name]?.() ?? null;
+  if (host && !(value instanceof Element)) throw new Error(`The ${name} slot takes an element.`);
+  slotRemove(name, id);
+  if (host) {
+    value.dataset.slotItem = id;
+    value.dataset.order = String(order);
+    const later = [...host.children].find(child => Number(child.dataset.order) > order);
+    host.insertBefore(value, later ?? null);
+  }
+  slotItems.get(name).set(id, { value, order });
+  return { remove: () => slotRemove(name, id) };
+}
+
+const SLOTS = {
+  add: slotAdd,
+  remove: slotRemove,
+  names: () => [...SLOT_NAMES],
+  list: name => {
+    const items = slotItems.get(name);
+    return items ? [...items].map(([id, item]) => ({ id, order: item.order, value: item.value })) : [];
+  },
+};
+
+// The shared parts (UI-ARCH section 7): a status chip (a button in the title bar), a pill (a label) and a badge (a count). Tones:
+// accent for the plan, the selection and what waits on you; amber for attention and auto-approve; red for failure, Approve all and
+// destructive actions; green for passed. A tone is a data attribute, so no colour is written into the page.
+const TONES = ['accent', 'amber', 'red', 'green'];
+const toneOf = tone => (TONES.includes(tone) ? tone : '');
+
+const UI = {
+  chip({ label = '', title = '', tone = '', onClick } = {}) {
+    const b = button('chip', String(label));
+    if (toneOf(tone)) b.dataset.tone = toneOf(tone);
+    b.title = title || String(label);
+    b.setAttribute('aria-label', title || String(label));
+    if (typeof onClick === 'function') b.addEventListener('click', onClick);
+    return b;
+  },
+  pill(text = '', tone = '') {
+    const p = span('pill', String(text));
+    if (toneOf(tone)) p.dataset.tone = toneOf(tone);
+    return p;
+  },
+  badge(n, tone = '') {
+    const shown = typeof n === 'number' && Number.isFinite(n) && n >= 0;
+    const b = span('badge', shown ? (n > 99 ? '99+' : String(Math.floor(n))) : '');
+    if (toneOf(tone)) b.dataset.tone = toneOf(tone);
+    b.hidden = !shown;
+    return b;
+  },
+};
+
 window.MuseUI = {
   api, request, headers, ready, events, applyState, toast, openDrawer, closeDrawer, refreshDrawer, refresh, renderAll, renderTop, update, copyText,
+  // Named slots (see above) and the shared parts.
+  slots: SLOTS,
+  ui: UI,
   // A panel that starts a run with its own request (a compare, a pipeline, a restore) calls this with the runId of its first
   // event, so the events channel does not draw that run as one started in another window.
   claimRun: id => { if (typeof id === 'string' && id) claimed.add(id); },
@@ -4802,15 +6361,34 @@ window.MuseUI = {
   pane: PANE,
   // Settings sections: scope 'app' for the Settings drawer, 'project' for the project settings drawer (settings.open).
   settings: SETTINGS,
-  // Overwritable stubs. public/ext-notices.js assigns the real notice strip and the risk dialog here. A notice is information and a
-  // risk is a question; the stubs draw nothing and allow everything, which is today's behaviour.
+  // Opens the Settings page at a group or section and, with an id, at a row in it (a section reads the id as ctx.item).
+  openSettings: openSettingsAt,
+  // Computer use: the panel (also /computer and the + menu), one computer run sent as a chat turn, and the list of past runs.
+  openComputer,
+  sendComputer,
+  openComputerRuns,
+  // Overwritable. public/ext-notices.js assigns the real notice strip and risk here. A notice is information, so the stub draws
+  // nothing; a risk is a question, so the stub asks with the caller's own text (confirmBox) rather than allowing the switch.
   notice: (id, { before, after } = {}) => null,
-  risk: async (id, { action } = {}) => true,
+  risk: (id, opts = {}) => confirmBox({ title: opts.title ?? 'Continue?', body: opts.body ?? '', action: opts.action ?? 'Continue', tone: opts.tone ?? '', focusCancel: opts.focusCancel === true }),
+  // MuseUI.confirm replaces window.confirm and window.prompt everywhere (see confirmBox).
+  confirm: opts => confirmBox(opts ?? {}),
+  // The last chat send, kept until its run goes through (B-5). ext-connection.js reads it for Retry.
+  get lastSent() { return lastSent; },
+  // Approval settings: setProjectApprovals(patch) changes the active project's, askApproveAll() is the Approve all question.
+  setProjectApprovals,
+  askApproveAll,
+  approvalNames: APPROVAL_NAMES,
+  approvalModes: APPROVAL_MODES,
+  dialogOpen,
   el, span, button, para, icon, cardShell, modelName, stream: () => streamEl ?? el.chat,
   get state() { return S; },
   get catalog() { return catalog; },
   get aliases() { return aliases; },
   get providers() { return providers; },
 };
+
+// The + menu item that opens the Computer panel (UI-ARCH 2: "Use the computer…"). The menu itself reads the plusMenu slot.
+window.MuseUI.slots.add('plusMenu', 'computer', { label: 'Use the computer…', icon: 'shield', run: () => openComputer() }, 30);
 
 boot();

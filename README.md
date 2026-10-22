@@ -223,7 +223,7 @@ Under the deny patterns, **Test a command** says whether a built-in rule or one 
 
 **Browse…** in the add-project form opens the system's folder chooser in the desktop app. Under `npm start` it says to paste the path instead.
 
-For a project in a git repository, the header shows the branch, how far it is ahead or behind, and how many files are changed or untracked. Click it for the list of files. It refreshes every 30 seconds and after each run, and it runs one fixed, read-only `git status` command, with git's `core.fsmonitor` program turned off (see `DECISIONS.md`, item 18).
+For a project in a git repository, the header shows the branch, how far it is ahead or behind, and how many files are changed or untracked. Click it for the list of files. It refreshes every 30 seconds and after each run, and it runs one fixed, read-only `git status` command, with git's `core.fsmonitor` program, hooks and filter drivers turned off (see `DECISIONS.md`, items 18 and 30).
 
 ## Session modes
 

@@ -1,0 +1,97 @@
+/* ext-agents-settings: the Agents section of Settings and of Project settings (public/ext-agents-settings.js).
+   One column, at most 640 px wide; the drawer is narrower, so it fills it. Only the shared colour tokens are used. No fixed colours. */
+.ext-ag { display: flex; flex-direction: column; gap: 12px; min-width: 0; max-width: 640px; width: 100%; }
+.ext-ag > p, .ext-ag-intro, .ext-ag-scope-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.ext-ag-scope-note { color: var(--text-2); }
+.ext-ag-head { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ext-ag-head .ghost, .ext-ag-head .primary { align-self: flex-start; }
+.ext-ag-status { font-size: 12px; color: var(--ok); margin: 0; min-height: 0; }
+.ext-ag-status:empty { display: none; }
+.ext-ag-error { color: var(--bad); font-size: 12.5px; margin: 0; overflow-wrap: anywhere; }
+.ext-ag-loading { color: var(--muted); font-size: 12.5px; margin: 0; }
+.ext-ag-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-ag-notes { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ext-ag-err { margin: 0; color: var(--bad); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-ag-err:empty { display: none; }
+
+/* The Agent types | Limits switch uses the app's segmented control (.seg, .seg-btn in style.css). */
+.ext-ag-view { align-self: flex-start; }
+
+/* One agent type. */
+.ext-ag-type { gap: 8px; min-width: 0; }
+.ext-ag-type-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.ext-ag-type-head > strong { font-size: 14px; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.ext-ag-type .pill { margin-left: 0; }
+.ext-ag-tag { font-size: 11.5px; color: var(--muted); }
+.ext-ag-meta { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-ag-desc { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-ag-used { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.ext-ag-tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ext-ag-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* The type form, in place of its card or at the foot of the list. Its text boxes copy the field selects in style.css. */
+.ext-ag-form { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 14px; border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); }
+.ext-ag-form .ext-ag-field { min-width: 0; }
+.ext-ag input[type="text"], .ext-ag textarea {
+  box-sizing: border-box; width: 100%; min-width: 0; height: 34px; padding: 0 10px;
+  border: 1px solid var(--line-2); border-radius: 9px; background: var(--bg); color: var(--text);
+  font: 13px var(--ui); outline: none;
+}
+.ext-ag textarea { height: auto; min-height: 84px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
+.ext-ag input[type="text"]:focus, .ext-ag textarea:focus, .ext-ag select:focus, .ext-ag input[type="number"]:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.ext-ag input[type="text"]:disabled, .ext-ag textarea:disabled { opacity: 0.6; }
+.ext-ag .plain-select { width: 100%; min-width: 0; height: 34px; }
+.ext-ag-access { align-self: flex-start; max-width: 100%; flex-wrap: wrap; height: auto; }
+.ext-ag-access .seg-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Chips for types, folders and overrides. */
+.ext-ag-chips { min-width: 0; }
+.ext-ag-chips .chip { max-width: 100%; overflow-wrap: anywhere; }
+
+/* Number boxes: 72 px, each with its own label above it, wrapping in a row. */
+.ext-ag-numbers { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 14px; min-width: 0; }
+.ext-ag-num { display: grid; gap: 4px; width: 72px; min-width: 0; }
+.ext-ag-num > .field-note { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.ext-ag input[type="number"] {
+  box-sizing: border-box; width: 72px; height: 34px; padding: 0 8px;
+  border: 1px solid var(--line-2); border-radius: 9px; background: var(--bg); color: var(--text);
+  font: 13px var(--ui); outline: none;
+}
+.ext-ag input[type="number"]::placeholder { color: var(--muted); }
+
+/* Switch rows read at any width. */
+.ext-ag .switch-row { min-width: 0; }
+.ext-ag .switch-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* The Limits callers: one card per caller, the group as a closed card with a summary line. */
+.ext-ag-limits { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ext-ag-caller { gap: 10px; min-width: 0; }
+.ext-ag-caller-name { font-size: 13.5px; color: var(--text); }
+.ext-ag-row { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 0; border-top: 1px solid var(--line); }
+.ext-ag-row:first-of-type { border-top: 0; padding-top: 0; }
+.ext-ag-row > select, .ext-ag-caller > select { width: 100%; min-width: 0; height: 34px; }
+.ext-ag-group { gap: 10px; min-width: 0; }
+.ext-ag-group > summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--text); list-style-position: inside; min-width: 0; }
+.ext-ag-group > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ext-ag-state { font-size: 12px; font-weight: 500; color: var(--muted); overflow-wrap: anywhere; }
+.ext-ag-run { gap: 12px; min-width: 0; }
+.ext-ag-run .kicker, .ext-ag-models .kicker { color: var(--muted); }
+.ext-ag-models { gap: 12px; min-width: 0; }
+.ext-ag-override { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.ext-ag-override-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ext-ag-override-top > select { flex: 1 1 200px; min-width: 0; height: 34px; }
+.ext-ag-override > .field { gap: 6px; }
+.ext-ag-override > select { width: 100%; height: 34px; }
+
+/* A closed "More options" block inside the form. */
+.ext-ag-more { border-top: 1px solid var(--line); padding-top: 10px; min-width: 0; }
+.ext-ag-more > summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.ext-ag-more > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ext-ag-more > .field { margin-top: 12px; }
+.ext-ag-more textarea { width: 100%; }
+
+.ext-ag-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ext-ag > .primary.small, .ext-ag > .ghost.small { align-self: flex-start; }
+.ext-ag-who { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

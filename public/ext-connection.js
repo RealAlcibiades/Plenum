@@ -1,7 +1,7 @@
 // The connection banner and Retry for failed sends. Loaded by ext.js and adds itself through window.MuseUI.
 // When a call to the local server cannot reach it, one banner says so instead of a line per call, and the page checks the server
-// every 5 seconds until it answers again. A failed send gets Retry (it puts the last message back in the composer; it does not
-// send it) and Copy error. Only the last "Cannot reach the Plenum server" line stays visible.
+// every 5 seconds until it answers again. A failed send gets Retry, which puts the text of that send back in the composer from
+// MuseUI.lastSent; it does not send it. Copy error is on every failed send. Only the last "Cannot reach the Plenum server" line stays visible.
 // The fetch wrapper only watches same-origin /api/ calls. It never changes a request or a response.
 (function () {
   const MuseUI = window.MuseUI;
@@ -114,14 +114,16 @@
     lines.forEach((turn, i) => turn.classList.toggle('ext-conn-dup', i < lines.length - 1));
   }
 
-  // Puts the last message the user sent back in the composer. It is not sent: the user presses Send.
+  // Puts back the text of the last send that failed: the text that was sent, not the last saved message (B-5). It is not sent:
+  // the user presses Send. app.js keeps that text in MuseUI.lastSent until its run goes through, so a refused send is never
+  // replaced by an older message from the transcript.
   function retryLast() {
     const input = MuseUI.el.input;
-    const last = [...(MuseUI.state.messages ?? [])].reverse().find(m => m.role === 'user' && m.kind === 'chat');
-    if (!last) return MuseUI.toast('There is no earlier message to retry.', 'bad');
+    const last = MuseUI.lastSent;
+    if (!last?.text) return MuseUI.toast('There is no failed message to retry.', 'bad');
     // A draft is never overwritten, the same rule app.js follows when it inserts a reply.
     if (input.value.trim()) return MuseUI.toast('The composer already has text. Clear it first, then retry.', 'bad');
-    input.value = last.content ?? '';
+    input.value = last.text;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
   }
@@ -134,22 +136,27 @@
     else MuseUI.toast('The error could not be copied.', 'bad');
   }
 
-  function bar(turn) {
+  // Retry is offered only when there is a failed message to put back (B-5). A failure with no message behind it gets Copy error alone.
+  function bar(turn, withRetry) {
     const row = document.createElement('div');
     row.className = 'ext-conn-bar';
-    const retry = MuseUI.button('ghost small ext-conn-btn', 'Retry');
-    retry.addEventListener('click', retryLast);
+    if (withRetry) {
+      const retry = MuseUI.button('ghost small ext-conn-btn', 'Retry');
+      retry.addEventListener('click', retryLast);
+      row.append(retry);
+    }
     const copy = MuseUI.button('ghost small ext-conn-btn', 'Copy error');
     copy.addEventListener('click', () => copyError(turn));
-    row.append(retry, copy);
+    row.append(copy);
     return row;
   }
 
   // Retry and Copy error under each failed send. The connection lines get none of their own.
   function addBars() {
+    const retryable = Boolean(MuseUI.lastSent?.text);
     for (const turn of MuseUI.el.chat.querySelectorAll('.turn.error')) {
       if (isLine(turn) || turn.querySelector(':scope > .ext-conn-bar')) continue;
-      turn.append(bar(turn));
+      turn.append(bar(turn, retryable));
     }
   }
 

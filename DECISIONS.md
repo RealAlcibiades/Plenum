@@ -187,11 +187,11 @@ Sources checked for items 1 to 11 (an earlier round):
 
 ## 18. The header's git status turns off repository-set programs
 
-**Decision.** The git chip in the project header runs one fixed command, `git -c core.fsmonitor= status --porcelain=v2 --branch --untracked-files=normal`, in the project folder, with a trimmed environment (no keys, no `GIT_DIR`), `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`. It runs only for folders you added as projects.
+**Decision.** The git chip in the project header runs one fixed command, `git status --porcelain=v2 --branch --untracked-files=normal -- .`, in the project folder, through `runGit` (`lib/git-run.mjs`, item 30), with a trimmed environment (no keys, no `GIT_DIR`; `gitEnv` in `lib/git-env.mjs`), `GIT_OPTIONAL_LOCKS=0` and `GIT_TERMINAL_PROMPT=0`. It first ran with only `-c core.fsmonitor=`; the filter drivers, the hooks and the submodules were added in the 0.6 stabilization pass (item 30). It runs only for folders you added as projects.
 
-**Reason.** A repository's own `.git/config` can name a program for `core.fsmonitor`, and git runs it on every `status`. The header asks every 30 seconds, so a folder unpacked from an archive with its `.git` folder could run code just by being opened. On git 2.55 a repository with that setting ran its program on a plain `git status`, and ran nothing with `-c core.fsmonitor=`. Clean and smudge filters set in the same config can still run when git re-reads a changed file. The CLIs in the seats run git in the same folder anyway, so adding a folder already means trusting it.
+**Reason.** A repository's own `.git/config` can name a program for `core.fsmonitor`, and git runs it on every `status`. The header asks every 30 seconds, so a folder unpacked from an archive with its `.git` folder could run code just by being opened. On git 2.55 a repository with that setting ran its program on a plain `git status`, and ran nothing with `-c core.fsmonitor=`. Clean and smudge filters set in the same config ran when git re-read a changed file; item 30 closes that. The CLIs in the seats run git in the same folder anyway, so adding a folder already means trusting it.
 
-**Source.** `lib/git-status.mjs` (`GIT_ARGS`, `gitEnv`); `lib/routes/git.mjs` (5-second cache, one git process per project at a time).
+**Source.** `lib/git-status.mjs` (`GIT_ARGS`, `gitStatus`); `lib/git-env.mjs` (`gitEnv`); `lib/git-run.mjs`; `lib/routes/git.mjs` (5-second cache, one git process per project at a time).
 
 **Status.** Confirmed (code and a local check on git 2.55).
 
@@ -310,6 +310,76 @@ _Items 24 to 29 come from the 0.6 groundwork. Item 23 keeps its number (the lice
 **Source.** `lib/routes/desktop-settings.mjs`; `public/app.js` (`DESKTOP_SWITCHES` and the `desktop` settings section); `desktop/main.cjs` (reads the keys when it needs them).
 
 **Status.** Built (groundwork). Not seen in a running desktop window.
+
+## 30. A diff in a repository you opened empties the repository's filter drivers
+
+**Decision.** `runGit` in `lib/git-run.mjs` already turned off `core.fsmonitor` and the hooks and added `--no-ext-diff --no-textconv` to a diff (`DIFF_SAFE`). For the commands that compare the working tree with the index (`diff`, `status`, `diff-files`, `diff-index`) it now also lists every filter driver the git configuration defines (`git config --get-regexp ^filter\.`: the repository's, the user's and the system's) and runs git with `-c filter.<name>.clean=`, `smudge=`, `process=` and `required=false` for each, and with `--ignore-submodules=dirty`, so git does not run `git status` inside a submodule under that submodule's own configuration. If the drivers cannot be listed, or a driver name cannot be written as a `-c` option, git is not run and the call answers `ok: false`. The review pane, `/review`, the advisor, `@diff` and the header's git chip (`gitStatus` in `lib/git-status.mjs`, which asks for every open project at load and every 30 seconds) all go through it. `gitEnv` moved to `lib/git-env.mjs` so that `git-run` and `git-status` do not import each other.
+
+**Reason.** `DIFF_SAFE` did not stop a clean filter: git runs `filter.<name>.clean` to hash a file whose stat data changed, and a repository's own `.git/config` can name that program. A folder unpacked from an archive could run code the first time Plenum compared its files. Checked on git 2.55: a clean filter ran on `git diff` with `DIFF_SAFE`, and did not run with the overrides above. An earlier text in the build notes called `DIFF_SAFE` enough; it was not.
+
+**Trade-off.** A repository that uses Git LFS (or any filter that rewrites files on the way in) shows its tracked files as pointer against content, so the review pane lists every such file as changed and its diff is the pointer text. This is the price of not running the filter. Adding a folder as a project still means trusting it for the CLIs that run in it, but the header and the review pane no longer need that trust.
+
+**Not covered.** `git add` and `git apply` in the review pane's Stage and Revert actions keep the repository's filters on purpose, since they write content the person asked for. The header's git chip used to be outside this pass (it ran its own `git status` with only `core.fsmonitor` turned off); the re-check after waves 5 to 8 moved it onto `runGit`, so it shows the same pointer-against-content files as the review pane for a repository that uses Git LFS. When `runGit` cannot list the drivers, the chip shows "git did not answer" instead of running git.
+
+**Source.** `lib/git-run.mjs` (`filterOverrides`, `filterDriverNames`, `runGit`); `lib/git-status.mjs`; `lib/git-env.mjs`; `lib/files.mjs` (`workingDiff`); `lib/review.mjs`.
+
+**Status.** Built and checked on git 2.55 (the 0.6 stabilization pass). The same pass gave `runGit` and the `git diff --no-index` call in `lib/delegate.mjs` an error listener on the child's pipes, so a folder path too long for Windows (260 characters or more) cannot end the server in the middle of a review.
+
+## 31. Saved agent settings are read by the delegate tool; the rest waits for the agent runner
+
+**Decision.** `delegate` (`lib/tools/40-delegate.mjs`) now reads the saved agent settings (the project's own copy, else the app's, else the defaults: `effectiveAgents`). It starts a Coder, so the Coder type and the Chat row of Limits apply: a reply may start a Coder only if the Chat row lists it, at most `concurrent` run at once (the others wait), at most the per-reply number start (the next is refused with a message), and each start asks first when the Chat row says so (Approve all answers that card). A Coder whose model, effort, folders or instructions differ from the shipped Coder runs on them: the model is the default coder unless the task names one, the scope must lie inside the folders, and the system text is the agent system text of `lib/agents.mjs` with the instructions. A Coder that still has the shipped settings runs exactly as before. `GET /api/agents` sends `inForce` (`IN_FORCE` in `lib/agents.mjs`), which lists what the runs read and what they do not.
+
+**Not read yet.** Starting any type but Coder (the tool has no field for the type), tool steps, time and idle limits, commands and the web for an agent, nesting, the Build tasks, Council, Moderator, Relay, Quick compare and Pipeline rows, and Claude Code's own subagents switch. These are the agent runner (`lib/agent-run.mjs`, planned for wave 12). The tool's definition is pinned by the registry tests, so adding a type field belongs to that change.
+
+**Reason.** The settings page saved types and limits that no run read, which made them look in force. Wiring all of it is the runner's job; wiring what the tool can honour today, and saying plainly what it does not, keeps the page honest. The per-agent step and time limits are left out on purpose: applying the shipped Coder's 30 steps now would stop long delegations that have always run to the end.
+
+**Source.** `lib/tools/40-delegate.mjs`; `lib/delegate.mjs` (`runTask`, `agent`); `lib/agents.mjs` (`delegation`, `createGate`, `IN_FORCE`); `lib/routes/agents.mjs`; `server.mjs` (`ctx.ref`).
+
+**Status.** Built (the 0.6 stabilization pass). The page `public/ext-agents-settings.js` does not show `inForce` yet.
+
+## 32. The safety notices are a section of Settings > Safety, and More opens them there
+
+**Decision.** `MuseUI.openSettings(section, id)` opens the Settings page at a group or section and hands `id` to the section as `ctx.item` while it draws. The safety notices are a section (`safety-notices`, `public/ext-legal.js`) of the Safety group, with the same list as the Legal page's Safety notices tab (state, Show again, Show all again). A notice's More link opens Settings > Safety with that notice open; without `MuseUI.openSettings` it falls back to the Legal tab, then to Settings. `MuseUI.openLegal` opens the Legal group by name (`settings.open('app', 'legal')`), so /legal, the wizard's Read the terms and the notices' fallback also work at 480 px and below, where the page shows one group at a time. A Show again in either list reads the notice registry again (`MuseUI.notices.refresh`), so the strip comes back where its risk starts.
+
+**Reason.** UI-ARCH 7 sends More to Settings > Safety, but nothing exposed the call, so More landed on the Legal page. The scroll that `openLegal` used did nothing in a narrow window.
+
+**Source.** `public/app.js` (`openSettingsPage`, `openSettingsAt`); `public/ext-legal.js`; `public/ext-notices.js`.
+
+**Status.** Built (the 0.6 stabilization pass). Checked in the real page (app.js and the panels) in a hidden Electron window against a real server, at 1280 and 480 px; not seen in the shipped desktop window.
+
+## 33. Computer use starts from the Computer panel, and the model may start it only where a project allows
+
+**Decision.** Computer use starts from the Computer panel (`/computer`, or MuseUI.openComputer), which sends the person's settings with a chat message (`POST /api/chat`, `computer`); Start is the consent, and the server checks the settings before anything is stored. The panel remembers its choices per project (`POST /api/computer/prefs`). The routes are in `lib/routes/computer.mjs`: probe, windows, request-permissions, runs, run, frame, runs/delete, runs/delete-all, prefs and type. A screenshot is read with the token and shown as a data: image, because an image tag cannot send the token. `/overlay.html` is served for the on-screen bar. The project switch "The model may start computer use itself" (Project settings, off by default) is stored as `computerSelfStart`; with it on, the model's `start_computer_use` tool shows the start card. When the model hands a step over, the chat shows a "Your turn" card with a password box: "Type it for me" brings the program the run was using to the front and types the text there (`POST /api/computer/type`). The text is held for the request only; the route writes it nowhere and builds no message that names it.
+
+**Floor.** None of this loosens the floor: the visible bar and the stop key stay, a password field is never typed into by the model, and the same checks run for every action. "Type it for me" is the person's own typing and works only while the model has the run paused for them.
+
+**Password field.** The guard that stops the model typing into a focused password field (`gateTyping` in `lib/computer/run.mjs`) covers `type`, and `key` and `hold` with a character key, the space bar, an X keysym name of punctuation (`slash`, `comma`...) or a paste chord. A `hold` is covered because it takes the same key names as `key` and the operating system repeats a held character. The guard needs the platform to say that the focused field is a password field (`isSecureField() === true`), and only Windows can (UI Automation in `desktop/computer/win.cjs`). On macOS and Linux `isSecureField()` answers `null`, so the guard never fires there: the system text tells the model to look at the focused field before it types and to call `hand_over` if it could be a password field, and the start card and the computer-use notice say that Plenum cannot check on that system (`hasPasswordGuard` in `lib/computer/policy.mjs`). Reading the focused element's role on macOS (`AXSecureTextField`) and on Linux (AT-SPI) would close the gap; neither could be tried without a Mac or a Linux desktop, and untried native calls are more dangerous than an honest sentence.
+
+**Not built here.** The detail view of a run (the timeline with each screenshot; the list of past runs can delete a run), the chip in the title bar, and the + menu itself (the item is registered in the plusMenu slot; nothing draws that menu yet). `/computer` runs but is not in the palette list: that list must match `BUILT_IN_COMMANDS` in `lib/prompts.mjs` (a saved prompt may not take a built-in name), and the two are edited together. "Type it for me" on the browser's hand-over is not built (the browser tools are another file). `PLENUM_SMOKE=1 npm run computer:smoke` was not run: it opens a visible window and clicks, which a build session must not do on the owner's screen. Run it once on the machine before a release. The notice `computer-use` in `lib/notices.mjs` still has status `planned`; it is drawn above Start and under the project switch now.
+
+**Source.** `lib/routes/computer.mjs`; `lib/projects.mjs` (`computerSelfStart`); `public/app.js` (the Computer panel block); `public/ext-projects.js`; `server.mjs` (`/overlay.html`, `liveComputerRuns`).
+
+**Status.** Built and checked against the fake desktop backend (`PLENUM_COMPUTER_BACKEND=fake`), a mock model, and the real page in a hidden Electron window. Not seen on a real screen.
+
+## 34. The Privacy Notice lists the computer-use run logs, the in-app browser's profile and its downloads
+
+**Decision.** `legal/PRIVACY.md` section 2 has a row each for the computer-use run logs (`computer/runs` in the state folder: every screenshot the model was shown as `frame-NNNN.png`, and `run.json`, kept 7 days and up to 200 MB by default), the in-app browser's profile (the partition `persist:plenum-browser`, which Electron keeps in `Partitions/plenum-browser` under the desktop user-data folder: cookies, sign-ins, site storage, cache and history) and the files saved from the Browser pane. Section 5 says the screenshots are also kept on the computer, and section 10 says the run logs are not encrypted. The terms are version 3 (`legal/terms.json`, with a changes line), so everyone accepts again; `legal/EULA.md` carries the same version number because `scripts/build-legal.mjs` requires both documents to match, and `legal/EULA.txt` was regenerated.
+
+**Reason.** Section 8 sends a person to "the folders listed in section 2" to delete their data. Without these rows, a person who followed it left screenshots of their screen and their site sign-ins behind.
+
+**Source.** `legal/PRIVACY.md`; `legal/terms.json`; `lib/computer/log.mjs` (`RUNS_DIR`, `prune`); `desktop/browser.cjs` (`PARTITION`, `browser-clear`).
+
+**Status.** Written from the code (the 0.6 stabilization pass). The placeholders in the legal texts are unchanged.
+
+## 35. Over the Settings page, the drive bar stays live and the rest of the composer does not
+
+**Decision.** While the Settings page is open, `settingsInert` in `public/app.js` makes the chat and every part of the composer inert except the banner slot, and `style.css` hides the slot's other banners from the tab order. The drive bar lives in that slot, so its Pause and Stop work over the page. The title bar's drive pill is unchanged.
+
+**Reason.** The whole composer was inert, which made the drive bar inert, but the bar has `z-index: 35` and the page `z-index: 10`, so the bar was painted over Settings with a Stop button that did nothing. A control that is visible and dead is worse than one that is hidden.
+
+**Source.** `public/app.js` (`settingsInert`, `openSettingsPage`, `closeSettingsPage`); `public/style.css` (the rules after `.app[data-settings-open] .main`); `public/ext-drive.css` (`.drivebar`).
+
+**Status.** Checked in the real page in a hidden Electron window against a real server with a live drive. Not seen in the shipped desktop window.
 
 ## Open items
 

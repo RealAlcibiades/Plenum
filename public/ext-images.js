@@ -80,15 +80,16 @@
     return !route || route === 'api';
   }
 
-  // app.js asks this before it sends the files it was given. It is false only for files that are waiting here and that the
-  // model cannot take; REFUSAL then holds the reason. A file of any other kind is left to the server.
-  function takes(model) {
+  // app.js asks this before it sends the files it was given. It is false only for files that are in the list and that the
+  // model cannot take; REFUSAL then holds the reason. The list is the files waiting here by default, or the files a queued
+  // message was queued with (B-94). A file of any other kind is left to the server.
+  function takes(model, files = picked) {
     const provider = providerFor(model);
-    if (picked.some(f => f.kind === 'image') && !takesImages(provider)) {
+    if (files.some(f => f.kind === 'image') && !takesImages(provider)) {
       lastRefusal = IMAGE_REFUSAL;
       return false;
     }
-    if (picked.some(f => f.kind === 'pdf') && !takesPdf(provider)) {
+    if (files.some(f => f.kind === 'pdf') && !takesPdf(provider)) {
       lastRefusal = PDF_REFUSAL;
       return false;
     }
@@ -286,6 +287,12 @@
     list: () => picked.map(file => ({ ...file })),
     clear() {
       picked = [];
+      paint();
+    },
+    // Puts back files a queued message was queued with, when Edit moves that message into the composer (B-94). The caller has
+    // already checked that the composer holds no files.
+    restore(files) {
+      picked = [...picked, ...files.map(file => ({ ...file }))];
       paint();
     },
     takes,

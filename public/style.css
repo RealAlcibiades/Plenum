@@ -119,7 +119,13 @@ kbd {
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* The third column is the side pane. It has no tracks while the pane is hidden, so the page is laid out as before. */
-.app { display: grid; grid-template-columns: 268px minmax(0, 1fr) auto; height: 100vh; }
+.app { display: grid; grid-template-columns: var(--side-w, 268px) minmax(0, 1fr) auto; height: 100vh; }
+/* 1100 to 1439 px with the pane open: the sidebar becomes a 56 px icon strip (app.js syncShellLayout sets data-strip). */
+.app[data-strip] { --side-w: 56px; }
+/* Expand: the pane takes the chat column. The main column leaves the grid, so the pane fills the space the chat had. */
+.app[data-pane-expanded] .main { display: none; }
+.app[data-pane-expanded] .pane { width: auto; max-width: none; min-width: 0; }
+.app[data-pane-expanded] .pane-expand { color: var(--accent); }
 
 /* ---------- sidebar ---------- */
 
@@ -167,6 +173,19 @@ kbd {
 .proj-item .forget:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
 .empty-side { color: var(--muted); font-size: 12.5px; padding: 8px 10px; }
 
+/* The icon strip (data-strip on the app element): project tiles with their dots, link icons, and no text. Every text node
+   inside a link sits at font-size 0, so only the icon remains; the labels, paths and music controls are hidden. */
+.app[data-strip] .sidebar { padding: 0 6px 10px; align-items: stretch; }
+.app[data-strip] .brand { justify-content: center; padding: 4px 0 0; }
+.app[data-strip] :is(.brand-text, .side-head > span, .proj-item .pn, .proj-item .pp, .proj-item .forget, .side-music, .side-value, .side-foot kbd) { display: none; }
+.app[data-strip] .side-head { justify-content: center; padding: 8px 0 6px; }
+.app[data-strip] .proj-item { grid-template-columns: 1fr; justify-items: center; padding: 6px 0; column-gap: 0; }
+.app[data-strip] .proj-item .pi { grid-row: auto; }
+.app[data-strip] .side-link { justify-content: center; font-size: 0; padding: 9px 0; gap: 0; }
+.app[data-strip] .side-link .ic { width: 18px; height: 18px; font-size: 13.5px; }
+.app[data-strip] .side-link .badge { position: absolute; margin: 0; transform: translate(12px, -12px); min-width: 16px; height: 16px; font-size: 9.5px; }
+.app[data-strip] .side-link { position: relative; }
+
 .add-project {
   display: grid; gap: 8px; padding: 10px; margin: 2px 0 8px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-1);
@@ -199,6 +218,42 @@ kbd {
   display: inline-grid; place-items: center; font-size: 11px; font-weight: 700;
   background: var(--brand); color: var(--accent-ink);
 }
+/* Shared shell parts (app.js MuseUI.ui): a count, a label and a status chip. The tone is a data-tone attribute, so no colour is
+   written inline. Accent marks the plan and the selection, amber attention and auto-approve, red failure and approve all, green passed. */
+.badge[data-tone="amber"] { background: var(--warn); color: #fff; }
+.badge[data-tone="red"] { background: var(--bad); color: #fff; }
+.badge[data-tone="green"] { background: var(--ok); color: #fff; }
+.badge[data-tone="accent"] { background: var(--accent); color: var(--accent-ink); }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap; color: var(--text-2);
+  background: color-mix(in srgb, var(--surface-3) 70%, transparent); box-shadow: inset 0 0 0 1px var(--line);
+}
+.pill[data-tone="accent"] { color: var(--accent); }
+.pill[data-tone="amber"] { color: var(--warn); }
+.pill[data-tone="red"] { color: var(--bad); }
+.pill[data-tone="green"] { color: var(--ok); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--text-2); border: 1px solid var(--line); font: 600 12px var(--ui);
+  white-space: nowrap; transition: background-color 0.14s, color 0.14s;
+}
+.chip:hover { background: var(--surface-3); color: var(--text); }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.chip[data-tone="accent"]::before { background: var(--accent); }
+.chip[data-tone="amber"]::before { background: var(--warn); }
+.chip[data-tone="red"]::before { background: var(--bad); }
+.chip[data-tone="green"]::before { background: var(--ok); }
+/* A project's dot in the sidebar: breathing while it runs, amber while it waits, accent when there is news. */
+.proj-item .pi-dot {
+  position: absolute; left: 33px; top: 4px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg-side);
+}
+.app[data-strip] .proj-item .pi-dot { left: 50%; margin-left: 4px; top: 4px; }
+.proj-item .pi-dot[data-tone="amber"] { background: var(--warn); }
+.proj-item .pi-dot[data-tone="running"] { background: var(--ok); animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .proj-item .pi-dot[data-tone="running"] { animation: none; } }
 
 /* ---------- buttons ---------- */
 
@@ -238,10 +293,43 @@ kbd {
 .proj-name { font: 600 15px/1.3 var(--display); letter-spacing: -0.008em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 48px; }
 .proj-path { color: var(--muted); font: 11.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 0; min-width: 0; }
 .controls { display: flex; align-items: center; gap: 14px; flex: none; }
+/* The title bar, left to right: menu (narrow), Project, the titlebar slot (chips), the controls, empty space that drags the
+   window, the drive pill slot, the pane buttons. Nothing wraps; the empty space takes what is left. */
+.topbar { flex-wrap: nowrap; }
+.proj-title { flex: 0 1 auto; }
+.proj-path { flex: 0 1 auto; max-width: 36%; }
+.titlebar-slot { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
+.titlebar-space { flex: 1 1 0; min-width: 12px; height: 100%; }
+.titlebar-pill:empty { display: none; }
+.pane-buttons { display: flex; align-items: center; gap: 4px; flex: none; }
+.pane-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border-radius: 9px;
+  background: transparent; border: 1px solid transparent; color: var(--text-2); font: 600 12.5px var(--ui);
+  transition: background-color 0.14s, color 0.14s;
+}
+.pane-btn:hover { background: var(--surface-2); color: var(--text); }
+.pane-btn[aria-pressed="true"] { background: var(--surface-2); color: var(--text); border-color: var(--line); }
+.pane-btn .ic { width: 15px; height: 15px; color: var(--muted); }
+.pane-btn[aria-pressed="true"] .ic { color: var(--accent); }
+.pane-btn .badge { margin-left: 0; min-width: 18px; height: 18px; font-size: 10.5px; }
+.pane-btn:focus-visible, .chip:focus-visible, .pane-expand:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 1120px) {
+  .pane-btn .pane-btn-label { display: none; }
+}
+/* With the side pane open the chat is narrower: the path, the switch text, the advisor label and the pane button labels go, so the
+   title bar stays on one line. Their controls keep their names through aria-label and title. */
+.app[data-pane-open] :is(.proj-path, .switch-text, .pick-label, .pane-btn-label) { display: none; }
+.app[data-pane-open] .proj-title { min-width: 0; }
+.pane-slot { display: flex; align-items: center; gap: 4px; flex: none; }
+.pane-slot:empty { display: none; }
+.pane-expand { flex: none; }
+.banner-slot { display: flex; flex-direction: column; gap: 6px; width: var(--col); margin: 0 auto; }
+.banner-slot:empty { display: none; }
+.banner-slot > * { min-width: 0; }
 
 /* The desktop app has no title bar of its own: the top strip moves the window. */
 :root[data-shell="desktop"] :is(.topbar, .brand) { -webkit-app-region: drag; }
-:root[data-shell="desktop"] :is(.topbar .controls, .scrim, .drawer, #palette) { -webkit-app-region: no-drag; }
+:root[data-shell="desktop"] :is(.topbar .controls, .topbar .titlebar-slot, .topbar .pane-buttons, .topbar .titlebar-pill, .pane-slot, .pane-expand, .scrim, .drawer, #palette) { -webkit-app-region: no-drag; }
 /* The pane's head is a drag strip too, with its buttons and tabs kept clickable. */
 :root[data-shell="desktop"] .pane-head { -webkit-app-region: drag; }
 :root[data-shell="desktop"] .pane-head :is(button, .pane-tabs) { -webkit-app-region: no-drag; }
@@ -391,6 +479,8 @@ kbd {
   mask-image: linear-gradient(to bottom, transparent, #000 22px, #000 calc(100% - 34px), transparent);
 }
 .stream { width: var(--col); margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+/* A project's live run (app.js runBox). Its turns lay out as children of the transcript, as they did before the box. */
+.run-box { display: contents; }
 
 .fresh { animation: rise 0.34s var(--ease) both; }
 @keyframes rise { from { opacity: 0; translate: 0 8px; } }
@@ -833,6 +923,81 @@ kbd {
 .setting-status.bad { color: var(--bad); }
 .switch-row:has(input:disabled) { cursor: default; opacity: 0.6; }
 
+/* ---------- the Settings page (UI-ARCH section 5, app.js) ---------- */
+/* One page over the chat column and the side pane, under the title bar, so the drive pill and Stop stay in view. The sidebar stays.
+   While it is open the pane is hidden (its state is kept) and the chat and composer are inert, except the drive bar. */
+html[data-legal='pending'] #app { display: none; }
+.app[data-settings-open] .pane { display: none; }
+.app[data-settings-open] .main, .app[data-settings-open][data-pane-expanded] .main { display: flex; }
+/* The banner slot stays live under the page: the drive bar (ext-drive.css, z-index 35) paints over it and its Stop must work. The page
+   covers every other banner and the rest of the composer, so they are taken out of the tab order and the reading order (app.js
+   settingsInert makes the ones that exist inert; this also covers a notice strip that is added while the page is open). */
+.app[data-settings-open] .composer-wrap > :not(.banner-slot),
+.app[data-settings-open] .banner-slot > :not(.drivebar):not(.sr) { visibility: hidden; }
+.settings-page {
+  position: absolute; top: var(--bar-h); right: 0; bottom: 0; left: 0; z-index: 10;
+  display: flex; flex-direction: column; min-height: 0; background: var(--bg);
+}
+.settings-page:focus { outline: none; }
+.settings-head {
+  display: flex; align-items: center; gap: 12px; flex: none; min-width: 0;
+  padding: 12px 16px 12px 28px; border-bottom: 1px solid var(--line);
+}
+.settings-title { margin: 0; font: 600 16px/1.3 var(--display); letter-spacing: -0.01em; white-space: nowrap; }
+.settings-search {
+  display: flex; align-items: center; gap: 8px; flex: 0 1 260px; min-width: 0; margin-left: auto;
+  padding: 0 10px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface);
+}
+.settings-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.settings-search .ic { width: 15px; height: 15px; flex: none; color: var(--muted); }
+.settings-search input {
+  flex: 1; min-width: 0; padding: 7px 0; border: 0; background: transparent; color: var(--text); font: 13px var(--ui); outline: none;
+}
+.settings-pick { display: none; max-width: 190px; min-width: 0; }
+.settings-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 216px minmax(0, 1fr); }
+.settings-nav {
+  display: flex; flex-direction: column; gap: 2px; min-height: 0; padding: 14px 10px; overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.settings-nav-item {
+  display: flex; align-items: center; min-height: 34px; padding: 6px 10px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--text-2); font: 500 13.5px/1.3 var(--ui); text-align: left; cursor: pointer;
+}
+.settings-nav-item:hover { background: color-mix(in srgb, var(--surface-2) 80%, transparent); color: var(--text); }
+.settings-nav-item[aria-current="true"] { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.settings-nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-content {
+  position: relative; min-width: 0; min-height: 0; overflow-y: auto;
+  padding: 22px 28px 48px; display: flex; flex-direction: column; gap: 30px;
+}
+.settings-group { display: grid; gap: 12px; width: min(640px, 100%); align-content: start; }
+.settings-group-title { margin: 0; font: 600 15px/1.3 var(--display); letter-spacing: -0.008em; color: var(--text); }
+.settings-group-body { display: grid; gap: 12px; min-width: 0; }
+.settings-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; color: var(--muted); }
+.settings-empty p { margin: 0; }
+/* Rows a section draws into its card: the roles controls and the switch row. */
+.setting-stack { display: grid; gap: 16px; min-width: 0; }
+.setting-switch { display: flex; align-items: flex-start; gap: 12px; min-width: 0; cursor: pointer; }
+.setting-switch .switch { margin-top: 1px; flex: none; }
+.setting-text { display: grid; gap: 2px; min-width: 0; }
+.setting-stack select { max-width: 100%; }
+@media (max-width: 860px) {
+  .settings-body { grid-template-columns: minmax(0, 1fr); }
+  .settings-nav { display: none; }
+  .settings-pick { display: block; }
+  .settings-search { flex-basis: 200px; }
+  .settings-head { padding-left: 16px; }
+  .settings-content { padding: 16px 16px 40px; }
+}
+@media (max-width: 480px) {
+  .settings-pick { display: none; }
+  .settings-title { font-size: 15px; }
+  .settings-back { display: inline-flex; }
+  .settings-nav { display: flex; border-right: 0; padding: 8px 12px 40px; }
+  .settings-page[data-view="group"] .settings-nav { display: none; }
+  .settings-page[data-view="list"] .settings-content { display: none; }
+}
+
 .card, .update {
   display: flex; flex-direction: column; gap: 10px; flex: none; padding: 16px;
   border: 1px solid var(--line); border-radius: 16px;
@@ -1250,12 +1415,17 @@ kbd {
   .pane { position: fixed; top: max(var(--win-top), var(--bar-h)); right: 0; bottom: 0; left: 0; z-index: 19; width: auto; max-width: none; min-width: 0; border-left: 0; background: var(--bg); }
   .pane-grip { display: none; }
   .pane-back { display: grid; }
+  .pane-expand { display: none; }
+  .app[data-pane-expanded] .main { display: flex; }
+  .app[data-pane-expanded] .pane { width: auto; }
   .suggest { grid-template-columns: minmax(0, 1fr); }
   /* Only the composer's footer hint goes on narrow windows. The hint on an approval card (its countdown and keys) stays, and on a
      narrow card it wraps onto its own line under the buttons. */
   .foot .hint { display: none; }
   .approval-actions .hint { flex: 1 1 100%; }
   .topbar { padding-left: 20px; }
+  /* macOS puts its window buttons at the top left; the menu button moves clear of them (B-68). Estimate: confirm on a Mac. */
+  :root[data-shell="desktop"][data-platform="darwin"] .topbar { padding-left: 80px; }
   /* With the hint hidden, the status items wrap onto more lines instead of running past the composer's width. */
   .statusbar { flex: 0 1 auto; min-width: 0; max-width: 100%; flex-wrap: wrap; row-gap: 2px; }
   .st { max-width: 100%; }

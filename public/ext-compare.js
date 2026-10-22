@@ -74,8 +74,11 @@
     view = { checks: new Map(), shown: undefined };
     const panel = make('div', 'cmp-panel');
     view.grid = make('div', 'cmp-grid');
-    panel.append(make('p', 'cmp-intro', INTRO), modelsCard(), askCard(), view.grid);
+    const intro = make('p', 'cmp-intro', INTRO);
+    panel.append(intro, modelsCard(), askCard(), view.grid);
     body.append(panel);
+    // Several companies get the message here, so the multi-provider strip sits at the top of the panel (LEGAL multi-provider).
+    MuseUI.notice?.('multi-provider', { before: intro });
     paint();
   }
 

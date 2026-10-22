@@ -1,0 +1,73 @@
+/* Plan use: the quota ring after the model picker, its pop-up, and the limit banner with Draft handoff (public/ext-quota.js).
+   Colour comes from the tokens in style.css, so both themes follow it. The ring's arc length is an SVG presentation attribute,
+   and nothing here sets an inline style. */
+
+.ext-quota { position: relative; display: inline-flex; flex: none; align-items: center; }
+.ext-quota[hidden] { display: none; }
+
+.ext-quota-ring {
+  display: inline-grid; place-items: center; flex: none;
+  width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-2);
+  transition: background-color 0.14s;
+}
+.ext-quota-ring:hover, .ext-quota-ring[aria-expanded="true"] { background: var(--surface-2); }
+.ext-quota-ring svg { width: 20px; height: 20px; overflow: visible; }
+.ext-quota-track { fill: none; stroke: var(--line-2); stroke-width: 2.5; }
+.ext-quota-arc { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.ext-quota-ring.warn .ext-quota-arc { stroke: var(--warn); }
+.ext-quota-ring.high .ext-quota-arc { stroke: var(--bad); }
+/* Unknown: a grey dashed ring with a question mark, no arc. */
+.ext-quota-ring.unknown .ext-quota-track { stroke: var(--muted); stroke-dasharray: 2 2.2; }
+.ext-quota-ring.unknown .ext-quota-arc { display: none; }
+.ext-quota-q { display: none; fill: var(--muted); font: 600 9px var(--ui); }
+.ext-quota-ring.unknown .ext-quota-q { display: inline; }
+.ext-quota-ring:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The pop-up opens upward from the ring. Narrow windows keep it on screen by its right edge. */
+.ext-quota-pop {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40;
+  display: grid; gap: 10px; width: min(340px, calc(100vw - 32px)); max-height: min(70vh, 540px); overflow: auto;
+  padding: 12px; border: 1px solid var(--line-2); border-radius: 14px;
+  background: var(--surface); color: var(--text);
+  box-shadow: 0 18px 40px -16px var(--shade-2);
+}
+.ext-quota-pop[hidden] { display: none; }
+.ext-quota-pop:focus { outline: none; }
+/* A phone-width window: the pop-up is a sheet under the title bar, since a box anchored to the ring would run off the screen. */
+@media (max-width: 480px) {
+  .ext-quota-pop { position: fixed; top: 56px; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: none; }
+}
+.ext-quota-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ext-quota-pop-title { font-weight: 650; font-size: 14.5px; }
+.ext-quota-cards { display: grid; gap: 10px; }
+.ext-quota-cards .card { padding: 11px 12px; }
+.ext-quota-card-body { gap: 8px; }
+.ext-quota-win { display: grid; gap: 2px; }
+.ext-quota-win-line { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.ext-quota-win-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.ext-quota-win-pct { color: var(--text-2); white-space: nowrap; }
+.ext-quota-win meter { display: block; width: 100%; height: 8px; margin: 3px 0 2px; }
+.ext-quota-win-reset, .ext-quota-asof, .ext-quota-note, .ext-quota-foot {
+  margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45;
+}
+.ext-quota-refresh { justify-self: start; }
+
+/* The banner sits in the banner slot above the message box, with the other composer banners. */
+.ext-quota-banner {
+  display: grid; gap: 8px; min-width: 0;
+  padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--line-2); border-left: 3px solid var(--warn);
+  background: var(--surface); color: var(--text-2); font-size: 13px;
+}
+.ext-quota-banner[data-kind="done"] { border-left-color: var(--accent); }
+.ext-quota-banner[hidden] { display: none; }
+.ext-quota-banner-text { margin: 0; color: var(--text); }
+.ext-quota-banner-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ext-quota-pick { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 12.5px; }
+.ext-quota-pick select {
+  min-width: 0; max-width: 280px; height: 30px; padding: 0 8px;
+  border: 1px solid var(--line-2); border-radius: 8px;
+  background: var(--surface-2); color: var(--text); cursor: pointer;
+}
+.ext-quota-pick select:disabled { opacity: 0.6; cursor: default; }

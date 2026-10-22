@@ -17,17 +17,21 @@
   "scripts": {
     "start": "node plenum.mjs",
     "desktop": "electron .",
-    "pack": "electron-builder --win --x64 --dir",
-    "dist": "electron-builder --win --x64",
-    "dist:portable": "electron-builder --win portable --x64",
-    "dist:mac": "electron-builder --mac dmg zip --x64 --arm64 --publish never",
-    "dist:mac:x64": "electron-builder --mac dmg zip --x64 --publish never",
-    "dist:mac:arm64": "electron-builder --mac dmg zip --arm64 --publish never",
-    "dist:linux": "electron-builder --linux AppImage deb --x64 --publish never",
+    "computer:smoke": "electron desktop/computer/smoke.cjs",
+    "legal": "node scripts/build-legal.mjs",
+    "pack": "npm run legal && electron-builder --win --x64 --dir --publish never",
+    "dist": "npm run legal && electron-builder --win --x64 --publish never",
+    "dist:portable": "npm run legal && electron-builder --win portable --x64 --publish never",
+    "dist:mac": "npm run legal && electron-builder --mac dmg zip --x64 --arm64 --publish never",
+    "dist:mac:x64": "npm run legal && electron-builder --mac dmg zip --x64 --publish never",
+    "dist:mac:arm64": "npm run legal && electron-builder --mac dmg zip --arm64 --publish never",
+    "dist:linux": "npm run legal && electron-builder --linux AppImage deb --x64 --publish never",
     "dist:all": "node -e \"const s={win32:'dist',darwin:'dist:mac',linux:'dist:linux'}[process.platform];if(s)require('child_process').execSync('npm run '+s,{stdio:'inherit'})\""
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0"
+    "@anthropic-ai/sdk": "^0.133.0",
+    "electron-updater": "^6.8.9",
+    "koffi": "^2.9.0"
   },
   "devDependencies": {
     "electron": "^44.7.0",
@@ -37,6 +41,13 @@
     "appId": "com.museconsole.desktop",
     "productName": "Plenum",
     "copyright": "Copyright © 2026 RealAlcibiades. All rights reserved.",
+    "publish": {
+      "provider": "github",
+      "owner": "RealAlcibiades",
+      "repo": "Plenum",
+      "releaseType": "draft"
+    },
+    "generateUpdatesFilesForAllChannels": true,
     "electronLanguages": [
       "en-US"
     ],
@@ -52,6 +63,8 @@
       "server.mjs",
       "plenum.mjs",
       "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt",
+      "legal/**/*",
       "package.json",
       "build/icon.png",
       "node_modules/**/*",
@@ -61,6 +74,10 @@
       {
         "from": "LICENSE.txt",
         "to": "LICENSE.txt"
+      },
+      {
+        "from": "THIRD-PARTY-NOTICES.txt",
+        "to": "THIRD-PARTY-NOTICES.txt"
       }
     ],
     "asar": false,
@@ -76,6 +93,22 @@
     },
     "win": {
       "icon": "build/icon.ico",
+      "files": [
+        "desktop/**/*",
+        "lib/**/*",
+        "lib/overlay/**/*",
+        "public/**/*",
+        "server.mjs",
+        "plenum.mjs",
+        "LICENSE.txt",
+        "THIRD-PARTY-NOTICES.txt",
+        "legal/**/*",
+        "package.json",
+        "build/icon.png",
+        "node_modules/**/*",
+        "!**/*.map",
+        "!node_modules/koffi/build/koffi/{darwin_*,freebsd_*,linux_*,musl_*,openbsd_*,win32_arm64,win32_ia32}/**"
+      ],
       "target": [
         {
           "target": "nsis",
@@ -101,7 +134,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
-      "license": "LICENSE.txt",
+      "license": "legal/EULA.txt",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Plenum"
@@ -110,16 +143,48 @@
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "files": [
+        "desktop/**/*",
+        "lib/**/*",
+        "lib/overlay/**/*",
+        "public/**/*",
+        "server.mjs",
+        "plenum.mjs",
+        "LICENSE.txt",
+        "THIRD-PARTY-NOTICES.txt",
+        "legal/**/*",
+        "package.json",
+        "build/icon.png",
+        "node_modules/**/*",
+        "!**/*.map",
+        "!node_modules/koffi/build/koffi/{freebsd_*,linux_*,musl_*,openbsd_*,win32_*}/**"
+      ]
     },
     "dmg": {
-      "license": "LICENSE.txt"
+      "license": "legal/EULA.txt"
     },
     "linux": {
-      "category": "Development"
+      "category": "Development",
+      "files": [
+        "desktop/**/*",
+        "lib/**/*",
+        "lib/overlay/**/*",
+        "public/**/*",
+        "server.mjs",
+        "plenum.mjs",
+        "LICENSE.txt",
+        "THIRD-PARTY-NOTICES.txt",
+        "legal/**/*",
+        "package.json",
+        "build/icon.png",
+        "node_modules/**/*",
+        "!**/*.map",
+        "!node_modules/koffi/build/koffi/{darwin_*,freebsd_*,musl_*,openbsd_*,win32_*,linux_arm*,linux_ia32,linux_loong64,linux_riscv64d}/**"
+      ]
     },
     "appImage": {
-      "license": "LICENSE.txt"
+      "license": "legal/EULA.txt"
     },
     "deb": {
       "maintainer": "[LICENSOR NAME] <[CONTACT EMAIL]>"

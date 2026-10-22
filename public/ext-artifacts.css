@@ -1,0 +1,90 @@
+/* Artifacts in the side pane (public/ext-artifacts.js). Colours come from the shared tokens, except the preview, which is white in both
+   themes on purpose: a page or a Markdown document is read on white. Its color-scheme is light, so the shared light-dark tokens inside
+   it resolve to their light values. No layout for the pane itself: the pane host (style.css) sizes and places it. */
+
+.ext-art {
+  display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box;
+  padding: 12px 14px 16px; gap: 0; color: var(--text); font: 13.5px var(--ui);
+}
+
+.ext-art-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ext-art-list {
+  flex: 1 1 auto; min-width: 0; height: 32px; padding: 0 8px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: var(--surface); color: var(--text); font: 13px var(--ui);
+}
+.ext-art-list:focus-visible, .ext-art button:focus-visible, .ext-art-path:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+.ext-art-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.ext-art-bar .ghost.small { white-space: nowrap; }
+
+.ext-art-web {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  color: var(--text-2); font-size: 13px; cursor: pointer;
+}
+.ext-art-web input { margin: 0; width: 15px; height: 15px; accent-color: var(--accent); }
+
+.ext-art-notes { display: flex; flex-direction: column; gap: 8px; }
+.ext-art-notes:empty { display: none; }
+.ext-art-notice {
+  padding: 10px 12px 10px 14px; border-radius: 10px; margin-top: 10px;
+  background: var(--surface-2); border: 1px solid var(--line-2); border-left: 3px solid var(--accent);
+}
+.ext-art-notice-title { display: block; font: 600 13.5px var(--ui); color: var(--text); }
+.ext-art-notice-text { margin: 4px 0 8px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.ext-art-notice-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.ext-art-stale { margin: 10px 0 0; color: var(--warn); font-size: 12.5px; }
+
+.ext-art-save {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 12px;
+  border-radius: 12px; background: var(--surface); border: 1px solid var(--line-2);
+}
+.ext-art-label { display: grid; gap: 5px; color: var(--muted); font-size: 12.5px; }
+.ext-art-path {
+  width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px; border-radius: 9px;
+  border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text); font: 13px var(--mono);
+}
+.ext-art-project { margin: 0; color: var(--muted); font-size: 12.5px; }
+.ext-art-plan { margin: 0; color: var(--accent); font-size: 12.5px; line-height: 1.5; }
+.ext-art-error { margin: 0; color: var(--bad); font-size: 13px; line-height: 1.5; }
+.ext-art-replace {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--bad) 8%, var(--surface)); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+}
+.ext-art-replace-text { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.ext-art-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ext-art-danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+
+.ext-art-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin-top: 12px; }
+
+.ext-art-stage { display: flex; flex-direction: column; flex: 1 1 auto; gap: 6px; min-height: 360px; }
+.ext-art-wait { margin: 0; color: var(--muted); }
+.ext-art-frame {
+  flex: 1 1 auto; width: 100%; min-height: 360px; box-sizing: border-box;
+  border: 1px solid var(--line-2); border-radius: 12px; background: #ffffff; color-scheme: light;
+}
+.ext-art-sandbox { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.ext-art-md {
+  box-sizing: border-box; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--line-2);
+  background: #ffffff; color: #15151f; color-scheme: light;
+  font-size: 14.5px; line-height: 1.65; overflow-wrap: anywhere;
+}
+.ext-art-md a { color: #4a3ad0; }
+.ext-art-md code { background: #f1f1f8; color: #15151f; }
+
+.ext-art-code {
+  margin: 0; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--code-bg); color: var(--text); font: 12.5px/1.6 var(--mono); tab-size: 2;
+  white-space: pre; overflow: auto; min-height: 120px;
+}
+
+/* The Open button on a code block, before its Copy button (public/markdown.js draws the block). */
+.codeblock .ext-art-open {
+  background: none; border: 0; color: var(--accent); border-radius: 7px; padding: 3px 9px;
+  font: 11.5px var(--ui); cursor: pointer; transition: background-color 0.14s, color 0.14s;
+}
+.codeblock .ext-art-open:hover { background: var(--surface-3); color: var(--text); }
+.codeblock .ext-art-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

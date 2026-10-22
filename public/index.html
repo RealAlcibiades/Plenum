@@ -55,6 +55,7 @@
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 5.2v13.6a.8.8 0 0 0 1.2.7l11-6.8a.8.8 0 0 0 0-1.4l-11-6.8a.8.8 0 0 0-1.2.7z"/></symbol>
     <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 17.5V5.5l10-2v12"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="16.5" cy="15.5" r="2.5"/></symbol>
     <symbol id="i-relay" viewBox="0 0 24 24"><path d="M4 8.5h11M11 5l4 3.5-4 3.5M20 15.5H9M13 12l-4 3.5 4 3.5"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9.5 4.5H4.5v5M14.5 19.5h5v-5M4.5 4.5l6 6M19.5 19.5l-6-6"/></symbol>
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.4V5.2M12 18.8V21.6M2.4 12H5.2M18.8 12H21.6M7.19 7.19L5.21 5.21M16.81 7.19L18.79 5.21M7.19 16.81L5.21 18.79M16.81 16.81L18.79 18.79"/></symbol>
   </svg>
 
@@ -86,33 +87,17 @@
       <nav class="projects" id="projects"></nav>
 
       <div class="side-foot">
-        <button class="side-link" id="accountsBtn" type="button">
+        <button class="side-link" id="accountsBtn" type="button" hidden>
           <svg class="ic" aria-hidden="true"><use href="#i-user"></use></svg>Accounts
         </button>
-        <button class="side-link" id="updatesBtn" type="button">
+        <button class="side-link" id="updatesBtn" type="button" hidden>
           <svg class="ic" aria-hidden="true"><use href="#i-update"></use></svg>Updates
           <span class="badge" id="updatesBadge" hidden>0</span>
         </button>
-        <div class="side-music" id="music" hidden>
-          <div class="music-row">
-            <svg class="ic" aria-hidden="true"><use href="#i-music"></use></svg>
-            <span class="music-name">Music</span>
-            <label class="switch" title="Background music. Off by default; the switch starts it">
-              <input type="checkbox" id="musicOn" aria-label="Music on or off">
-              <span class="switch-track" aria-hidden="true"></span>
-            </label>
-          </div>
-          <div class="music-sub">
-            <select class="plain-select" id="musicStyle" aria-label="Music style"></select>
-            <input type="range" id="musicVol" min="0" max="100" step="1" aria-label="Music volume">
-            <output id="musicVolOut" for="musicVol"></output>
-          </div>
-          <p class="music-hint" id="musicHint" hidden>Music was on. Click the switch to start it again.</p>
-        </div>
-        <button class="side-link" id="settingsBtn" type="button" title="Appearance, desktop alerts and sessions">
+        <button class="side-link" id="settingsBtn" type="button" title="Settings (Ctrl+,): appearance, accounts, safety, updates and more" aria-pressed="false">
           <svg class="ic" aria-hidden="true"><use href="#i-gear"></use></svg>Settings
         </button>
-        <button class="side-link" id="themeBtn" type="button" title="Switch between the system, dark and light themes">
+        <button class="side-link" id="themeBtn" type="button" title="Switch between the system, dark and light themes" hidden>
           <svg class="ic" aria-hidden="true"><use href="#i-contrast"></use></svg>Theme
           <span class="side-value" id="themeValue">System</span>
         </button>
@@ -123,28 +108,23 @@
     </aside>
 
     <main class="main">
-      <header class="topbar">
+      <!-- The title bar, in order: menu (narrow windows, added by ext-sidebar), Project name and path, the titlebar slot (chips),
+           the controls, empty space that drags the window, the drive pill slot, the pane buttons. See MuseUI.slots and MuseUI.pane. -->
+      <header class="topbar" id="titlebar">
         <div class="proj-title">
           <span class="proj-name" id="projName">No project</span>
           <span class="proj-path" id="projPath"></span>
         </div>
-        <div class="controls">
-          <label class="pick" title="A second model that reviews answers when you run /review">
-            <svg class="ic" aria-hidden="true"><use href="#i-sparkle"></use></svg>
-            <span class="pick-label">Advisor</span>
-            <select id="advisorSel" aria-label="Advisor"></select>
-          </label>
-          <label class="switch" title="Run the advisor on every reply">
-            <input type="checkbox" id="autoAdv">
-            <span class="switch-track" aria-hidden="true"></span>
-            <span class="switch-text">Review every reply</span>
-          </label>
-        </div>
+        <div class="titlebar-slot" id="titlebarSlot" data-slot="titlebar"></div>
+        <div class="controls"></div>
+        <span class="titlebar-space" aria-hidden="true"></span>
+        <div class="titlebar-slot titlebar-pill" id="drivePillSlot" data-slot="drivePill"></div>
+        <div class="pane-buttons" id="paneButtons" role="group" aria-label="Side pane"></div>
       </header>
 
       <section class="chat" id="chat" aria-live="polite"></section>
 
-      <footer class="composer-wrap">
+      <footer class="composer-wrap" id="composerWrap">
         <div class="palette" id="palette" hidden></div>
         <section class="board" id="board" aria-label="Council seats" hidden>
           <div class="board-bar">
@@ -169,6 +149,8 @@
           <button type="button" class="ghost small" id="rbToggle">Pause</button>
           <button type="button" class="ghost small" id="rbStop">Stop</button>
         </div>
+        <!-- One banner slot above the message box: notices and other panels' banners are ordered by MuseUI.slots.bannerSlot. -->
+        <div class="banner-slot" id="bannerSlot" data-slot="bannerSlot"></div>
         <form class="composer" id="composer">
           <textarea id="input" rows="1" placeholder="Ask for a change, a review or a plan. Type / for commands." spellcheck="false" aria-label="Message"></textarea>
           <div class="composer-bar">
@@ -183,9 +165,10 @@
               <svg class="ic" aria-hidden="true"><use href="#i-gauge"></use></svg>
               <select id="effortSel" aria-label="Effort"></select>
             </label>
-            <div class="seg" role="group" aria-label="Edits and commands" title="Whether edits and commands wait for your approval">
-              <button type="button" class="seg-btn" data-approvals="ask">Ask first</button>
-              <button type="button" class="seg-btn" data-approvals="auto">Auto-approve</button>
+            <!-- The Mode menu: what sending allows for this project (Plan, Ask first, Auto-approve or Approve all). ext-approvals.js
+                 builds its menu inside this wrapper and paints the button. -->
+            <div class="mode-wrap" id="modeWrap">
+              <button type="button" class="mode-btn" id="modeBtn" data-tone="ask" aria-haspopup="dialog" aria-expanded="false" title="Edits and commands for this project: Ask first, Auto-approve or Approve all. Plan and Build focus are here too">Ask first</button>
             </div>
             <button id="send" type="submit" class="send" title="Send" aria-label="Send">
               <svg class="ic ic-send" aria-hidden="true"><use href="#i-arrow-up"></use></svg>
@@ -198,6 +181,65 @@
           <span class="hint" id="hint">Enter to send · Shift+Enter for a new line · @file to attach a file</span>
         </div>
       </footer>
+
+      <!-- The Settings page (UI-ARCH section 5). It covers the chat column and the side pane, under the title bar, so the drive pill
+           and Stop stay in view. The sections come from MuseUI.settings; app.js draws them. Ctrl+Comma, the sidebar link and any
+           "Open Accounts"-style link open it, at the row asked for. -->
+      <section class="settings-page" id="settingsPage" aria-labelledby="settingsTitle" hidden>
+        <header class="settings-head">
+          <h2 class="settings-title" id="settingsTitle">Settings</h2>
+          <select class="settings-pick" id="settingsPick" aria-label="Section"></select>
+          <button type="button" class="ghost small settings-back" id="settingsBack" hidden>All settings</button>
+          <label class="settings-search">
+            <svg class="ic" aria-hidden="true"><use href="#i-search"></use></svg>
+            <input type="search" id="settingsSearch" placeholder="Search settings" autocomplete="off" spellcheck="false" aria-label="Search settings">
+          </label>
+          <button type="button" class="icon-btn" id="settingsClose" title="Close Settings (Esc)" aria-label="Close Settings">
+            <svg class="ic" aria-hidden="true"><use href="#i-x"></use></svg>
+          </button>
+        </header>
+        <div class="settings-body">
+          <nav class="settings-nav" id="settingsNav" aria-label="Settings sections"></nav>
+          <div class="settings-content" id="settingsContent"></div>
+        </div>
+        <!-- Parts that a section takes into its card: the roles controls (they were in the title bar) and the music switch (they were in
+             the sidebar). They wait here while the page is shut. -->
+        <div id="settingsStash" hidden>
+          <div class="setting-stack" id="rolesControls">
+            <label class="setting">
+              <span class="field-label">Advisor</span>
+              <select id="advisorSel" aria-label="Advisor"></select>
+              <span class="field-note">A second model that reviews answers when you run /review.</span>
+            </label>
+            <label class="setting-switch">
+              <span class="switch">
+                <input type="checkbox" id="autoAdv" aria-label="Review every reply">
+                <span class="switch-track" aria-hidden="true"></span>
+              </span>
+              <span class="setting-text">
+                <span class="field-label">Review every reply</span>
+                <span class="field-note">Run the advisor on every reply, not only when you run /review.</span>
+              </span>
+            </label>
+          </div>
+          <div class="side-music" id="music" hidden>
+            <div class="music-row">
+              <svg class="ic" aria-hidden="true"><use href="#i-music"></use></svg>
+              <span class="music-name">Music</span>
+              <label class="switch" title="Background music. Off by default; the switch starts it">
+                <input type="checkbox" id="musicOn" aria-label="Music on or off">
+                <span class="switch-track" aria-hidden="true"></span>
+              </label>
+            </div>
+            <div class="music-sub">
+              <select class="plain-select" id="musicStyle" aria-label="Music style"></select>
+              <input type="range" id="musicVol" min="0" max="100" step="1" aria-label="Music volume">
+              <output id="musicVolOut" for="musicVol"></output>
+            </div>
+            <p class="music-hint" id="musicHint" hidden>Music was on. Click the switch to start it again.</p>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- The side pane. Panels register into it (MuseUI.pane); nothing is drawn here until one opens. -->
@@ -208,6 +250,10 @@
           <svg class="ic" aria-hidden="true"><use href="#i-chevron"></use></svg>
         </button>
         <div class="pane-tabs" id="paneTabs" role="tablist"></div>
+        <div class="pane-slot" id="paneSlot" data-slot="paneTabs"></div>
+        <button class="icon-btn pane-expand" id="paneExpand" type="button" title="Expand the pane over the chat" aria-label="Expand the pane" aria-pressed="false">
+          <svg class="ic" aria-hidden="true"><use href="#i-expand"></use></svg>
+        </button>
         <button class="icon-btn" id="paneClose" type="button" title="Close pane" aria-label="Close pane">
           <svg class="ic" aria-hidden="true"><use href="#i-x"></use></svg>
         </button>

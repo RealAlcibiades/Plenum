@@ -57,7 +57,7 @@
 
   // The text on the chip.
   function chipText(s) {
-    if (!s.repo) return s.error ? 'git: no answer' : 'No git';
+    if (!s.repo) return s.noGit ? 'git not installed' : s.error ? 'git: no answer' : 'No git';
     if (s.clean) return `git: clean on ${branchOf(s)}${syncText(s)}`;
     const unmerged = s.unmerged ? ` · ${s.unmerged} unmerged` : '';
     return `git ${branchOf(s)}${syncText(s)} · ${s.changedCount} changed · ${s.untrackedCount} untracked${unmerged}`;
@@ -70,7 +70,10 @@
 
   // The hover text: a short summary and the first paths.
   function hoverText(s) {
-    if (!s.repo) return s.error ? 'git did not answer for this folder. Plenum tries again in a moment.' : 'This project folder is not a git repository.';
+    if (!s.repo) {
+      if (s.noGit) return 'git is not installed on this computer, so Plenum cannot show the working tree. Click to see why.';
+      return s.error ? 'git did not answer for this folder. Plenum tries again in a moment.' : 'This project folder is not a git repository.';
+    }
     const lines = [s.clean ? `The working tree is clean on ${branchOf(s)}.` : `Working tree on ${branchOf(s)}.`];
     if (s.ahead || s.behind) lines.push(`${s.ahead} ahead, ${s.behind} behind the upstream branch.`);
     let left = HOVER_PATHS;
@@ -93,8 +96,9 @@
   function paint() {
     place();
     const id = projectId();
-    // Hidden with no project, before the first answer, when git is not installed, and when the server could not be reached.
-    if (!id || !status || statusFor !== id || status.noGit || status.unreachable) {
+    // Hidden with no project, before the first answer, and when the server could not be reached. A missing git shows the chip
+    // with its reason, so the drawer message (fillDrawer) can be reached.
+    if (!id || !status || statusFor !== id || status.unreachable) {
       chip.hidden = true;
     } else {
       chip.hidden = false;

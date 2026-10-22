@@ -12,13 +12,21 @@
   // The model menu's groups, in the order the composer's menu uses.
   const GROUP_NAMES = { muse: 'Muse Code', anthropic: 'Claude', codex: 'Codex', gemini: 'Gemini', xai: 'Grok', openai: 'OpenAI', deepseek: 'DeepSeek', mistral: 'Mistral', googleai: 'Google AI', openrouter: 'OpenRouter', echo: 'Test' };
   const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
-  const APPROVAL_LABELS = { ask: 'Ask first', auto: 'Auto-approve' };
+  const APPROVAL_LABELS = { ask: 'Ask first', auto: 'Auto-approve', all: 'Approve all' };
+  // The coder setting (lib/projects.mjs codersCannotAsk): 'run' starts a Codex or Gemini coder that cannot ask, 'refuse' does not.
+  const CODER_CHOICES = [['run', 'Run anyway'], ['refuse', 'Refuse']];
+  // The Approve all coverage switches (approveAllCovers): null follows the app's value.
+  const COVER_CHOICES = [['', 'Follow the app default'], ['on', 'Yes'], ['off', 'No']];
   // The app's relay defaults. A relay that is not saved yet reads the same way the app reads it.
   const RELAY_DEFAULTS = { autoRoute: false, countdownSec: 3, hops: null, stopOnError: true, dedupe: false };
   const HOP_CHOICES = [['none', 'No limit'], ['2', '2'], ['4', '4'], ['8', '8'], ['custom', 'Custom']];
   // The limits on a project's own blocked-command patterns. They are the same as in lib/denylist.mjs, which checks them again.
   const DENY_MAX = 50;
   const DENY_MAX_CHARS = 120;
+  // The server counts characters (code points), so an emoji is one; the box counts UTF-16 units, so it must hold twice as many or it cuts a
+  // pattern of astral characters in the middle of a pair. The count against DENY_MAX_CHARS is made on characters (charCount).
+  const DENY_MAX_UNITS = DENY_MAX_CHARS * 2;
+  const charCount = text => Array.from(String(text)).length;
   // A control character, a line break or an invisible character, which the server refuses in a pattern.
   const hiddenChar = text => [...text].some(ch => {
     const c = ch.codePointAt(0);
@@ -130,7 +138,9 @@
     const root = document.createElement('div');
     root.className = 'ps';
     root.append(MuseUI.para(`Settings for ${name}. Each one follows the app default until you change it here. A change saves as you make it.`));
-    root.append(defaultsCard(), denyCard(), toolsCard(), ...projectSectionCards());
+    root.append(defaultsCard(), approveAllCard(), denyCard(), toolsCard(), ...projectSectionCards());
+    // The computer-use switch sits right after the Approve all card, which it belongs beside.
+    root.querySelector('.ps-approve-all')?.after(computerCard());
     body.append(root);
     paintAll();
   }
@@ -201,6 +211,108 @@
     const card = cardSection('Defaults for this project');
     card.append(modelField(), effortField(), approvalField(), relayField());
     return card;
+  }
+
+  // Approve all's own switches for this project, and the coder setting. The Approve all mode itself is set above (and from the
+  // Mode menu). These switches are kept when the mode changes, and they change only this project.
+  function approveAllCard() {
+    const card = cardSection('Approve all and coders');
+    card.classList.add('ps-approve-all');
+    card.append(MuseUI.para('Approve all answers every approval card for this project. These switches change what it answers. They are saved with the project, and Approve all takes them into account only while it is on. The coder setting also applies in Ask first.'));
+    card.append(approveAllBlockedField(), approveAllCoversField(), codersField());
+    return card;
+  }
+
+  // The switch that lets the model start computer use itself (lib/projects.mjs computerSelfStart). Off by default. Turning it on shows
+  // the computer-use notice where the switch is. The start card in the chat still asks first (Approve all answers it only where the
+  // computer-use cards are covered), and nothing here lets a model type a password or reach a password manager.
+  function computerCard() {
+    const card = cardSection('Computer use');
+    const { row, input } = switchRow(
+      'The model may start computer use itself',
+      'Off by default. On, the model can take the mouse and keyboard for one task whenever it decides it needs to, in the apps you picked last time in the Computer panel (/computer). A card in the chat asks you first. Stop on the bar or the stop key ends it at once.',
+      on => {
+        if (on) MuseUI.notice?.('computer-use', { before: row });
+        edit(s => { s.computerSelfStart = on; });
+      },
+    );
+    const box = document.createElement('div');
+    box.className = 'field ps-field ps-computer';
+    box.append(row);
+    card.append(box);
+    painters.push(() => { input.checked = view.settings.computerSelfStart === true; });
+    return card;
+  }
+
+  // Whether Approve all also answers the blocked-command cards. Turning it on shows the danger notice where the switch is.
+  function approveAllBlockedField() {
+    const { row, input } = switchRow(
+      'Approve all also answers blocked-command cards',
+      'Covers the built-in rules that wipe a disk or the system, force-push, shutdown and piped installs, and this project’s own patterns. Off, those cards still wait for you, with Deny focused.',
+      on => {
+        if (on) MuseUI.notice?.('approve-all-blocked', { before: row });
+        edit(s => { s.approveAllBlocked = on; });
+      },
+    );
+    const box = document.createElement('div');
+    box.className = 'field ps-field';
+    box.append(row);
+    painters.push(() => { input.checked = view.settings.approveAllBlocked === true; });
+    return box;
+  }
+
+  // Approve all for computer use and for the browser: each is Yes, No or the app's value. Each one keeps the other as it is.
+  function approveAllCoversField() {
+    const box = document.createElement('div');
+    box.className = 'field ps-field';
+    const rows = [['computer', 'Approve all also answers computer-use cards'], ['browser', 'Approve all also answers browser cards']];
+    const selects = {};
+    for (const [key, label] of rows) {
+      const select = document.createElement('select');
+      select.className = 'ps-covers';
+      select.setAttribute('aria-label', label);
+      select.append(...COVER_CHOICES.map(([value, text]) => new Option(text, value)));
+      select.addEventListener('change', () => {
+        const value = select.value === 'on' ? true : select.value === 'off' ? false : null;
+        if (value === true) MuseUI.notice?.('approve-all-covers', { before: select });
+        edit(s => {
+          const covers = s.approveAllCovers && typeof s.approveAllCovers === 'object' ? { ...s.approveAllCovers } : {};
+          covers[key] = value;
+          s.approveAllCovers = covers;
+        });
+      });
+      selects[key] = select;
+      box.append(MuseUI.span('field-label', label), rowOf(select));
+    }
+    painters.push(() => {
+      const covers = view.settings.approveAllCovers ?? {};
+      for (const key of Object.keys(selects)) {
+        const v = covers[key];
+        selects[key].value = v === true ? 'on' : v === false ? 'off' : '';
+      }
+    });
+    return box;
+  }
+
+  // What a Codex or Gemini coder that cannot ask does in this project (amend-22). 'run' is the default.
+  function codersField() {
+    const select = document.createElement('select');
+    select.className = 'ps-coders';
+    select.setAttribute('aria-label', 'Coders that cannot ask');
+    select.append(...CODER_CHOICES.map(([value, text]) => new Option(text, value)));
+    const f = fieldBox('Coders that cannot ask', () => edit(s => { s.codersCannotAsk = null; }));
+    select.addEventListener('change', () => {
+      const value = select.value;
+      edit(s => { s.codersCannotAsk = value === 'refuse' ? 'refuse' : null; });
+    });
+    f.box.append(rowOf(select), f.note);
+    painters.push(() => {
+      const set = view.settings.codersCannotAsk === 'refuse';
+      select.value = set ? 'refuse' : 'run';
+      f.note.textContent = 'Codex and Gemini coders cannot ask before they write. Run anyway starts them in their own sandbox or auto-edit mode; Refuse does not start them.';
+      f.resetBtn.disabled = !set;
+    });
+    return f.box;
   }
 
   function cardSection(title) {
@@ -278,19 +390,25 @@
     seg.className = 'seg';
     seg.setAttribute('role', 'group');
     seg.setAttribute('aria-label', 'Edits and commands for this project');
+    const segRow = rowOf(seg);
     const buttons = Object.entries(APPROVAL_LABELS).map(([key, label]) => {
       const b = MuseUI.button('seg-btn', label);
       b.dataset.approvals = key;
       // Pressing the choice already in force changes nothing, so it does not save.
-      b.addEventListener('click', () => {
+      b.addEventListener('click', async () => {
         if (b.getAttribute('aria-pressed') === 'true') return;
-        edit(s => { s.approvals = key; });
+        // Approve all is asked first, the same question as the Mode menu asks. Cancel leaves the choice in force.
+        if (key === 'all' && !(await MuseUI.askApproveAll())) return;
+        edit(s => { s.approvals = key; }).then(() => {
+          // Auto-approve is a strip where the choice is made (UI-ARCH 10.7). It informs; the switch has already gone on.
+          if (key === 'auto' && view?.effective?.approvals === 'auto') MuseUI.notice?.('auto-approve', { before: segRow });
+        });
       });
       seg.append(b);
       return b;
     });
     const f = fieldBox('Edits and commands', () => edit(s => { s.approvals = null; }));
-    f.box.append(rowOf(seg), f.note);
+    f.box.append(segRow, f.note);
     painters.push(() => {
       const set = Boolean(view.settings.approvals);
       const shown = view.effective.approvals ?? 'ask';
@@ -386,7 +504,7 @@
   // The built-in deny list is stated here and cannot be changed: a project can only add patterns of its own.
   function denyCard() {
     const card = cardSection('Blocked commands');
-    card.append(MuseUI.para('Plenum always blocks these commands, in auto mode too, and no setting turns that off: a recursive delete of a drive root, your home folder or the project folder; format, diskpart, reg delete, schtasks /create, bcdedit, shutdown and cipher /w; a download piped into a shell; git push --force; and writes to the Windows or Linux system folders.'));
+    card.append(MuseUI.para('Plenum blocks these commands in every mode. A blocked command shows a card with Deny focused. Approve all answers that card only when “Approve all also answers blocked-command cards” is on, in the card above. The built-in rules are: a recursive delete of a drive root, your home folder or the project folder; format, diskpart, reg delete, schtasks /create, bcdedit, shutdown and cipher /w; a download piped into a shell; git push --force; and writes to the Windows or Linux system folders.'));
 
     const box = document.createElement('div');
     box.className = 'field ps-field ps-deny';
@@ -395,7 +513,7 @@
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'ps-deny-input';
-    input.maxLength = DENY_MAX_CHARS;
+    input.maxLength = DENY_MAX_UNITS;
     input.autocomplete = 'off';
     input.spellcheck = false;
     input.placeholder = 'Type a pattern and press Enter';
@@ -421,7 +539,7 @@
       const list = current();
       if (!text) complain('Type a pattern first.');
       else if (hiddenChar(input.value)) complain('A pattern cannot contain control characters.');
-      else if (text.length > DENY_MAX_CHARS) complain(`A pattern can be at most ${DENY_MAX_CHARS} characters.`);
+      else if (charCount(text) > DENY_MAX_CHARS) complain(`A pattern can be at most ${DENY_MAX_CHARS} characters.`);
       else if (list.length >= DENY_MAX) complain(`At most ${DENY_MAX} patterns are allowed.`);
       else if (list.some(p => p.toLowerCase() === text.toLowerCase())) complain('That pattern is already in the list.');
       else {

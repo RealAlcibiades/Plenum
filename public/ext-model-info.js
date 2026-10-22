@@ -95,6 +95,28 @@
     }
   }
 
+  // Whether a menu's popup is open. A menu whose popup cannot be asked returns false, so it is decorated at once as before.
+  function pickerOpen(select) {
+    try {
+      return select.matches(':open');
+    } catch {
+      return false;
+    }
+  }
+
+  // Rows that grow while a popup is open move under the pointer, so a click can commit the wrong model. While either menu is
+  // open the rows are left alone, and they are decorated when both are closed. The menus are checked again every 150 ms.
+  let waitTimer = null;
+  function decorateWhenClosed() {
+    if (pickerOpen(MuseUI.el.model) || pickerOpen(MuseUI.el.advisor)) {
+      clearTimeout(waitTimer);
+      waitTimer = setTimeout(decorateWhenClosed, 150);
+      return;
+    }
+    waitTimer = null;
+    decorateAll();
+  }
+
   // The banner above the composer. It is shown only while the chosen model's provider cannot answer.
   const banner = document.createElement('div');
   banner.className = 'ext-model-banner';
@@ -142,14 +164,15 @@
     } catch {
       // Keep the copy that is already here.
     }
-    decorateAll();
+    decorateWhenClosed();
     paint();
   }
 
   // A menu can be filled again (the page builds its choices when the catalog arrives), so each one is decorated as it changes.
+  // While a popup is open that waits until it closes (decorateWhenClosed).
   for (const select of [MuseUI.el.model, MuseUI.el.advisor]) {
     new MutationObserver(() => {
-      decorate(select);
+      decorateWhenClosed();
       paint();
     }).observe(select, { childList: true });
   }

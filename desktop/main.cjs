@@ -3,7 +3,8 @@
 // and gets the saved keys over its message channel; when the page saves a key, the server asks this process to store it.
 // This file keeps the core: the single instance, the window, the server process, the tray and quit. What the server asks of the
 // desktop (keys, the folder dialog, the alerts, and later the browser and the computer) is answered by the handler modules in
-// desktop/handlers/, which desktop/handler-loader.cjs loads and routes (see that file for the shape).
+// desktop/handlers/, which desktop/handler-loader.cjs loads and routes (see that file for the shape). The over-the-air updater
+// (desktop/handlers/app-update.cjs) adds a tray item and may take over the error box of a failed first start after an update.
 const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, shell: electronShell, utilityProcess } = require('electron');
 const { execFileSync } = require('node:child_process');
 const { randomBytes } = require('node:crypto');
@@ -76,6 +77,14 @@ let eventsFails = 0;
 let eventsTimer = null;
 // The desktop handlers (desktop/handlers/): their messages and hooks. Loaded once, in main(), before the window is made.
 let handlers = { messages: new Map(), hooks: [], reported: new Set() };
+// The handler modules that loaded, in file order ({ file, mod }). The startFailed hook is run from here, because it answers with a
+// value and the loader's runHooks (desktop/handler-loader.cjs) ignores what a hook returns.
+let handlerModules = [];
+// The item a handler adds to the tray menu ({ label, click }), or null. The updater sets it while an update is ready to install.
+let updateItem = null;
+// Set once a handler has taken over the error box for a failed start, so the 30-second wait and the server's exit cannot each show
+// another box for the same failure.
+let startFailureHandled = false;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -97,6 +106,33 @@ function callHooks(name, ...args) {
   runHooks(handlers, name, [desktopShell, ...args], { log: writeLog });
 }
 
+// The loader's `load`: it requires the module as the loader would, and remembers the ones that loaded (for runStartFailed below).
+function loadHandlerModule(file) {
+  const mod = require(file);
+  if (mod && typeof mod === 'object') handlerModules.push({ file: path.basename(file), mod });
+  return mod;
+}
+
+// Asks the handlers whether one of them deals with a failed start (the server exited with an error, or never answered). Every
+// handler's startFailed hook runs, in file order, with { code, message }; a hook that throws is logged and skipped. The result is
+// true when a hook returned true: that handler has shown its own box and quits the app itself, so the caller shows no box and does
+// not quit. Once a start failure has been taken over, later calls answer true without asking again.
+function runStartFailed(info) {
+  if (startFailureHandled) return true;
+  let taken = false;
+  for (const { file, mod } of handlerModules) {
+    const fn = mod.hooks?.startFailed;
+    if (typeof fn !== 'function') continue;
+    try {
+      if (fn(desktopShell, info) === true) taken = true;
+    } catch (err) {
+      writeLog(`hook startFailed in ${file} failed: ${String(err?.message ?? err).replace(/[\r\n\t]+/g, ' ').slice(0, 300)}`);
+    }
+  }
+  if (taken) startFailureHandled = true;
+  return taken;
+}
+
 // What a handler module is given as its shell (desktop/handler-loader.cjs). It is this process's view for the handlers' own jobs:
 // the key vault and the token are read through it, and windows, notifications and replies to the server go out through it.
 // shell.log writes to the app's log; the handlers here never pass a key or the token to it.
@@ -115,6 +151,7 @@ const desktopShell = {
     return vault;
   },
   token: TOKEN,
+  port: PORT,
   get userData() {
     return app.getPath('userData');
   },
@@ -131,6 +168,13 @@ const desktopShell = {
         tray.setToolTip(tooltipFor(n));
         tray.setContextMenu(buildTrayMenu(n));
       }
+    },
+    // The updater's item: { label, click } while an update is downloaded, null otherwise. The menu is rebuilt when it changes.
+    setUpdateItem: item => {
+      const next = item && typeof item === 'object' && typeof item.label === 'string' && typeof item.click === 'function' ? { label: item.label, click: item.click } : null;
+      if (next?.label === updateItem?.label && next?.click === updateItem?.click) return;
+      updateItem = next;
+      if (tray) tray.setContextMenu(buildTrayMenu(trayCount));
     },
   },
   serverPid: () => server?.pid ?? null,
@@ -228,6 +272,9 @@ function startServer() {
       setTimeout(restartAndReload, 300);
       return;
     }
+    // A handler may deal with the failure itself (the updater does when this was the first start after an update); then there is
+    // no box here and no quit.
+    if (runStartFailed({ code, message: `The local server exited with code ${code}.` })) return;
     dialog.showErrorBox('Plenum stopped', `The local server exited with code ${code}.\n\nLog: ${logFile}`);
     app.quit();
   });
@@ -319,6 +366,7 @@ async function restartAndReload() {
     subscribeEvents();
     if (win) win.loadURL(APP_URL);
   } catch (err) {
+    if (runStartFailed({ code: null, message: err.message })) return;
     dialog.showErrorBox('Plenum', `${err.message}\n\nLog: ${logFile}`);
     app.quit();
   }
@@ -513,11 +561,13 @@ function showWindow() {
   win.focus();
 }
 
-// The tray menu. "Show waiting approval" is enabled only while an approval card waits, and then it says how many.
+// The tray menu. "Show waiting approval" is enabled only while an approval card waits, and then it says how many. While a handler has
+// set an update item (desktop/handlers/app-update.cjs), it sits after the approval item and before the separator.
 function buildTrayMenu(waiting) {
   return Menu.buildFromTemplate([
     { label: 'Show Plenum', click: () => showWindow() },
     { label: waiting ? `Show waiting approval (${waiting})` : 'Show waiting approval', enabled: waiting > 0, click: () => showWindow() },
+    ...(updateItem ? [{ label: updateItem.label, click: updateItem.click }] : []),
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
@@ -556,7 +606,8 @@ async function main() {
   // from the app's own address, gets it; any other sender gets an empty string. Registered before the window is made.
   ipcMain.handle('plenum:token', event => (win && event.sender === win.webContents && String(event.senderFrame?.url ?? '').startsWith(APP_URL)) ? TOKEN : '');
   // The handler modules are loaded before the window, so their window hook sees the window made here.
-  handlers = loadHandlers({ dir: path.join(__dirname, 'handlers'), log: writeLog });
+  handlerModules = [];
+  handlers = loadHandlers({ dir: path.join(__dirname, 'handlers'), log: writeLog, load: loadHandlerModule });
   createWindow();
   // B-111: a program that already listens on the port would answer the status check as if it were this app's server, and the
   // app would load it. So the port is checked first, and a busy one stops the start with a plain message.
@@ -573,8 +624,10 @@ async function main() {
     subscribeEvents();
     if (win) win.loadURL(APP_URL);
   } catch (err) {
-    dialog.showErrorBox('Plenum could not start', `${err.message}\n\nLog: ${logFile}`);
-    app.quit();
+    if (!runStartFailed({ code: null, message: err.message })) {
+      dialog.showErrorBox('Plenum could not start', `${err.message}\n\nLog: ${logFile}`);
+      app.quit();
+    }
   }
   callHooks('ready');
 }

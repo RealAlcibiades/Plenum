@@ -67,17 +67,19 @@
     return b;
   }
 
-  // The snippet with the query marked. The text is set node by node, so nothing in it is read as markup.
+  // The snippet with the query marked. The match is found in this text itself, with the same case-insensitive plain-text
+  // pattern the server uses (lib/routes/history.mjs), so the index is into this text and not into a lowercased copy, whose
+  // length can differ. The text is set node by node, so nothing in it is read as markup.
   function snippetNode(text, q) {
     const node = MuseUI.span('ext-history-snippet', '');
-    const at = text.toLowerCase().indexOf(q.toLowerCase());
-    if (at < 0) {
+    const hit = q ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').exec(text) : null;
+    if (!hit) {
       node.textContent = text;
       return node;
     }
     const mark = document.createElement('mark');
-    mark.textContent = text.slice(at, at + q.length);
-    node.append(text.slice(0, at), mark, text.slice(at + q.length));
+    mark.textContent = hit[0];
+    node.append(text.slice(0, hit.index), mark, text.slice(hit.index + hit[0].length));
     return node;
   }
 

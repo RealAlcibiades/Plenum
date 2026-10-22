@@ -195,9 +195,14 @@
       make('li', '', 'Keys are kept in the operating system’s encrypted store on the desktop app.'),
       make('li', '', 'The network is used only for the providers you set up.'),
       make('li', '', 'Nothing is sent anywhere else.'),
+      make('li', '', 'The license agreement and privacy notice are under Legal in Settings.'),
     );
     const lead = make('p', 'setup-lead', 'Plenum is a local console for working with Claude, Codex, Gemini, Muse Code and per-token API models in your own project folders.');
-    pane.append(heading, lead, facts);
+    // Opens the Legal section. The wizard is the drawer's content, so the Legal page takes its place; Setup in the menu brings it back.
+    const terms = make('button', 'ghost small', 'Read the terms');
+    terms.type = 'button';
+    terms.addEventListener('click', () => MuseUI.openLegal?.());
+    pane.append(heading, lead, facts, terms);
     return { pane, heading };
   }
 
@@ -215,6 +220,8 @@
     const actions = make('div', 'actions');
     actions.append(again);
     pane.append(heading, lead, rows, actions);
+    // The provider-terms strip sits above the sign-in rows (step 2, as in Accounts).
+    MuseUI.notice?.('provider-terms', { before: rows });
     return { pane, heading };
   }
 
@@ -269,6 +276,8 @@
     const rows = make('div', 'setup-rows');
     rows.append(...ui.keys.map(r => r.card));
     pane.append(heading, lead, ui.notice, rows);
+    // The per-token billing strip sits above the key rows (step 3, as in Accounts).
+    MuseUI.notice?.('api-keys-spend', { before: rows });
     return { pane, heading };
   }
 
@@ -443,6 +452,8 @@
 
   // Runs once when the page loads. It reads the keys and the sign-ins, and opens the wizard only when nothing is set up yet.
   async function firstRun() {
+    // The agreement card comes first. Nothing about setup is read until the terms are accepted (ext-legal.js resolves this).
+    await (MuseUI.legalReady ?? Promise.resolve());
     if (dismissed()) return;
     let keys;
     let accounts;
@@ -475,7 +486,8 @@
   }).observe(MuseUI.el.drawer, { attributes: true, attributeFilter: ['hidden'] });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && onScreen()) MuseUI.closeDrawer();
+    // A confirm dialog opened over the wizard (Decline and quit, for one) takes Escape for itself; the wizard stays open.
+    if (e.key === 'Escape' && onScreen() && !MuseUI.dialogOpen?.()) MuseUI.closeDrawer();
   });
 
   // ---------- the side menu entry ----------

@@ -1,0 +1,12 @@
+LICENCE NOT CONFIRMED: standardwebhooks 1.1.1
+
+The npm package standardwebhooks 1.1.1 declares "license": "MIT" in its package.json.
+It is a runtime dependency of the Anthropic SDK (@anthropic-ai/sdk), so it ships with Plenum.
+The npm package does not ship a licence file, so its licence text cannot be copied from the package.
+The upstream repository (https://github.com/standard-webhooks/standard-webhooks) was checked again in October 2026, from the files themselves and not from a summary:
+- Its root LICENSE file is the Apache License, Version 2.0 (11357 bytes, which is the size of the standard Apache-2.0 text). GitHub lists the repository's licence as Apache-2.0.
+- libraries/javascript/package.json in that repository declares "license": "MIT", the same as the npm package, and the library folder has no licence file of its own.
+The repository's licence file and the package's declaration therefore disagree, and this check does not settle which one applies to the JavaScript library.
+
+Before a release: the developer decides which licence applies (MIT and Apache-2.0 are both on the allowlist), replaces this file with the full licence text and copyright line, and then sets this entry's status to confirmed in scripts/third-party-notices.mjs.
+While this entry is unconfirmed, scripts/third-party-notices.mjs prints a warning and marks the entry in THIRD-PARTY-NOTICES.txt. With PLENUM_RELEASE=1 the build fails until it is confirmed.

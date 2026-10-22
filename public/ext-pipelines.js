@@ -95,6 +95,8 @@
   function draw(body) {
     view = { root: make('div', 'pl-panel'), outs: null };
     body.append(view.root);
+    // Pipelines send the message to several companies, so the multi-provider strip sits above the panel (LEGAL multi-provider).
+    MuseUI.notice?.('multi-provider', { before: view.root });
     const project = MuseUI.state.activeProject;
     if (!project) {
       view.root.append(make('p', 'pl-note', 'Add a project folder first. Pipelines belong to a project.'));
@@ -493,12 +495,16 @@
     if (problem) return report(problem, true);
     const { project } = editor;
     const name = editor.name.trim();
+    // A pipeline opened with Edit keeps its name (the name field is locked), so its save may replace it. A new pipeline never
+    // replaces: a name that is already saved comes back as 409 and is shown under the editor (B-14).
+    const replace = !editor.isNew;
     button.disabled = true;
     report('Saving…', false);
     try {
       const data = await MuseUI.api('/api/pipelines', {
         project,
         pipeline: { name, steps: editor.steps.map(s => ({ model: s.ref.trim(), effort: s.effort, template: s.template })) },
+        replace,
       });
       // The answer is the newest list, so a load still on its way must not paint over it.
       loadSeq++;

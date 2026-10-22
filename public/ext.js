@@ -2,8 +2,9 @@
 // The panels in KNOWN load first, in this order. Any other ext-*.js panel the server lists (GET /api/ext-modules) loads
 // after them, sorted by name. If that list cannot be read, only the KNOWN panels load.
 (function () {
-  // Keep this order: the panels were written to load in it.
-  const KNOWN = ['ext-accounts-api', 'ext-openrouter', 'ext-tools', 'ext-projects', 'ext-history', 'ext-compare', 'ext-prompts', 'ext-checkpoints', 'ext-plan', 'ext-cost', 'ext-images', 'ext-pipelines', 'ext-setup'];
+  // Keep this order: the panels were written to load in it. ext-legal and ext-notices come first: the agreement card must be
+  // ready before any panel asks the server for anything, and the notice registry must exist before a panel calls MuseUI.risk.
+  const KNOWN = ['ext-legal', 'ext-notices', 'ext-accounts-api', 'ext-openrouter', 'ext-tools', 'ext-projects', 'ext-history', 'ext-compare', 'ext-prompts', 'ext-checkpoints', 'ext-plan', 'ext-cost', 'ext-images', 'ext-pipelines', 'ext-setup'];
   // The same shape the server accepts, so a name that reaches a URL is always a plain panel name.
   const NAME = /^ext-[a-z0-9-]{1,40}$/;
 

@@ -1,0 +1,64 @@
+/* ext-notices. The danger notices (ext-notices.js): the strip where a risk starts, and the dialog for Approve all and Apply update.
+   Colours are the shared tokens from style.css only, so both themes follow it. The tone is a data attribute, so no colour is
+   written into the page. Text is body size with full contrast: a notice is read, not skimmed. */
+
+/* ---------- the strip ---------- */
+
+.risk-note {
+  display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 0; box-sizing: border-box; margin: 0 0 10px;
+  padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn);
+  background: var(--surface-3); color: var(--text); font-size: 13.5px; line-height: 1.5;
+}
+.risk-note[data-tone="bad"] { border-left-color: var(--bad); }
+.risk-note[data-tone="info"] { border-left-color: var(--accent); }
+.risk-note-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
+.risk-note-head .risk-icon { color: var(--warn); }
+.risk-note[data-tone="bad"] .risk-icon { color: var(--bad); }
+.risk-note[data-tone="info"] .risk-icon { color: var(--accent); }
+.risk-note-text p, .risk-dialog-body p {
+  margin: 0 0 6px; white-space: pre-line; overflow-wrap: anywhere; color: var(--text-2);
+}
+.risk-note-text p:last-child, .risk-dialog-body p:last-child { margin-bottom: 0; }
+.risk-note-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.risk-note-actions .ghost { flex: none; }
+
+/* More is a link-style button: it reads as a link and takes the same focus ring. */
+.risk-more {
+  appearance: none; border: 0; background: none; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px;
+}
+.risk-more:hover { color: var(--text); }
+.risk-more:focus-visible, .risk-check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- the dialog ---------- */
+
+/* Shown with show(), not showModal(), so the drive pill and its Stop stay pressable over it (ext-drive.css). The scrim is ours. */
+dialog.risk-dialog {
+  position: fixed; inset: 0; z-index: 30; margin: auto; height: max-content; max-height: calc(100vh - 32px); overflow: auto;
+  width: min(460px, calc(100vw - 32px)); max-width: calc(100vw - 32px); box-sizing: border-box; padding: 20px;
+  border: 1px solid var(--line-2); border-radius: 16px; background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-2);
+}
+.risk-scrim { position: fixed; inset: 0; z-index: 25; background: var(--scrim); -webkit-app-region: no-drag; }
+.risk-dialog-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+.risk-dialog-head .risk-icon { flex: none; width: 20px; height: 20px; color: var(--warn); }
+.risk-dialog-title { margin: 0; font: 650 17px/1.3 var(--display); letter-spacing: -0.01em; color: var(--text); }
+.risk-dialog-body { margin: 0 0 14px; }
+.risk-dialog-body p { font-size: 14px; color: var(--text-2); }
+.risk-check {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 16px; font-size: 13.5px; color: var(--text-2); cursor: pointer;
+}
+.risk-check input { accent-color: var(--accent); margin: 0; }
+.risk-dialog-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.risk-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; }
+.risk-dialog .primary.danger { background: var(--bad); color: var(--surface); }
+.risk-dialog .primary.danger:hover { filter: brightness(1.07); }
+
+/* Narrow windows: the dialog's buttons stack at full width. */
+@media (max-width: 560px) {
+  dialog.risk-dialog { width: calc(100vw - 32px); }
+  .risk-dialog-foot { flex-direction: column-reverse; align-items: stretch; }
+  .risk-dialog-actions { margin-left: 0; }
+  .risk-dialog-actions .ghost, .risk-dialog-actions .primary { flex: 1 1 auto; min-height: 36px; }
+  .risk-dialog .risk-more { align-self: flex-start; }
+}
