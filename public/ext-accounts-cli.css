@@ -1,0 +1,8 @@
+/* ext-accounts-cli: the Cursor card in the Coding agents group (ext-accounts-cli.js). Only the shared colour tokens are used. */
+.coding-agents .cli-cmds { display: grid; gap: 6px; }
+.coding-agents .cli-cmd-label { margin: 0; font-size: 12px; color: var(--muted); }
+.coding-agents .cli-cmd {
+  display: block; margin: 0; padding: 8px 10px; border-radius: 10px;
+  font: 12.5px/1.45 var(--mono); color: var(--text); background: var(--code-bg);
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
+}

@@ -3,6 +3,9 @@
 // and restores one. A restore overwrites files, so the server asks first: its answer is a stream that carries the approval
 // card, which this panel draws in the drawer, and then the result. Every piece of text is set with textContent.
 // Show changes reads GET /api/checkpoints/diff, which only compares; viewing a diff writes nothing.
+// window.MuseRestore.run({ title, url, payload, diffUrl, approveText, onEnd }) runs any other approval-gated write the same way in a
+// drawer of its own: a rewind of the code (public/ext-turns.js) uses it. The stream, the card, Deny's focus, Show changes and the
+// drawer closing (which cancels a card nobody can see) are the same for every flow.
 (function () {
   const MuseUI = window.MuseUI;
   // app.js defines MuseUI before the extra panels load. Without it there is nothing to attach to.
@@ -18,6 +21,7 @@
   const HIDE = 'Hide changes';
   const LOADING_CHANGES = 'Comparing with the current file…';
   const SAME = 'No difference from the current file.';
+  const NO_TEXT = 'No text difference to show for this file.';
   const MISSING = 'The file is missing now, so a restore creates it empty.';
   const BINARY = 'Binary file, no diff.';
   const TOO_LARGE = 'The file is too large to compare.';
@@ -29,8 +33,8 @@
 
   // Counts the loads, so a late reply never paints over a newer drawer.
   let loadSeq = 0;
-  // The restore in progress, or null: { ctl, root, answered }. Only one runs at a time. answered is set once the person has
-  // answered its card, after which closing the drawer no longer cancels the restore.
+  // The flow in progress, or null: { ctl, root, answered, opts, view }. Only one runs at a time. answered is set once the person has
+  // answered its card, after which closing the drawer no longer cancels the flow.
   let pending = null;
   // Whether the list is grouped by file. It stays as it was left while the page is open.
   let grouped = false;
@@ -160,6 +164,17 @@
     return section;
   }
 
+  // The address of the comparison for one checkpoint: what its restore would change. It is a path under /api/ (see changesToggle).
+  function checkpointDiffUrl(view, item) {
+    return `checkpoints/diff?project=${encodeURIComponent(view.project.id)}&id=${encodeURIComponent(item.id)}`;
+  }
+
+  // A comparison address a caller gives as /api/<route>?query. Anything else is no address at all, so the page reads nothing it did not name.
+  function diffRoute(url) {
+    const rel = String(url ?? '').replace(/^\/api\//, '');
+    return /^[a-z]+(\/[a-z]+)*\?[A-Za-z0-9=&_%.-]*$/.test(rel) ? rel : '';
+  }
+
   // One checkpoint: the path, then the time and size, then the label if it has one, and the buttons. Show changes opens
   // the diff under the row.
   function row(view, item) {
@@ -176,7 +191,7 @@
     changes.hidden = true;
     const changesBtn = MuseUI.button('ghost small', SHOW);
     changesBtn.setAttribute('aria-expanded', 'false');
-    changesBtn.addEventListener('click', changesToggle(view, item, changesBtn, changes));
+    changesBtn.addEventListener('click', changesToggle(view, checkpointDiffUrl(view, item), changesBtn, changes));
     const restoreBtn = MuseUI.button('ghost small', 'Restore');
     restoreBtn.setAttribute('aria-label', `Restore ${item.path} from ${formatTime(item.time)}`);
     restoreBtn.addEventListener('click', () => restore(view, item));
@@ -197,7 +212,7 @@
 
   // The Show changes button of a row or of the approval card. The changes are fetched on each show, so they are current, and
   // a second click hides them. A reply that arrives after the box was hidden, or after a newer click, is dropped.
-  function changesToggle(view, item, btn, box) {
+  function changesToggle(view, url, btn, box) {
     let seq = 0;
     return async () => {
       if (!box.hidden) {
@@ -212,7 +227,7 @@
       box.replaceChildren(make('p', 'ext-checkpoints-diff-note', LOADING_CHANGES));
       let data;
       try {
-        data = await MuseUI.api(`/api/checkpoints/diff?project=${encodeURIComponent(view.project.id)}&id=${encodeURIComponent(item.id)}`);
+        data = await MuseUI.api(`/api/${url}`);
       } catch (err) {
         if (mine === seq) box.replaceChildren(make('p', 'ext-checkpoints-diff-note bad', err.message));
         return;
@@ -231,6 +246,7 @@
       else if (f.binary) blocks.push(make('p', 'ext-checkpoints-diff-note', BINARY));
       else if (f.same && f.exists === false) blocks.push(make('p', 'ext-checkpoints-diff-note', MISSING));
       else if (f.same) blocks.push(make('p', 'ext-checkpoints-diff-note', SAME));
+      else if (!String(f.diff ?? '')) blocks.push(make('p', 'ext-checkpoints-diff-note', NO_TEXT));
       else blocks.push(diffPre(String(f.diff ?? '')));
     }
     if (!blocks.length) blocks.push(make('p', 'ext-checkpoints-diff-note', SAME));
@@ -277,22 +293,30 @@
     for (const b of view.buttons) b.disabled = on;
   }
 
-  async function restore(view, item) {
-    if (pending) return;
-    const run = { ctl: new AbortController(), root: view.root, answered: false };
+  // The status line after a write. A rewind's answer has removed as well as restored files; a restore's has only the files.
+  function restoredText(ev) {
+    const files = Array.isArray(ev.files) ? ev.files : [];
+    if (Array.isArray(ev.removed)) return `Rewound ${files.length} files and removed ${ev.removed.length}.`;
+    return files.length === 1 ? `Restored ${files[0]}.` : `Restored ${files.length} files: ${files.join(', ')}.`;
+  }
+
+  // Runs one approval-gated flow in a view: it posts opts.payload to the route opts.route (a path under /api/), shows the card the
+  // stream asks for, and reports the answer. opts: { route, payload, diffUrl, approveText, busyText, planNote, nothing, restoredText,
+  // onEnd(lastEvent, view) }. Returns false when a flow is already waiting, and true otherwise.
+  async function runFlow(view, opts) {
+    if (pending) return false;
+    const run = { ctl: new AbortController(), root: view.root, answered: false, opts, view };
     pending = run;
     lock(view, true);
     setStatus(view, 'Checking the files…', '');
-    // Becomes true once the stream says how the restore ended. A stream that ends without that was cut short.
+    // Becomes true once the stream says how the flow ended. A stream that ends without that was cut short.
     let ended = false;
+    let last = null;
+    const nothing = opts.nothing || 'Nothing was changed.';
     try {
       // MuseUI.request adds the Plenum token. The run's id is claimed from its first event, so the events channel does not
-      // draw this restore as one started in another window.
-      const res = await MuseUI.request('/api/checkpoints/restore', {
-        method: 'POST',
-        body: { project: view.project.id, id: item.id },
-        signal: run.ctl.signal,
-      });
+      // draw this flow as one started in another window.
+      const res = await MuseUI.request(`/api/${opts.route}`, { method: 'POST', body: opts.payload, signal: run.ctl.signal });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Request failed (${res.status})`);
@@ -301,52 +325,78 @@
         MuseUI.claimRun?.(ev.runId);
         if (ev.type === 'approval') {
           setStatus(view, 'Waiting for your approval…', '');
-          showApproval(view, ev, item, run);
+          showApproval(view, ev, run);
         } else if (ev.type === 'restored') {
           ended = true;
+          last = ev;
           const files = Array.isArray(ev.files) ? ev.files : [];
-          const text = files.length === 1 ? `Restored ${files[0]}.` : `Restored ${files.length} files: ${files.join(', ')}.`;
+          const text = opts.restoredText ? String(opts.restoredText(ev)) : restoredText(ev);
           setStatus(view, text, 'ok');
-          MuseUI.toast(files.length === 1 ? `Restored ${files[0]}` : `Restored ${files.length} files`);
+          MuseUI.toast(Array.isArray(ev.removed) ? text : files.length === 1 ? `Restored ${files[0]}` : `Restored ${files.length} files`);
         } else if (ev.type === 'declined') {
           ended = true;
+          last = ev;
           // The reason, if one was typed, is shown here only. Nothing else reads it.
           const reason = typeof ev.reason === 'string' ? ev.reason.trim() : '';
-          setStatus(view, reason ? `Nothing was restored. Your reason: ${reason}` : 'Nothing was restored.', '');
+          setStatus(view, reason ? `${nothing} Your reason: ${reason}` : nothing, '');
         } else if (ev.type === 'error') {
           ended = true;
-          setStatus(view, String(ev.message || 'The restore failed.'), 'bad');
+          setStatus(view, String(ev.message || 'The change failed.'), 'bad');
         }
       });
-      if (!ended) setStatus(view, 'The restore stopped before it finished. Nothing was changed.', '');
+      if (!ended) setStatus(view, 'The change stopped before it finished. Nothing was changed.', '');
     } catch (err) {
       if (err.name === 'AbortError') {
-        // The drawer was closed while the restore waited, so it was cancelled. The toast says so, since the drawer is hidden.
-        const text = 'The restore was cancelled. Nothing was changed.';
+        // The drawer was closed while the card waited, so the flow was cancelled. The toast says so, since the drawer is hidden.
+        const text = 'The change was cancelled. Nothing was changed.';
         setStatus(view, text, '');
         MuseUI.toast(text);
       } else setStatus(view, err.message, 'bad');
     } finally {
       view.ask.replaceChildren();
-      pending = null;
+      if (pending === run) pending = null;
       lock(view, false);
+      if (last && opts.onEnd) {
+        try {
+          opts.onEnd(last, view);
+        } catch (err) {
+          console.error('The change could not finish its page:', err);
+        }
+      }
     }
+    return true;
+  }
+
+  // A restore of one checkpoint, from the list.
+  function restore(view, item) {
+    runFlow(view, {
+      route: 'checkpoints/restore',
+      payload: { project: view.project.id, id: item.id },
+      diffUrl: checkpointDiffUrl(view, item),
+      approveText: 'Approve restore',
+      busyText: 'Restoring…',
+      planNote: true,
+      nothing: 'Nothing was restored.',
+    });
   }
 
   // The approval card the server asked for. It uses the look of the approval card in the chat. Approve and Deny answer
-  // through /api/approve, the same call the chat's card makes. Show changes puts the diff of this restore above the buttons.
+  // through /api/approve, the same call the chat's card makes. Show changes puts the diff of this change above the buttons.
   // The card counts down to the server's timeout from the moment it is shown, as the chat's card does. Deny takes an optional
   // reason; the server returns it with the denial and the drawer shows it. It goes to no model: a restore has no chat step.
-  // run is the restore this card belongs to: { ctl, root, answered }.
-  function showApproval(view, ev, item, run) {
+  // A card the server marks clickOnly is answered by a click only: this card has no Y or N keys at all, so none of them answers it.
+  // run is the flow this card belongs to: { ctl, root, answered, opts, view }.
+  function showApproval(view, ev, run) {
+    const opts = run.opts;
     const card = make('div', 'approval ext-checkpoints-card');
     card.setAttribute('role', 'alertdialog');
     card.setAttribute('aria-label', 'Approval needed');
+    if (ev.clickOnly) card.dataset.clickOnly = '1';
     const head = MuseUI.span('approval-head', 'Approval needed');
     head.prepend(MuseUI.icon('shield'));
     card.append(head, MuseUI.span('approval-summary', String(ev.summary ?? '')));
     if (ev.detail) card.append(make('pre', 'approval-detail', String(ev.detail)));
-    if (currentProject()?.chatMode === 'plan') card.append(MuseUI.span('approval-note', PLAN_NOTICE));
+    if (opts.planNote && currentProject()?.chatMode === 'plan') card.append(MuseUI.span('approval-note', PLAN_NOTICE));
     const changes = make('div', 'ext-checkpoints-changes');
     changes.hidden = true;
     const why = make('input', 'approval-reason');
@@ -355,11 +405,11 @@
     why.placeholder = REASON;
     why.setAttribute('aria-label', REASON);
     const actions = make('div', 'approval-actions');
-    const yes = MuseUI.button('primary', 'Approve restore');
+    const yes = MuseUI.button('primary', opts.approveText || 'Approve restore');
     const no = MuseUI.button('ghost', 'Deny');
     const changesBtn = MuseUI.button('ghost small', SHOW);
     changesBtn.setAttribute('aria-expanded', 'false');
-    changesBtn.addEventListener('click', changesToggle(view, item, changesBtn, changes));
+    changesBtn.addEventListener('click', changesToggle(view, opts.diffUrl, changesBtn, changes));
     const hint = MuseUI.span('hint', '');
     const shownAt = Date.now();
     // Set once the card is answered or has timed out. Nothing can answer it after that.
@@ -375,9 +425,9 @@
       answered = true;
       clearInterval(tick);
       lockCard();
-      // Set before the answer is sent, so closing the drawer while the answer is on its way cannot cancel the restore.
+      // Set before the answer is sent, so closing the drawer while the answer is on its way cannot cancel the change.
       run.answered = true;
-      setStatus(view, allow ? 'Restoring…' : 'Cancelling…', '');
+      setStatus(view, allow ? (opts.busyText || 'Restoring…') : 'Cancelling…', '');
       const body = allow
         ? { approvalId: ev.approvalId, allow: true }
         : { approvalId: ev.approvalId, allow: false, reason: why.value.trim().slice(0, 300) };
@@ -408,7 +458,7 @@
       run.answered = true;
       clearInterval(tick);
       lockCard();
-      hint.textContent = 'Timed out: nothing was restored.';
+      hint.textContent = `Timed out: ${(opts.nothing || 'Nothing was changed.').replace(/^Nothing/, 'nothing')}`;
     };
     paint();
     if (!answered) {
@@ -428,12 +478,65 @@
   // A restore waiting for approval is cancelled when its drawer is closed or drawn again, so a card nobody can see never
   // holds the project busy until it times out. Aborting the request makes the server treat the card as denied. A restore
   // that has been answered is not cancelled: the server has the answer and finishes the restore. The cancel is announced
-  // by a toast in restore(), since the drawer is hidden.
+  // by a toast in runFlow(), since the drawer is hidden.
   function dropStale() {
     if (pending && !pending.answered && (MuseUI.el.drawer.hidden || !pending.root.isConnected)) pending.ctl.abort();
   }
   new MutationObserver(dropStale).observe(MuseUI.el.drawerBody, { childList: true });
   new MutationObserver(dropStale).observe(MuseUI.el.drawer, { attributes: true, attributeFilter: ['hidden'] });
+
+  // ---------- the shared flow for other panels ----------
+
+  // window.MuseRestore.run opens a drawer titled opts.title and runs the flow in it. opts.payload.project names the project. onEnd gets
+  // the last event (restored or declined) and the view, whose `actions` element is below the status line for the caller's own buttons.
+  window.MuseRestore = {
+    run(opts = {}) {
+      if (pending && pending.root.isConnected && !pending.answered) {
+        MuseUI.toast('An approval for another change is still waiting. Answer it first.', 'bad');
+        return false;
+      }
+      // A flow whose drawer was replaced and that nobody answered is cancelled here, so its card never waits on the server.
+      if (pending && !pending.answered) pending.ctl.abort();
+      const projectId = typeof opts.payload?.project === 'string' ? opts.payload.project : currentProject()?.id;
+      if (!projectId) {
+        MuseUI.toast('Choose a project first.', 'bad');
+        return false;
+      }
+      // The route is a path under /api/ and nothing else: a page cannot send this flow anywhere but the app's own routes.
+      const route = String(opts.url ?? '').replace(/^\/api\//, '');
+      if (!/^[a-z]+(\/[a-z]+)*$/.test(route)) {
+        MuseUI.toast('That change has no route to send to.', 'bad');
+        return false;
+      }
+      MuseUI.openDrawer(String(opts.title || 'Restore'), body => {
+        const root = make('div', 'ext-checkpoints');
+        const view = {
+          project: { id: projectId },
+          root,
+          status: make('div', 'ext-checkpoints-status'),
+          ask: make('div', 'ext-checkpoints-ask'),
+          // Buttons a caller adds after the answer (an Undo, say) sit in the approval card's own button row.
+          actions: make('div', 'approval-actions'),
+          buttons: [],
+          items: null,
+        };
+        view.status.setAttribute('role', 'status');
+        root.append(view.status, view.ask, view.actions);
+        body.append(root);
+        runFlow(view, {
+          route,
+          payload: opts.payload ?? {},
+          diffUrl: diffRoute(opts.diffUrl),
+          approveText: String(opts.approveText ?? ''),
+          busyText: 'Working…',
+          planNote: false,
+          restoredText: typeof opts.restoredText === 'function' ? opts.restoredText : null,
+          onEnd: opts.onEnd,
+        });
+      });
+      return true;
+    },
+  };
 
   // Attach. The link goes in before Commands, the last link in the sidebar footer.
   if (!document.getElementById(BUTTON_ID)) MuseUI.el.helpBtn.before(sideLink());

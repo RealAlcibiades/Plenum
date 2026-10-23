@@ -45,7 +45,6 @@
     driving: 'Model is driving',
     // brw-03
     agent: 'Let the model use this browser',
-    reach: 'Browser tools reach Claude (API key) and the API models with tools on. CLI agents keep their own tools.',
     planMode: 'Plan mode is on for this project, so the model cannot drive the browser.',
     agentNotice: 'A model can use this browser for you: open pages, click, type and send forms as you, on any site you are signed in to here. It asks before new sites and before anything that buys, sends, signs in or deletes. Watch the pane while it drives.',
     anySiteNotice: 'Any site: the model opens pages without asking, as you, on every site you are signed in to here. Keep this off unless you are watching the pane.',
@@ -765,7 +764,7 @@
     return false;
   }
 
-  // The header: the switch "Let the model use this browser", what it reaches, the Plan mode line, and the Approve all line.
+  // The header: the switch "Let the model use this browser", the Plan mode line, and the Approve all line.
   function buildHeader() {
     const el = mk('div', 'ext-brw-agent');
     const row = mk('div', 'ext-brw-row');
@@ -775,7 +774,6 @@
     const flashEl = mk('span', 'ext-brw-flash');
     flashEl.setAttribute('role', 'status');
     row.append(label, flashEl);
-    const reach = mk('p', 'ext-brw-note', TEXT.reach);
     const plan = mk('p', 'ext-brw-note ext-brw-plan', TEXT.planMode);
     plan.hidden = true;
     const notices = mk('div', 'ext-brw-notices');
@@ -792,7 +790,7 @@
     anyRow.append(anyLabel, anyFlash);
     approve.append(anyRow);
 
-    el.append(row, reach, plan, notices, approve);
+    el.append(row, plan, notices, approve);
 
     input.addEventListener('change', async () => {
       const want = input.checked;

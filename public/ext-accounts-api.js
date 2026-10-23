@@ -1,18 +1,20 @@
 // ext-accounts-api. Owned by its panel builder. Builds on window.MuseUI (see app.js).
-// The model-provider key panel in the Accounts drawer. A key goes to the server in one request, which
-// tests it and then saves it. This file keeps no copy of a key: the input is cleared after a save, and the
-// panel shows only a provider's status and the server's plain messages.
+// The model-provider key panel, a section of Settings > Accounts (MuseUI.settings.register, scope 'app', group 'accounts'). A key goes
+// to the server in one request, which tests it and then saves it. This file keeps no copy of a key: the input is cleared after a
+// save, and the panel shows only a provider's status and the server's plain messages.
 (function () {
   const MuseUI = window.MuseUI;
   // app.js defines MuseUI before the extra panels load. Without it there is nothing to attach to.
   if (!MuseUI) return;
 
   const SECTION = 'ext-apikeys';
-  const DRAWER = 'Accounts';
+  // The Settings section: its id, its title and where it sorts. The Accounts section is order 10 and the tool test is order 30
+  // (UI-ARCH section 5: coding agents, API keys, OpenRouter, tools for API models), so the keys come right after Accounts.
+  const SECTION_ID = 'api-keys';
+  const SECTION_TITLE = 'API keys';
+  const SECTION_ORDER = 20;
   const TITLE = 'Model providers (per token)';
   const LOADING = 'Checking the provider keys…';
-  // app.js shows this line while the Accounts drawer waits for its own request. The panel waits for it to go.
-  const ACCOUNTS_LOADING = 'Checking your accounts';
   // The badge letter for each provider. A provider this table does not name gets the first letter of its label.
   const MARKS = { xai: 'X', openai: 'O', deepseek: 'D', mistral: 'M', googleai: 'G', openrouter: 'R' };
 
@@ -27,35 +29,15 @@
     return key ? msg.split(key).join('') : msg;
   }
 
-  function accountsOpen() {
-    const { drawer, drawerTitle } = MuseUI.el;
-    return !drawer.hidden && drawerTitle.textContent === DRAWER;
-  }
-
-  // An empty body is between renders. The loading line is the Accounts drawer's own placeholder, so the
-  // panel waits until the real content has replaced it.
-  function settled(body) {
-    if (body.children.length === 0) return false;
-    return !(body.children.length === 1 && body.textContent.startsWith(ACCOUNTS_LOADING));
-  }
-
-  // Runs on every change to the drawer body. It adds the section once. Adding the section triggers this
-  // again, but the section is already there by then, so the call returns and nothing loops.
-  function sync() {
-    const body = MuseUI.el.drawerBody;
-    if (!accountsOpen() || !settled(body)) return;
-    if (body.querySelector(`:scope > .${SECTION}`)) return;
-    body.append(buildSection());
-  }
-
   function statusLine(text) {
     const p = MuseUI.para(text);
     p.className = 'ext-apikeys-status';
     return p;
   }
 
-  // The section is a heading, the route choices and a list. Its own updates stay inside it, so the observer on the drawer body
-  // does not see them.
+  // The section is a heading, the route choices and a list. Its own updates stay inside it. The API finder's quiet link goes at the
+  // end when that panel has loaded (MuseUI.apiFinderEntry). The panels load one after another, so it is asked for when the section
+  // is drawn, which is when Settings opens.
   function buildSection() {
     const section = document.createElement('section');
     section.className = SECTION;
@@ -68,6 +50,8 @@
     const list = document.createElement('div');
     list.className = 'ext-apikeys-list';
     section.append(heading, routes, list);
+    const finder = typeof MuseUI.apiFinderEntry === 'function' ? MuseUI.apiFinderEntry() : null;
+    if (finder) section.append(finder);
     // The per-token billing strip sits above the key rows (LEGAL api-keys-spend). It informs and never blocks a key.
     MuseUI.notice?.('api-keys-spend', { before: list });
     const panel = { list, routes, cards: new Map(), ui: null, routeSeq: 0 };
@@ -117,7 +101,7 @@
       for (const p of data?.providers ?? []) panel.cards.get(p.id)?.apply(p);
       if (data?.routes) paintRoutes(panel, data.routes);
     } catch {
-      // The cards keep their last status. Opening the drawer again reads the saved state.
+      // The cards keep their last status. Opening Settings again reads the saved state.
     }
   }
 
@@ -376,8 +360,9 @@
     return { root: card, apply };
   }
 
-  // Attach. Only the drawer body is watched. The section is one child of it, so the observer sees the
-  // section come and go, but not what is inside it.
-  new MutationObserver(sync).observe(MuseUI.el.drawerBody, { childList: true });
-  sync();
+  // Attach. Settings draws every section each time the page opens, so this one is drawn fresh from the server's saved state and
+  // nothing is watched. A page without the Settings registry has nowhere to show the panel.
+  if (typeof MuseUI.settings?.register === 'function') {
+    MuseUI.settings.register({ id: SECTION_ID, scope: 'app', title: SECTION_TITLE, group: 'accounts', order: SECTION_ORDER, render: body => body.append(buildSection()) });
+  }
 })();

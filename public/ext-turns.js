@@ -1,9 +1,13 @@
-// Edit, regenerate and copy on every turn. Loaded by ext.js and adds itself through window.MuseUI.
+// Edit, Rewind, regenerate and copy on every turn. Loaded by ext.js and adds itself through window.MuseUI.
 // Under each turn sits a small row of ghost buttons. A question gets Edit: it and the messages after it leave the chat
-// (POST /api/chat/rewind), and its text goes back into the composer. A reply gets Copy (its Markdown, to the clipboard) and
-// Insert (into the composer). The last reply of the chat also gets Regenerate: the chat is cut back to the question before
-// it, and that question is sent again, to the chat's model or to the one chosen in the row. The rows are drawn and used only
-// while the page is idle. The server does the cutting; this file only draws the rows and sends the text back.
+// (POST /api/chat/rewind), and its text goes back into the composer. A question of the chat also gets Rewind (pro-05): the
+// choices are Code and chat, Code only and Chat only. Code is the files of the project: the turn snapshot taken before that question
+// (lib/hooks/10-snapshot.mjs) puts them back after an approval card (window.MuseRestore, public/ext-checkpoints.js). Chat only cuts the
+// chat like Edit, without filling the composer. A reply gets Copy (its Markdown, to the clipboard) and Insert (into the composer). The
+// last reply of the chat also gets Regenerate: the chat is cut back to the question before it, and that question is sent again, to the
+// chat's model or to the one chosen in the row. A panel may add its own buttons to a turn's row: every function in window.MuseTurnExtras
+// is called with { kind, message, index, messages, article } and the nodes it returns go into the row.
+// The rows are drawn and used only while the page is idle. The server does the cutting; this file only draws the rows and sends the text back.
 (function () {
   const MuseUI = window.MuseUI;
   // app.js defines MuseUI before the extra panels load. Without it there is nothing to attach to.
@@ -66,6 +70,27 @@
     row.className = BAR;
     row.append(...controls);
     return row;
+  }
+
+  // The nodes the panels that registered in window.MuseTurnExtras add for one turn. A function that fails is logged and skipped.
+  // The reply element is also reachable as classList, because the Review button (ext-review.js) reads the element it is given.
+  function extrasFor(kind, message, index, messages, article) {
+    const out = [];
+    const extras = Array.isArray(window.MuseTurnExtras) ? window.MuseTurnExtras : [];
+    for (const fn of extras) {
+      if (typeof fn !== 'function') continue;
+      try {
+        const ctx = { kind, message, index, messages, article };
+        Object.defineProperty(ctx, 'classList', { get: () => article.classList });
+        const got = fn(ctx);
+        for (const node of Array.isArray(got) ? got : [got]) {
+          if (node instanceof Node) out.push(node);
+        }
+      } catch (err) {
+        console.error('A turn extra could not draw its button:', err);
+      }
+    }
+    return out;
   }
 
   // Puts text on the clipboard. The clipboard API is missing, or refuses (no permission, or a page that is not secure). Then a
@@ -203,6 +228,113 @@
     return b;
   }
 
+  // ---------- Rewind (pro-05) ----------
+
+  const enc = encodeURIComponent;
+  // Said in the Rewind tooltips: what a turn snapshot leaves out (lib/shadow.mjs), so a person does not expect those files back.
+  const SECRETS_NOTE = 'Secret files such as .env and private keys are not kept and are not restored.';
+  // The project the chat is on, for every rewind request.
+  const activeProject = () => MuseUI.state.activeProject;
+
+  // Why a question has no code snapshot, for the disabled choices. The server says it in record.snap.skipped.
+  function noSnapshotReason(m) {
+    if (typeof m.snap?.skipped === 'string' && m.snap.skipped) return m.snap.skipped;
+    return 'it was sent before turn snapshots were kept';
+  }
+
+  // The chat-only confirm: how many messages go, and the Undo line that stays above the composer.
+  function chatGoes(n) {
+    if (n === 0) return 'It is removed from the chat.';
+    return n === 1 ? 'It and the message after it are removed.' : `It and the ${n} messages after it are removed.`;
+  }
+
+  // Chat only: the chat is cut back to the question, as Edit does, and the composer is left as it is.
+  async function rewindChat(index) {
+    if (working || runGoing()) return;
+    const n = (MuseUI.state.messages ?? []).length - index - 1;
+    const ok = await MuseUI.confirm({
+      title: 'Rewind the chat to before this message?',
+      body: `${chatGoes(n)} Undo stays above the composer until you send a message.`,
+      action: 'Rewind chat',
+      tone: 'danger',
+      focusCancel: true,
+    });
+    if (!ok) return;
+    await cutBack(index);
+  }
+
+  // The button in the drawer that undoes the code rewind (the server keeps the files as they were before it, for this scope).
+  function undoButton() {
+    const b = MuseUI.button('ghost', 'Undo code rewind');
+    b.title = 'Put back the files this rewind changed';
+    b.addEventListener('click', () => {
+      window.MuseRestore?.run({
+        title: 'Undo code rewind',
+        url: '/api/snapshots/rewind',
+        payload: { project: activeProject(), undo: true },
+        diffUrl: `/api/snapshots/diff?project=${enc(activeProject())}&undo=1`,
+        approveText: 'Approve undo',
+        restoredText: ev => `Undo done: put back ${(ev.files ?? []).length} files and removed ${(ev.removed ?? []).length}.`,
+      });
+    });
+    return b;
+  }
+
+  // Code only: the files go back to before this question. The card lists them, and the drawer offers Undo once they are back.
+  function rewindCode(index, after) {
+    return window.MuseRestore?.run({
+      title: 'Rewind code',
+      url: '/api/snapshots/rewind',
+      payload: { project: activeProject(), index },
+      diffUrl: `/api/snapshots/diff?project=${enc(activeProject())}&index=${index}`,
+      approveText: 'Approve rewind',
+      onEnd: (ev, view) => {
+        if (ev.type !== 'restored') return;
+        view.actions.append(undoButton());
+        if (after) after();
+      },
+    });
+  }
+
+  // The three choices that take the Rewind button's place. The two code choices need the snapshot the turn kept before it.
+  function choiceButtons(m, index) {
+    const hasSnap = typeof m.snap?.before?.tree === 'string';
+    const reason = noSnapshotReason(m);
+    const disabledTitle = `No snapshot before this turn: ${reason}`;
+    const both = MuseUI.button('ghost small ext-turns-btn', 'Code and chat');
+    both.title = hasSnap ? `Put the files back, then cut the chat back to before this message. ${SECRETS_NOTE}` : disabledTitle;
+    both.disabled = !hasSnap;
+    both.addEventListener('click', () => rewindCode(index, () => cutBack(index)));
+    const code = MuseUI.button('ghost small ext-turns-btn', 'Code only');
+    code.title = hasSnap ? `Put the files back to before this message; the chat stays. ${SECRETS_NOTE}` : disabledTitle;
+    code.disabled = !hasSnap;
+    code.addEventListener('click', () => rewindCode(index));
+    const chat = MuseUI.button('ghost small ext-turns-btn', 'Chat only');
+    chat.title = 'Cut the chat back to before this message, as Edit does; the files stay';
+    chat.addEventListener('click', () => rewindChat(index));
+    const cancel = MuseUI.button('ghost small ext-turns-btn', 'Cancel');
+    cancel.title = 'Keep the chat and the files as they are';
+    // Cancel puts the Rewind button back in the choices' place.
+    cancel.addEventListener('click', () => {
+      both.replaceWith(rewindGhost(m, index));
+      code.remove();
+      chat.remove();
+      cancel.remove();
+    });
+    return [both, code, chat, cancel];
+  }
+
+  // The Rewind ghost button. Its click swaps in the choices, and Cancel swaps the button back.
+  function rewindGhost(m, index) {
+    const b = MuseUI.button('ghost small ext-turns-btn', 'Rewind');
+    b.title = `Rewind code, chat or both to before this message. ${SECRETS_NOTE}`;
+    b.addEventListener('click', () => {
+      if (working || runGoing()) return;
+      b.replaceWith(...choiceButtons(m, index));
+    });
+    return b;
+  }
+
   // Regenerate: the chat is cut back to the question, and the question is sent again. The reply it gets replaces this one.
   async function regenerate(questionIndex, ref) {
     if (working || runGoing()) return;
@@ -249,7 +381,7 @@
     questions.forEach(({ m, index }, i) => {
       const article = questionEls[i];
       if (m.kind !== 'chat' || article.querySelector(`:scope > .${BAR}`)) return;
-      article.append(rowOf([editButton(index)]));
+      article.append(rowOf([editButton(index), rewindGhost(m, index), ...extrasFor('question', m, index, messages, article)]));
     });
 
     // Only the last reply of the chat itself is regenerated, so the row is added for that one reply.
@@ -261,6 +393,7 @@
       const controls = [copyButton(r.m), insertButton(String(r.m.content ?? ''))];
       const question = r === lastChat ? questionBefore(messages, r.index) : -1;
       if (question >= 0) controls.push(...regenerateControls(question));
+      controls.push(...extrasFor('reply', r.m, r.index, messages, article));
       article.append(rowOf(controls));
     });
   }

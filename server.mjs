@@ -11,7 +11,8 @@ import {
 } from './lib/providers.mjs';
 import { summarizeUsage, totalUsage } from './lib/pricing.mjs';
 import { runCli, openSignIn, museSignedIn } from './lib/accounts.mjs';
-import { assertCanSave, connectKeyChannel, parentChannel, storeKey } from './lib/keys.mjs';
+import { imageSupport } from './lib/capabilities.mjs';
+import { assertCanSave, connectKeyChannel, keyStorage, parentChannel, storeKey } from './lib/keys.mjs';
 import { expandFileMentions, listTree, workingDiff } from './lib/files.mjs';
 import { queueUpdate, listUpdates, applyUpdate, discardUpdate, rollbackUpdate, resetOverlay, overlayStatus, acknowledgeRollback } from './lib/updates.mjs';
 import * as overlay from './lib/overlay.mjs';
@@ -19,21 +20,27 @@ import { readUsage } from './lib/usage.mjs';
 import { claudeRoute, claudeCliStatus } from './lib/claude-cli.mjs';
 import { cleanReason } from './lib/tools.mjs';
 import { DEFAULT_COUNCIL, normalizeCouncil, runCouncil } from './lib/council.mjs';
-import { CODER_REFS, planBuild, runBuild } from './lib/delegate.mjs';
+import { coderRefs, planBuild, runBuild } from './lib/delegate.mjs';
+import { effectiveAgents, typeByName } from './lib/agents.mjs';
+import { liveAgents, offerFor, openRun, registerRunScope, withRun } from './lib/agent-run.mjs';
+import { toolsAllowed } from './lib/tool-trust.mjs';
 import { geminiSignIn, geminiUsage } from './lib/gemini.mjs';
 import { normalizeRoute, runSend, runBroadcast, runRoute, RelayLog, hashText } from './lib/relay.mjs';
-import { effectiveSettings, denyPatternsOf, chatModeOf, approvalModeOf, approvalSummary, approveAllBlockedOf, approveAllCoversOf, codersCannotAskOf, normalizeAppCovers, normalizeProjectSettings } from './lib/projects.mjs';
+import { effectiveSettings, storedSettings, denyPatternsOf, chatModeOf, approvalModeOf, approvalSummary, approveAllBlockedOf, approveAllCoversOf, codersCannotAskOf, normalizeAppCovers, normalizeProjectSettings } from './lib/projects.mjs';
 import { forgetProjectSessions, forgetSession, getSession, sessionEnabled } from './lib/sessions.mjs';
 import { buildFocusOf, FOCUS_REMINDER } from './lib/focus.mjs';
 import { keepArchive, peekArchive } from './lib/archive.mjs';
 import { accrueReply, budgetState, checkBudget, spendOf } from './lib/budget.mjs';
 import { findExtRoute } from './lib/routes/index.mjs';
 import { legalSummary, termsAccepted, termsGate } from './lib/legal.mjs';
-import { canStart as canStartDrive, hotkeyStatus, listDrives, normalizeIdleMinutes, normalizeStopOverride } from './lib/drive.mjs';
+import { canStart as canStartDrive, DEFAULT_IDLE_MINUTES, hotkeyStatus, listDrives, normalizeIdleMinutes, normalizeStopOverride } from './lib/drive.mjs';
 import { bridge as computerBridge } from './lib/computer/bridge.mjs';
 import { createComputerRun } from './lib/computer/run.mjs';
 import { appName, normalizeLogDays, normalizeLogMB, normalizePaceMs, normalizeRunSettings, paceOf, retentionOf, settingsFromPrefs } from './lib/computer/policy.mjs';
 import { computerSupportDetail } from './lib/computer/support.mjs';
+import { NO_MODEL, resolveGeminiComputerModel } from './lib/computer/gemini.mjs';
+import { driverFor } from './lib/computer/drivers.mjs';
+import { clearPromptsHealth, promptsHealth } from './lib/prompts.mjs';
 import { permissionHelp } from './lib/platform/computer.mjs';
 import { available as browserAvailable } from './lib/browser-bridge.mjs';
 import { folderRisk } from './lib/guard.mjs';
@@ -42,6 +49,8 @@ import { apiProvider } from './lib/api-providers.mjs';
 import { loadProjectRules } from './lib/rules.mjs';
 import { IMAGE_REFUSAL, MAX_IMAGES, checkImages, takesImages } from './lib/images.mjs';
 import { checkMessageTotals, describeUploads, pdfRefusal, sortAttachments, splitUploads, takesDocuments, withInline } from './lib/attachments.mjs';
+import { runAfter, runBefore, runExpand } from './lib/turn-hooks.mjs';
+import { scopeFor } from './lib/scope.mjs';
 
 // Under the desktop app this is an Electron utility process, which ends with the app, and the app sends it the saved API
 // keys over its message channel (see connectKeyChannel at the bottom). The Electron binary is also what process.execPath
@@ -270,6 +279,9 @@ function publicState({ messages = true } = {}) {
       const eff = effectiveSettings(st, p);
       return { id: p.id, name: p.name, path: p.path, chatMode: chatModeOf(p), ...approvalSummary(st, p), model: eff.model ?? st.model, effort: eff.effort };
     }),
+    // The relay settings a route in the active project uses (its own, else the app's) and whether the project has its own (B-63), so the
+    // route panel and its Start gate match what the server enforces. Kept beside the project list, which carries no settings.
+    activeRelay: active ? { settings: { ...RELAY_DEFAULT, ...(effectiveSettings(st, active).relay ?? {}) }, own: Boolean(storedSettings(active)?.relay) } : null,
     // Each project's running total of tokens and cost, by project id, worked out from the replies still in its transcript
     // (totalUsage in lib/pricing.mjs). public/ext-cost.js shows it. st.chats is read directly so that listing a project
     // does not create an empty transcript for it. It is kept out of the project entries, which carry no counters.
@@ -294,17 +306,23 @@ function publicState({ messages = true } = {}) {
     // The message of the last save that failed, or null (lib/store.mjs). While it is set, the change on screen is not in the file
     // and is lost on restart; public/ext-store-health.js shows it.
     saveFailure: store.saveFailure(),
+    // A saved prompts file that was damaged and set aside when it was read (lib/prompts.mjs promptsHealth): only the name of the kept file.
+    // The page tells the person once and then acknowledges it (POST /api/prompts/health/ack), so a reload does not repeat it (B-78).
+    promptsHealth: promptsHealth() ? { file: path.basename(promptsHealth().corruptFile), at: promptsHealth().at } : null,
     council: st.council ?? DEFAULT_COUNCIL,
     music: st.music ?? MUSIC_DEFAULT,
     relay: st.relay ?? RELAY_DEFAULT,
     sessionMode: st.sessionMode ?? 'transcript',
-    coders: CODER_REFS,
+    coders: coderRefs(),
+    // How many agents of the active project are queued or running now (lib/agent-run.mjs). GET /api/agents/live lists them.
+    agentsRunning: active ? liveAgents(active.id).length : 0,
     // The drives a model is running (lib/drive.mjs) and the state of the stop key. The drive bar and pill read them from here, and
     // every state event carries them, so a window that reconnects sees them at once.
     drives: listDrives(),
     driveHotkey: hotkeyStatus(),
     // How a computer run is paced and how much of its log is kept (each read with a default; lib/computer/policy.mjs).
-    computerSettings: { paceMs: paceOf(st), logDays: retentionOf(st).days, logMB: retentionOf(st).maxBytes / (1024 * 1024) },
+    // idleMinutes is the pause limit (state.json driveIdleMinutes; Settings › Computer use).
+    computerSettings: { paceMs: paceOf(st), logDays: retentionOf(st).days, logMB: retentionOf(st).maxBytes / (1024 * 1024), idleMinutes: Number.isInteger(st.driveIdleMinutes) ? st.driveIdleMinutes : DEFAULT_IDLE_MINUTES },
     ...(messages ? { messages: log } : { messageCount: log.length, lastMessageTs: log.at(-1)?.ts ?? 0 }),
   };
 }
@@ -367,6 +385,8 @@ function approvalRequester(send, signal) {
       ...(payload.blocked ? { blocked: true } : {}),
       ...(payload.kind ? { kind: payload.kind } : {}),
       ...(payload.frame ? { frame: payload.frame } : {}),
+      // A card that only a click answers (a rewind or a restore, lib/checkpoints.mjs restorePrompt): Y and N do nothing on it.
+      ...(payload.clickOnly === true ? { clickOnly: true } : {}),
     });
     events.publishState('approvals');
   });
@@ -433,12 +453,24 @@ async function saveReporting(send) {
 // provider's blocks, which hold the screenshots. selfStart is true when the model may start a run itself (the project's switch):
 // ctx.startComputer(input) then builds one from the project's remembered choices and shows the start card first.
 // browser is true when the model may use the Browser pane this turn (ctx.browser; the tools register themselves with a `when`).
-async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode, effort, send, signal, requestApproval, agent, tools, denyPatterns = [], answerBlocked = false, covers, readOnly = false, images = [], documents = [], computer = null, selfStart = false, browser = false }) {
+async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode, effort, send, signal, requestApproval, agent, tools, denyPatterns = [], answerBlocked = false, covers, readOnly = false, images = [], documents = [], computer = null, selfStart = false, browser = false, mcpBridge = false }) {
   send({ type: 'start', kind, model: ref, label: labelFor(ref) });
   const out = { api: [], tools: [] };
+  // One run for this reply: every agent it starts counts against the same limits and shares the same places (lib/agent-run.mjs).
+  const project = projectById(pid);
+  const agents = effectiveAgents(store.get(), project);
+  const agentRun = openRun({ projectId: pid, kind, signal });
+  const caller = { role: 'chat', ref, label: labelFor(ref), depth: 0 };
   const ctx = {
     root,
     ref, // the model asking; the delegate tool reads it for the per-model agent limits (lib/tools/40-delegate.mjs)
+    effort, // the effort of this reply: an agent whose type names none uses it
+    agents, // the agent types and limits in force for this project (effectiveAgents)
+    agentRun, // the run the agents of this reply belong to
+    caller, // who is asking, for the limits: the chat, with the model
+    project, // the project record, for the spend cap and the project switches
+    // Claude Code's Agent requests on the CLI route: the types the chat may start there, counted by the same run (undefined when none)
+    agentsOffer: agent ? offerFor({ agents, caller, run: agentRun, project, root, denyPatterns, mode, approve: requestApproval, emit: send, tools, signal }) : undefined,
     projectId: pid, // files the checkpoints taken before a write (lib/checkpoints.mjs)
     denyPatterns, // the project's own deny patterns, read by denyListHit (lib/tools.mjs)
     answerBlocked, // Approve all answers blocked-command cards too (lib/tools.mjs answersBlocked)
@@ -451,7 +483,14 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
     queueUpdate: payload => queueUpdate({ home: store.HOME, summary: payload.summary, files: payload.files }),
     tools, // read by the delegate tool, which hands it on to the coder
     browser: browser === true, // the model may use the Browser pane this turn (lib/tools/60-browser.mjs offers its tools on it)
+    vision: imageSupport(ref).ok === true, // the model takes pictures, so browser_screenshot is offered (lib/tools/60-browser.mjs)
+    mcpBridge: mcpBridge === true, // a CLI agent of this turn may reach Plenum through the bridge (lib/mcp-server.mjs, openBridge)
   };
+  // A computer run on a model whose project tools are not allowed (an API model without a verified provider or a passed tool test; see
+  // toolsAllowed) still gets a ctx, because the run lives on it, but only the two questions of the run are offered or answered, never
+  // the project's file and command tools (ctx.only: lib/tools.mjs). Allow tools in Accounts is what grants those.
+  const computerOnly = Boolean(computer) && !agent;
+  if (computerOnly) ctx.only = new Set(['confirm_with_user', 'hand_over']);
   // The computer run of this turn, if any: the one the person started, or the one the model starts through ctx.startComputer.
   let run = null;
   const makeRun = (settings, task, consent) => {
@@ -470,7 +509,7 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
       const refuse = output => ({ ok: false, summary: 'Computer use not started', output });
       if (run) return refuse('A run is already going.');
       try {
-        const support = await computerSupportDetail(ref);
+        const support = await computerSupportFor(ref);
         if (support.level === 'no') return refuse(support.message);
         const probe = await computerBridge.probe();
         if (!probe.supported) return refuse(probe.reason || 'Computer use is not available on this computer.');
@@ -521,7 +560,10 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
     }
     const session = kind === 'chat' && !readOnly ? { projectId: pid, emit: send, lastReplyModel: lastChatModel(pid) } : null;
     if (go) {
-      for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => reports.push(rec), onStop: r => { stop = r; } })) {
+      // Cursor always gets the ctx: its approval cards (ask first, the default) are asked through ctx.approve, and it keeps its own tools
+      // (lib/cursor.mjs). A read-only Cursor run ignores the ctx there.
+      const cursorTurn = splitRef(ref).provider === 'cursor';
+      for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent || computerOnly || cursorTurn || mcpBridge ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => reports.push(rec), onStop: r => { stop = r; } })) {
         text += delta;
         send({ type: 'delta', text: delta });
       }
@@ -531,6 +573,9 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
       error = true;
       send({ type: 'error', message: err.message });
     }
+  } finally {
+    // Every agent of this reply is over: any that still waits is stopped, and the run's agents leave the live list.
+    agentRun.close();
   }
   // The run ends before the reply is stored: it releases the keys, hides the on-screen bar and closes its log, and says what it did.
   // A stop reason the run already has (Stop, the stop key, a limit) wins over the way the turn ended.
@@ -577,14 +622,34 @@ async function runTurn({ ref, system, messages, root, kind, projectId: pid, mode
 }
 
 // A project at its spend cap refuses a send to an API-key model before anything is stored or any provider is called
-// (lib/budget.mjs). The refusal is a 400 with the plain message. A subscription CLI and the offline model are never refused.
+// (lib/budget.mjs). The refusal is a 400 with the plain message, marked policy: true (the error body carries it) so the page shows it as
+// a notice from Plenum and puts the typed text back, not as a failure (B-105). A subscription CLI and the offline model are never refused.
 async function refuseAtCap(project, messages, ref) {
   const billing = await billingFor(ref);
   try {
     checkBudget(project, messages, billing);
   } catch (err) {
-    throw httpError(400, err.message);
+    throw Object.assign(httpError(400, err.message), { policy: true });
   }
+}
+
+// A Google AI run needs a computer-use model that answers with this key. It is looked for here, before the overlay, the bar and the key are
+// started, so a key with no such model is refused at the start instead of after the run has begun (lib/computer/gemini.mjs).
+async function googleComputerModel(ref, detail) {
+  const { provider, id } = splitRef(ref);
+  if (detail.level === 'no' || provider !== 'googleai') return detail;
+  const model = await resolveGeminiComputerModel(id).catch(() => null);
+  return model ? detail : { level: 'no', message: NO_MODEL, note: 'no computer-use model answers for this key' };
+}
+
+// Whether a model can run the computer, and how: lib/computer/support.mjs for the models with a computer tool of their own, and when it
+// says no, the generic screenshot-and-act loop (lib/computer/generic.mjs) for any other API model with a saved key. Same shape as
+// computerSupportDetail: { level: 'toolset' | 'unverified' | 'native' | 'generic' | 'no', message, note }.
+async function computerSupportFor(ref) {
+  const detail = await googleComputerModel(ref, await computerSupportDetail(ref));
+  if (detail.level !== 'no') return detail;
+  const generic = await driverFor('generic');
+  return (typeof generic?.genericSupportDetail === 'function' ? await generic.genericSupportDetail(ref) : null) ?? detail;
 }
 
 // Chat turns and /review share this path. /review reviews the last answer plus the working-tree diff, and streams the
@@ -637,6 +702,12 @@ async function handleTurn(req, res, { review }) {
     // Pictures and PDFs that came with this message (never kept: the transcript gets their names and sizes, see below).
     let images = [];
     let documents = [];
+    // Whether this chat turn runs the model's own tool loop (set with planMode below).
+    let toolLoop = false;
+    // What the turn hooks (lib/turn-hooks.mjs) add to the message: blocks for the model, labels for the stored message, notices.
+    let extra = { blocks: [], labels: [], notes: [] };
+    // The context the turn hooks get (lib/turn-hooks.mjs). Set for a chat turn only, never for a review.
+    let hookCtx = null;
 
     if (review) {
       const answerIdx = findLastIndex(log, m => m.role === 'assistant' && m.kind === 'chat');
@@ -659,21 +730,25 @@ async function handleTurn(req, res, { review }) {
       await refuseAtCap(project, log, ref);
       const { provider } = splitRef(ref);
       const api = apiProvider(provider);
-      // Claude (through its API key) and an API provider whose tools are verified (toolsVerified in lib/api-providers.mjs)
-      // run the server's own tool loop. The other API providers are text only.
-      agent = provider === 'anthropic' || api?.toolsVerified === true;
+      // Claude (through its API key) and an API model whose tools are allowed (toolsAllowed in lib/tool-trust.mjs: a verified
+      // provider, or a model that passed the tool test and has its switch on) run the server's own tool loop. The rest are text only.
+      agent = provider === 'anthropic' || toolsAllowed(ref);
       // Through the CLI, Claude brings its own tools and reads attached files itself.
       const ownTools = provider === 'anthropic' ? agent && (await claudeRoute()) === 'api' : agent;
       // Plan mode makes this turn read-only: no tool loop (so no ctx reaches streamChat), no tool instructions in the
       // prompt, and no earlier tool turns in the history, which an API request without tools would refuse.
       planMode = chatModeOf(project) === 'plan';
-      const toolLoop = ownTools && !planMode;
+      toolLoop = ownTools && !planMode;
       if (planMode) agent = false;
+      // The turn hooks (lib/turn-hooks.mjs) see the message before its files are read: expandMessage adds what the model reads with it.
+      // A hook that refuses the message (a 400 error) ends the request here, before anything is stored.
+      hookCtx = { project, scope: scopeFor(store, project, typeof body.thread === 'string' ? body.thread : undefined), kind: 'chat', ref, planMode, send: null, signal: ac.signal, store, record: null, changed: null, followUp: null, busy: () => running.has(project.id) };
+      extra = await runExpand(hookCtx, text);
       // A computer run is started by the person for this one message (Start in the Computer panel is the consent). Everything that
       // can refuse it does so here, before the message is stored and before anything is shown on the screen.
       if (body.computer !== undefined && body.computer !== null && body.computer !== false) {
         if (planMode) throw httpError(400, 'Plan mode is on, so Plenum will not control the computer here.');
-        const support = await computerSupportDetail(ref);
+        const support = await computerSupportFor(ref);
         if (support.level === 'no') throw httpError(400, support.message);
         if (!computerBridge.available) throw httpError(400, 'Computer use needs the desktop app.');
         const probe = await computerBridge.probe();
@@ -709,7 +784,7 @@ async function handleTurn(req, res, { review }) {
       // a computer run, a plan turn) has the focus text in its system prompt and gets no reminder.
       const viaCliSession = !planMode && !computerSettings && !(provider === 'anthropic' && (await claudeRoute()) === 'api') && resumesNativeSession(project.id, ref);
       const focusReminder = viaCliSession && buildFocusOf(project) ? `\n\n${FOCUS_REMINDER}` : '';
-      messages = [...historyFor(log, ref, { textOnly: !toolLoop }), { role: 'user', content: withInline(expanded.text, got.inline) + focusReminder }];
+      messages = [...historyFor(log, ref, { textOnly: !toolLoop }), { role: 'user', content: withInline(expanded.text, [...got.inline, ...extra.blocks.map(block => ({ block }))]) + focusReminder }];
       // The project's AGENTS.md, read on every chat turn so an edit shows on the next message. Null when there is none.
       rules = await loadProjectRules(root);
       system = await buildSystem('chat', { root, projectId: project.id, project, agent: toolLoop, readOnly: planMode, mode, ref, rules, emit: notice => promptNotices.push(notice) });
@@ -719,7 +794,8 @@ async function handleTurn(req, res, { review }) {
       const computerNote = computerSettings
         ? { computer: { task: true, apps: computerSettings.scope === 'window' ? [appName(computerSettings.targetWindow.exe)] : computerSettings.allow.map(a => appName(a.exe)), scope: computerSettings.scope } }
         : {};
-      store.addMessage(project.id, { role: 'user', kind: 'chat', content: text, attached: expanded.attached, ...(kept.length ? { images: kept } : {}), ...computerNote });
+      // context: the labels a turn hook gives for what it added to the message (lib/turn-hooks.mjs), shown under it.
+      store.addMessage(project.id, { role: 'user', kind: 'chat', content: text, attached: expanded.attached, ...(kept.length ? { images: kept } : {}), ...computerNote, ...(extra.labels.length ? { context: extra.labels } : {}) });
       events.publishState('run');
     }
 
@@ -736,6 +812,9 @@ async function handleTurn(req, res, { review }) {
     if (planMode) send({ type: 'notice', text: PLAN_NOTICE });
     if (rules) send({ type: 'notice', text: `Using AGENTS.md (${rules.text.length} characters) from this project.` });
     for (const notice of promptNotices) send(notice);
+    // The notes of the turn hooks that ran before the stream opened, and the hooks' own sends from here on.
+    for (const note of extra.notes) send({ type: 'notice', text: note });
+    if (hookCtx) hookCtx.send = send;
     // Approve all is announced once per project (and thread) per launch, on a chat turn that can act. The red button and the Mode
     // menu keep saying it after that. A plan-mode turn changes nothing, so it does not use up the notice.
     const answerBlocked = approveAllBlockedOf(project);
@@ -752,6 +831,30 @@ async function handleTurn(req, res, { review }) {
     // A plan-mode turn gets none either, as no relay hop does: nothing in the options can widen a read-only run.
     const tools = kind === 'chat' && !planMode ? effectiveSettings(st, project).tools : undefined;
     const denyPatterns = kind === 'chat' ? denyPatternsOf(project) : [];
+    if (hookCtx) {
+      // The stored message is this turn's record: the turn snapshot goes on it (lib/hooks/10-snapshot.mjs). followUp lets a hook start
+      // a further chat turn with this one's settings (pro-06 and pro-09): null when the run was stopped or the project is in plan mode,
+      // refused with a notice at the spend cap, and otherwise the result of that turn.
+      hookCtx.record = store.transcript(project.id).at(-1);
+      hookCtx.followUp = async (followText, { marker } = {}) => {
+        if (ac.signal.aborted || planMode) return null;
+        try {
+          await refuseAtCap(project, store.transcript(project.id), ref);
+        } catch {
+          send({ type: 'notice', text: 'Auto-fix stopped: this project is at its spend cap.' });
+          return null;
+        }
+        const history = historyFor(store.transcript(project.id), ref, { textOnly: !toolLoop });
+        store.addMessage(project.id, { role: 'user', kind: 'chat', content: String(followText), auto: marker });
+        hookCtx.record = store.transcript(project.id).at(-1);
+        await runBefore(hookCtx);
+        return runTurn({
+          ref, system, messages: [...history, { role: 'user', content: String(followText) }], root, kind: 'chat', projectId: project.id, mode, effort: eff.effort, send, signal: ac.signal,
+          requestApproval, agent: agent && kind === 'chat', tools, denyPatterns, answerBlocked, covers: approveAllCoversOf(st, project), readOnly: false, images: [], documents: [],
+        });
+      };
+      await runBefore(hookCtx);
+    }
     const turn = await runTurn({
       ref, system, messages, root, kind, projectId: project.id, mode, effort: eff.effort, send, signal: ac.signal, requestApproval, agent: agent && kind === 'chat', tools, denyPatterns, answerBlocked, covers: approveAllCoversOf(st, project), readOnly: review || planMode, images, documents,
       // The computer run this message starts (the person pressed Start in the Computer panel), the project's switch that lets the model
@@ -759,10 +862,13 @@ async function handleTurn(req, res, { review }) {
       computer: computerSettings ? { settings: computerSettings, task: computerTask } : null,
       selfStart: kind === 'chat' && !planMode && !computerSettings && computerSelfStartOf(project) && computerBridge.available,
       browser: kind === 'chat' && !planMode && browserAvailable() && st.browser?.agent !== false,
+      mcpBridge: kind === 'chat' && !planMode,
     });
     // A plan turn runs outside the model's native CLI session, so that session has not seen it. Forgetting the session makes
     // the next normal turn start a new one with the whole chat, plan included.
     if (planMode) forgetSession(project.id, ref);
+    // The turn's 'after' snapshot and the hooks after it. A run that was stopped or timed out takes none.
+    if (hookCtx && !ac.signal.aborted) await runAfter(hookCtx, turn);
 
     let advisorTurn = null;
     if (!review && st.advisor && st.advisorAuto && turn.text.trim() && !turn.error && !ac.signal.aborted) {
@@ -918,6 +1024,8 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
   const ac = new AbortController();
   running.set(project.id, ac);
   events.publishState('run');
+  // A route module that builds a seat's generator from the signal alone (pipelines) finds its project this way (agent-roles).
+  registerRunScope(ac.signal, { project, kind });
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; ac.abort(); }, RUN_TIMEOUT_MS);
   let streaming = false;
@@ -991,9 +1099,16 @@ async function handleCouncil(req, res) {
   const history = councilHistory(store.transcript(project.id));
   // Kept as the run goes, so a cancelled council still leaves its answers in the chat.
   const saved = { seats: {}, result: null, seatMeta: [] };
-  await streamForProject(req, res, project, async ({ signal }) => {
+  await streamForProject(req, res, project, async ({ signal, send }) => {
     store.addMessage(project.id, { role: 'user', kind: 'council', content: question });
-    return runCouncil({ question, config, cwd: project.path, signal, history });
+    // One run for the whole council (every seat, every round and the moderator): the agents a seat starts count against the Council
+    // seats and Moderator rows and the per-run ceiling, and the run is closed when the stream ends (lib/agent-run.mjs seatContext).
+    const agents = effectiveAgents(store.get(), project);
+    const run = openRun({ projectId: project.id, kind: 'council', signal });
+    return withRun(run, runCouncil({
+      question, config, cwd: project.path, signal, history, project, agents, run,
+      denyPatterns: denyPatternsOf(project), tools: effectiveSettings(store.get(), project).tools, mode: approvalModeOf(store.get(), project), approve: approvalRequester(send, signal),
+    }));
   }, ev => {
     if (ev.type === 'council-start') saved.seatMeta = ev.seats;
     if (ev.type === 'seat-done') saved.seats[ev.seat] = { ...(saved.seats[ev.seat] ?? {}), [`round${ev.round}`]: ev.text, error: ev.error };
@@ -1015,8 +1130,10 @@ async function handlePlan(req, res) {
   const project = projectById(body.project);
   const cfg = savedCouncil(project);
   const ref = body.planner ? parseRef(body.planner) : cfg.moderator.ref;
+  // The agents block in force (the project's own, else the app's, else the defaults): the Planner type's limits and the types a task may name.
+  const agents = effectiveAgents(store.get(), project);
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), PLAN_TIMEOUT_MS);
+  const timer = setTimeout(() => ac.abort(), Math.min(PLAN_TIMEOUT_MS, typeByName(agents, 'planner').timeoutMin * 60_000));
   try {
     const plan = await planBuild({
       ref,
@@ -1025,6 +1142,10 @@ async function handlePlan(req, res) {
       recommendation: String(body.recommendation ?? '').slice(0, 8000),
       root: project.path,
       signal: ac.signal,
+      agents,
+      project,
+      // A planner the person picked for this plan wins over the Planner type's own model.
+      explicit: Boolean(body.planner),
     });
     return json(res, 200, plan);
   } finally {
@@ -1040,9 +1161,12 @@ async function handleBuild(req, res) {
   if (chatModeOf(project) === 'plan') throw httpError(409, PLAN_BUILD_REFUSED);
   if (!Array.isArray(body.tasks) || !body.tasks.length) throw httpError(400, 'There are no tasks to run. Make a plan first.');
   const cfg = savedCouncil(project);
+  // The effort chosen in the panel goes to the reviewer; with none, the Reviewer type's effort applies. A reviewer the person picked wins over
+  // the Reviewer type's own model.
   const reviewer = body.reviewer
-    ? { ref: parseRef(body.reviewer), effort: body.effort ?? 'high' }
-    : { ref: cfg.moderator.ref, effort: cfg.moderator.effort };
+    ? { ref: parseRef(body.reviewer), effort: body.effort ?? null, explicit: true }
+    : { ref: cfg.moderator.ref, effort: cfg.moderator.effort ?? null };
+  const agents = effectiveAgents(store.get(), project);
   const goal = String(body.goal ?? '').trim().slice(0, 2000);
   // The coders get the project's CLI options. The reviewer is read-only and gets none (see delegate.mjs).
   const tools = effectiveSettings(store.get(), project).tools;
@@ -1055,7 +1179,9 @@ async function handleBuild(req, res) {
   const saved = { goal, tasks: [], results: {}, review: null };
   await streamForProject(req, res, project, async ({ signal, send }) => {
     store.addMessage(project.id, { role: 'user', kind: 'build', content: `Build: ${goal || 'the agreed plan'}` });
-    return runBuild({ tasks: body.tasks, root: project.path, mode, signal, approve: approvalRequester(send, signal), reviewer, goal, tools, projectId: project.id, denyPatterns, codersCannotAsk });
+    // The build's turn snapshot (lib/hooks/10-snapshot.mjs) is taken once its message is stored, before any coder runs.
+    await runBefore({ project, scope: scopeFor(store, project, undefined), kind: 'build', ref: null, planMode: false, send, signal, store, record: store.transcript(project.id).at(-1), changed: null, followUp: null, busy: () => running.has(project.id) });
+    return runBuild({ tasks: body.tasks, root: project.path, mode, signal, approve: approvalRequester(send, signal), reviewer, goal, tools, projectId: project.id, denyPatterns, codersCannotAsk, agents, project });
   }, ev => {
     if (ev.type === 'build-start') saved.tasks = ev.tasks;
     if (ev.type === 'task-done') saved.results[ev.id] = { ok: ev.ok, summary: ev.summary, changed: ev.changed, outOfScope: ev.outOfScope, error: ev.error };
@@ -1149,9 +1275,12 @@ async function handleRelaySend(req, res) {
   const mode = approvalModeOf(store.get(), project);
   const tools = effectiveSettings(store.get(), project).tools;
   const kind = broadcast ? 'broadcast' : 'send';
-  return streamForProject(req, res, project, async ({ signal }) => {
-    const common = { seats, source, note, project, store, signal, mode, tools };
-    return broadcast ? runBroadcast({ ...common, targets: ['all'] }) : runSend({ ...common, target: targets[0] });
+  return streamForProject(req, res, project, async ({ signal, send }) => {
+    // One run per send or broadcast: the agents a hop starts count against the Relay hops row and the per-run ceiling (agent-roles).
+    const agents = effectiveAgents(store.get(), project);
+    const run = openRun({ projectId: project.id, kind: 'relay', signal });
+    const common = { seats, source, note, project, store, signal, mode, tools, agents, run, denyPatterns: denyPatternsOf(project), approve: approvalRequester(send, signal) };
+    return withRun(run, broadcast ? runBroadcast({ ...common, targets: ['all'] }) : runSend({ ...common, target: targets[0] }));
   }, ev => {
     if (ev.type !== 'hop-done') return;
     // A send keeps its own log record; a route's hops are logged through onHop instead.
@@ -1186,9 +1315,12 @@ async function handleRelayRoute(req, res) {
   const log = relayLogFor(project.id);
   // A route starts unpaused. The pause is cleared only once streamForProject accepts the route, so a route refused for a busy
   // project leaves the pause of the run that is going on as it was.
-  return streamForProject(req, res, project, async ({ signal }) => {
+  return streamForProject(req, res, project, async ({ signal, send }) => {
     relayPaused.delete(project.id);
-    return runRoute({
+    // One run per route: every hop's agents count against the Relay hops row and the per-run ceiling (agent-roles).
+    const agents = effectiveAgents(store.get(), project);
+    const run = openRun({ projectId: project.id, kind: 'relay', signal });
+    return withRun(run, runRoute({
       route, seats, startText: source.text, startLabel: source.label, cwd: project.path, signal,
       isPaused: () => relayPaused.has(project.id),
       onHop: rec => log.push(rec),
@@ -1197,7 +1329,8 @@ async function handleRelayRoute(req, res) {
       history: historyFor(store.transcript(project.id), eff.model ?? st.model, { textOnly: true }),
       dedupe: settings.dedupe,
       note,
-    });
+      project, agents, run, denyPatterns: denyPatternsOf(project), approve: approvalRequester(send, signal),
+    }));
   }, ev => {
     if (ev.type === 'hop-done' && ev.ok && ev.text) saveRelayHop(project, seats, ev, 'route');
   }, { kind: 'relay' });
@@ -1265,6 +1398,10 @@ async function handleApi(req, res, url) {
       await store.saveOrFail();
       return json(res, 200, publicState());
     }
+
+    case 'POST /api/prompts/health/ack':
+      clearPromptsHealth();
+      return json(res, 200, { ok: true });
 
     case 'POST /api/settings': {
       const body = await readBody(req);
@@ -1466,7 +1603,9 @@ async function handleApi(req, res, url) {
         claude: providers.anthropic.route === 'cli'
           ? { route: 'cli', connected: cli.loggedIn, email: cli.email, plan: cli.plan }
           // refused is set when the only credential found is a Claude subscription token, which the API route does not send.
-          : { route: 'api', connected: providers.anthropic.credentials, source: providers.anthropic.source, ...(providers.anthropic.refused ? { refused: providers.anthropic.refused } : {}) },
+          // storage and storageNote say where a saved key is kept on this computer (lib/keys.mjs keyStorage), so the card does not claim
+          // the Windows account on a Mac or in a plain Node run (B-95).
+          : { route: 'api', connected: providers.anthropic.credentials, source: providers.anthropic.source, storage: keyStorage().mode, storageNote: keyStorage().message, ...(providers.anthropic.refused ? { refused: providers.anthropic.refused } : {}) },
         muse: { installed: providers.muse.installed, signedIn: museSignedIn(), metaApiKey: providers.muse.metaApiKey },
         gemini: { installed: providers.gemini.installed, signedIn: providers.gemini.signedIn, email: providers.gemini.email },
         // The Codex CLI prints its login status on stderr, so both streams are checked.
@@ -1576,7 +1715,10 @@ const server = http.createServer(async (req, res) => {
     // One GET is let through without it: an artifact preview, which a sandboxed frame loads and which cannot send a header
     // (lib/routes/artifacts.mjs). Its address holds a random id (122 bits) that lives for an hour, the content is the model's own
     // reply, and its response carries its own policy (sandbox, no network, frame-ancestors 'self'), so it reaches nothing else.
-    const tokenFree = req.method === 'GET' && url.pathname === '/api/artifacts/view';
+    // Two POSTs are let through as well: the MCP bridge's routes (lib/routes/mcp.mjs). A CLI's child process holds the bridge's own
+    // secret and never the launch token, so those routes check that secret themselves. The Host, Origin, JSON and terms checks still apply.
+    const tokenFree = (req.method === 'GET' && url.pathname === '/api/artifacts/view')
+      || (req.method === 'POST' && (url.pathname === '/api/mcp/tools' || url.pathname === '/api/mcp/call'));
     if (url.pathname.startsWith('/api/') && !tokenFree) {
       const bad = checkRequest(req);
       if (bad) throw bad;
@@ -1609,7 +1751,7 @@ const server = http.createServer(async (req, res) => {
     if (res.headersSent) return res.end();
     // Marks the token refusal, so a page can tell it from a provider's own 401 (an invalid API key) that a route passes on.
     if (isRefusal(err)) res.setHeader('x-plenum-auth', 'token');
-    json(res, err.status ?? 400, err.terms === true ? { error: err.message, terms: true } : { error: err.message });
+    json(res, err.status ?? 400, { error: err.message, ...(err.terms === true ? { terms: true } : {}), ...(err.policy === true ? { policy: true } : {}) });
   }
 });
 

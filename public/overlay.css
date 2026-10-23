@@ -27,11 +27,11 @@ html, body {
 
 /* The marker: top-left, 6x6, plain #ff00ff, above everything, never dimmed or recoloured. Its colour is also in the page as an
    attribute (bgcolor), so it holds when this file does not load. */
-.mark {
+.ov-marker {
   position: fixed; left: 0; top: 0; z-index: 10; width: 6px; height: 6px; margin: 0; padding: 0; border: 0; border-spacing: 0;
   border-collapse: collapse; background: #ff00ff; opacity: 1; pointer-events: none; forced-color-adjust: none;
 }
-.mark td { width: 6px; height: 6px; margin: 0; padding: 0; border: 0; font-size: 0; line-height: 0; background: #ff00ff; forced-color-adjust: none; }
+.ov-marker td { width: 6px; height: 6px; margin: 0; padding: 0; border: 0; font-size: 0; line-height: 0; background: #ff00ff; forced-color-adjust: none; }
 
 /* The bar: square at the top-left, where the marker sits. Dragging it anywhere but a button moves the window. */
 .bar {
@@ -42,14 +42,14 @@ html, body {
 .bar[data-tone="paused"] { border-color: var(--line-2); background: var(--surface-2); }
 .bar[data-tone="wait"] { border-color: color-mix(in srgb, var(--accent) 60%, var(--line-2)); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
 
-.dot {
+.ov-dot {
   flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--amber);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 24%, transparent);
 }
-.bar[data-tone="paused"] .dot { background: var(--muted); box-shadow: none; }
-.bar[data-tone="wait"] .dot { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent); }
+.bar[data-tone="paused"] .ov-dot { background: var(--muted); box-shadow: none; }
+.bar[data-tone="wait"] .ov-dot { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent); }
 @media (prefers-reduced-motion: no-preference) {
-  .bar[data-tone="running"] .dot { animation: breathe 2.4s ease-in-out infinite; }
+  .bar[data-tone="running"] .ov-dot { animation: breathe 2.4s ease-in-out infinite; }
 }
 @keyframes breathe {
   0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 24%, transparent); }
@@ -57,11 +57,18 @@ html, body {
 }
 
 /* Up to two lines. A longer text ends in an ellipsis; the drive bar in the app always shows the whole of it. */
-.text {
+.ov-text {
   flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
 }
-.bar[data-tone="paused"] .text { color: var(--text-2); }
+.bar[data-tone="paused"] .ov-text { color: var(--text-2); }
+
+/* The stop key, named on the bar so the person knows it without the app. */
+.ov-key {
+  flex: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 5px;
+  border: 1px solid var(--line-2); background: var(--surface-3); color: var(--text-2); font: 600 10.5px/16px var(--ui);
+}
+.ov-key:empty { display: none; }
 
 .actions { display: flex; flex: none; align-items: center; gap: 6px; -webkit-app-region: no-drag; }
 .btn {

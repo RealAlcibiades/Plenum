@@ -18,7 +18,8 @@
   const MESSAGE_MAX = 150000;
   // openrouter:<id> is the longest form a model can be written in.
   const REF_MAX = 140;
-  const GROUPS = [['muse', 'Muse Code'], ['anthropic', 'Claude'], ['codex', 'Codex'], ['gemini', 'Gemini'], ['xai', 'Grok'], ['openai', 'OpenAI'], ['deepseek', 'DeepSeek'], ['mistral', 'Mistral'], ['googleai', 'Google AI'], ['openrouter', 'OpenRouter'], ['echo', 'Test']];
+  // The model groups, in the order the provider registry gives (app.js PROVIDER_REGISTRY), so a new provider is named in one place.
+  const GROUPS = MuseUI.providerRegistry.map(p => [p.id, p.name]);
   const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
   const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
   const STATUS_TEXT = { waiting: 'Waiting', writing: 'Writing', done: 'Done', failed: 'Failed', stopped: 'Stopped', skipped: 'Not run' };

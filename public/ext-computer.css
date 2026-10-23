@@ -1,0 +1,98 @@
+/* Computer use: the dialog (public/ext-computer.js), the runs list and timeline, and the look of a run in the chat (the cards, the model's
+   notes, the run's head and its folded steps, the "Your turn" box, both drawn by public/app.js). Only the shared colour tokens of
+   style.css are used, so both themes follow the app. Positions that depend on a screenshot are set by the script as percentages. */
+
+/* ---------- the dialog ---------- */
+.cu-form { gap: 14px; }
+.cu-task {
+  width: 100%; min-height: 84px; padding: 8px 10px; resize: vertical; border-radius: 9px; border: 1px solid var(--line-2);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 13px; line-height: 1.45;
+}
+.cu-task:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); outline: none; }
+.cu-pick { min-width: 0; }
+.cu-warn { color: var(--warn); }
+.cu-apps .switch-text small { overflow-wrap: anywhere; }
+.cu-barred { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.cu-model { min-width: 0; }
+.cu-more > summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; font-weight: 600; padding: 4px 0; }
+.cu-more-body { margin-top: 12px; }
+.cu-more-body .field-label { font-weight: 600; }
+.cu-rules {
+  margin: 0; padding: 9px 11px; border: 1px solid var(--line-2); border-radius: 9px; color: var(--muted); line-height: 1.5;
+}
+.cu-danger { color: var(--bad) !important; }
+.cu-form .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* ---------- the runs list and the timeline ---------- */
+button.cu-run-row {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+button.cu-run-row:hover { border-color: var(--line-2); background: var(--surface-2); }
+button.cu-run-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cu-facts { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.cu-task-text {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
+.cu-task-text.open { display: block; overflow: visible; -webkit-line-clamp: unset; }
+.cu-timeline { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.cu-fig { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.cu-shot { position: relative; display: block; width: 100%; cursor: zoom-in; border-radius: 8px; }
+.cu-shot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cu-shot-img { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line-2); }
+.cu-cap { margin: 0; color: var(--muted); font-size: 11.5px; }
+.cu-ring {
+  position: absolute; width: 22px; height: 22px; margin-left: -11px; margin-top: -11px; border-radius: 50%; pointer-events: none;
+  border: 2px solid var(--accent); box-shadow: 0 0 0 2px var(--bg);
+}
+.cu-act { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.cu-act .ic { flex: none; width: 14px; height: 14px; color: var(--accent); }
+.cu-act.bad { color: var(--bad); }
+.cu-act-text { min-width: 0; }
+.cu-event { margin: 0; padding-left: 20px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.cu-ended { margin: 14px 0 0; font-size: 12px; }
+
+/* The full-window view of one screenshot: above the drawer, below the drive bar and its Stop. */
+.cr-viewer {
+  position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px;
+  background: var(--scrim); box-sizing: border-box;
+}
+.cr-bar { display: flex; align-items: center; gap: 8px; flex: none; }
+.cr-caption { margin: 0; flex: 1; text-align: center; color: var(--text-2); font-size: 12.5px; }
+.cr-stage { flex: 1; min-height: 0; overflow: auto; border-radius: 8px; background: var(--surface); }
+.cr-viewer-img { display: block; max-width: none; height: auto; }
+
+/* ---------- a card of a run in the chat (app.js approvalEl, frameShot) ---------- */
+.approval-shot { position: relative; display: inline-block; max-width: 100%; margin: 4px 0 2px; vertical-align: top; }
+.approval-frame {
+  display: block; max-width: 100%; max-height: 320px; width: auto; height: auto; border-radius: 8px;
+  border: 1px solid var(--line-2); cursor: zoom-in;
+}
+.approval-frame.big { max-height: none; width: 100%; cursor: zoom-out; }
+.approval-marker {
+  position: absolute; width: 22px; height: 22px; margin-left: -11px; margin-top: -11px; border-radius: 50%; pointer-events: none;
+  border: 2px solid var(--accent); box-shadow: 0 0 0 2px var(--bg);
+}
+.typeit { border-left: 3px solid var(--accent); }
+.typeit-notice { color: var(--text-2); }
+
+/* The model's notes between actions: muted, italic, two lines until clicked. */
+.thought {
+  font-style: italic; color: var(--muted); font-size: 12.5px; line-height: 1.45; margin: 2px 0; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+}
+.thought.open { display: block; overflow: visible; -webkit-line-clamp: unset; }
+.thought:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* A finished run in the chat: one line, a Review button, and its steps folded under "Show N steps". */
+.computer-run { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 2px 0 6px; color: var(--text-2); font-size: 13px; }
+.computer-run .ic { flex: none; width: 15px; height: 15px; color: var(--muted); }
+.computer-run .cr-text { min-width: 0; overflow-wrap: anywhere; }
+.computer-steps { margin: 2px 0 8px; }
+.computer-steps > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; padding: 2px 0; }
+
+/* The composer's Computer button (ext-computer.js addComposerButton): its words go on a narrow window, the icon stays (UI-ARCH 2). */
+.computer-btn { display: inline-flex; align-items: center; gap: 4px; }
+@media (max-width: 480px) {
+  .computer-words { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}

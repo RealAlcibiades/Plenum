@@ -6,10 +6,11 @@
   'use strict';
 
   // The order the CLIs appear in, and the name used when the server sends no label.
-  const CLI_ORDER = ['claude', 'codex', 'gemini', 'muse'];
-  const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini', muse: 'Muse Code' };
-  // The letter on each card's mark, the same letters the Accounts drawer uses.
-  const MARKS = { claude: 'C', codex: 'X', gemini: 'G', muse: 'M' };
+  // Claude Code, Codex, Gemini CLI, Muse Code, Cursor (UI-ARCH section 5: six CLIs; Grok Build joins after Cursor).
+  const CLI_ORDER = ['claude', 'codex', 'gemini', 'muse', 'cursor'];
+  const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini', muse: 'Muse Code', cursor: 'Cursor' };
+  // The letter on each card's mark, the same letters the Accounts group uses.
+  const MARKS = { claude: 'C', codex: 'X', gemini: 'G', muse: 'M', cursor: 'U' };
   // Limits from the wave contract. The server checks them too; checking here says why at once.
   const LIST_MAX_ITEMS = 20;
   const LIST_MAX_CHARS = 120;
@@ -457,7 +458,7 @@
       .then(data => {
         if (!current()) return;
         if (!hasAnyOption(data)) {
-          root.replaceChildren(stateBlock('No tool options are available yet. Claude Code, Codex, Gemini and Muse Code will list their settings here.', { label: 'Check again', run: retry }));
+          root.replaceChildren(stateBlock('No tool options are available yet. Claude Code, Codex, Gemini, Muse Code and Cursor will list their settings here.', { label: 'Check again', run: retry }));
           return;
         }
         root.replaceChildren(...buildPanel(data, options));

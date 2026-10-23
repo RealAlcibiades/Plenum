@@ -1,0 +1,61 @@
+/* ext-tooltest: styles for "Tools for API models" in Settings › Accounts. Colour and type come from the tokens in style.css, so the
+   section follows both themes. The switch is the app's own .switch, and the status colours are --ok, --bad and --warn. */
+
+.tt-section { display: flex; flex-direction: column; gap: 12px; }
+.tt-section > p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.tt-list { display: flex; flex-direction: column; gap: 12px; }
+.tt-status { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.tt-status.bad, .tt-result.bad { color: var(--bad); }
+.tt-status.ok, .tt-result.ok { color: var(--ok); }
+.tt-error { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+.tt-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border-radius: 10px;
+  background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
+}
+.tt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; justify-content: space-between; }
+.tt-name { min-width: 0; color: var(--text); font: 600 13.5px/1.3 var(--display); overflow-wrap: anywhere; }
+.tt-pill {
+  color: var(--muted); font-size: 12px; line-height: 1.4; text-align: right;
+  padding: 2px 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.tt-pill.ok { color: var(--ok); }
+.tt-pill.bad { color: var(--bad); }
+.tt-pill.warn { color: var(--warn); }
+.tt-estimate { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+.tt-notice {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; justify-content: space-between;
+  padding: 8px 10px 8px 12px; border-radius: 8px; border-left: 3px solid var(--warn);
+  background: var(--surface); color: var(--text-2); font-size: 12.5px; line-height: 1.5;
+}
+.tt-notice[hidden] { display: none; }
+.tt-notice-text { margin: 0; flex: 1 1 220px; min-width: 0; }
+
+.tt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.tt-switch { margin-left: auto; }
+.tt-switch-text { white-space: nowrap; }
+
+.tt-confirm, .tt-live {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border-radius: 8px; background: var(--surface);
+}
+.tt-confirm[hidden], .tt-live[hidden], .tt-steps[hidden] { display: none; }
+.tt-confirm p, .tt-progress { margin: 0; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.tt-confirm-actions, .tt-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.tt-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.tt-step.ok .tt-step-name { color: var(--ok); }
+.tt-step.bad .tt-step-name { color: var(--bad); }
+.tt-step-note { color: var(--muted); overflow-wrap: anywhere; }
+.tt-result { font-size: 12.5px; }
+
+.tt-add { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.tt-add-label { display: flex; flex: 1 1 220px; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; min-width: 0; }
+.tt-add-label input {
+  width: 100%; min-width: 0; padding: 7px 9px; border-radius: 7px;
+  background: var(--surface); color: var(--text); font: 13px/1.3 var(--mono);
+  border: 1px solid var(--line-2);
+}
+.tt-add .tt-status { flex-basis: 100%; }

@@ -1,6 +1,6 @@
 # Plenum License Agreement
 
-Version 3 · Effective [EFFECTIVE DATE]
+Version 4 · Effective [EFFECTIVE DATE]
 
 This agreement is between you and [LICENSOR NAME] ("we", "us"), the maker of Plenum. It covers the Plenum desktop app, its documentation and any new versions we publish ("Plenum").
 
@@ -51,12 +51,12 @@ Plenum includes open-source software, such as Electron and Chromium. Each compon
 
 ## 6. AI providers and other third-party services
 
-**Plenum is a tool for using services that other companies run.** It does not provide, host or train any AI model. Depending on what you set up, it runs command-line tools such as Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google) and Muse Code (Meta), and it sends requests to the APIs of providers such as Anthropic, xAI, OpenAI, DeepSeek, Mistral AI, Google and OpenRouter ("Third-Party Services").
+**Plenum is a tool for using services that other companies run.** It does not provide, host or train any AI model. Depending on what you set up, it runs command-line tools such as Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), Cursor CLI (Cursor) and Muse Code (Meta), and it sends requests to the APIs of providers such as Anthropic, xAI, OpenAI, DeepSeek, Mistral AI, Google and OpenRouter ("Third-Party Services").
 
 You are responsible for:
 
 - **Your accounts and keys.** Getting, signing in to and keeping your accounts, subscriptions and API keys, keeping them secure, and everything done with them. You install the providers' tools yourself. Plenum may show you a publisher's install command; running it is your choice and installs that publisher's software under its terms. Plenum does not install, change or bundle those tools, and it does not collect or store your sign-ins for them.
-- **Costs.** All fees, charges and plan limits for Third-Party Services. That includes charges from long or repeated agent runs, several models answering at once, retries, reviews, key checks and usage checks. Cost and price figures in Plenum are estimates and can be wrong. Plenum's spend limits do not cover every kind of run and may not stop every charge. Your provider's bill is what counts.
+- **Costs.** All fees, charges and plan limits for Third-Party Services. That includes charges from long or repeated agent runs, several models answering at once, retries, reviews, key checks, usage checks and tool tests. Cost and price figures in Plenum are estimates and can be wrong. Plenum's spend limits do not cover every kind of run and may not stop every charge. Your provider's bill is what counts.
 - **Their terms.** Following each provider's terms of service, usage policies, rate limits and other rules. That includes any rules on using a subscription through other software, on automated access, and on what you may do with output. Some providers limit or forbid using their subscription plans through other apps. The Third-Party Services notice names the rules we know of. Check the current terms before you use a provider with Plenum.
 - **Your data with them.** Deciding what you send to each provider, and having the right to send it. Each provider handles your data under its own terms and privacy policy.
 
@@ -72,12 +72,12 @@ AI models make mistakes. Output can be wrong, incomplete, out of date, insecure,
 
 ## 8. Agents and the actions you allow
 
-Plenum can let AI models act on your computer as well as answer. Depending on the features and settings you use, a model or a provider's tool can read, create, change and delete files; run commands with your user rights and your environment; reach the internet; change Plenum's own files once you apply an update; hand tasks to other agents; and, where those features are available, control a browser or your mouse and keyboard.
+Plenum can let AI models act on your computer as well as answer. Depending on the features and settings you use, a model or a provider's tool can read, create, change and delete files; run commands with your user rights and your environment; reach the internet; change Plenum's own files once you apply an update; hand tasks to other agents; and, where those features are available, control a browser or your mouse and keyboard. Provider tools such as Claude Code, Codex, Gemini CLI and Cursor can also use Plenum's browser pane, a computer-use run that you started and Plenum's agents through a local bridge. Plenum can run a check command that you set, with your user rights, after a turn that changed files and, if you turn auto-fix on, send a failed check back to the model so that it changes your files again.
 
 **You decide what it may do, and you are responsible for what you allow.**
 
-- An action you approve is authorized by you. So is everything that runs after you turn on a setting that approves actions for you, such as Auto-approve, Approve all, a provider tool's own no-ask mode, browser control, computer use or delegation to other agents. As between you and us, those actions are your actions.
-- Plenum's safety features lower some risks, but they are not complete and they can fail. They include approval cards, blocked folders and commands, checkpoints, plan mode, sandbox settings and spend limits. They do not cover what providers' tools do on their own, such as files that Codex, Gemini or Muse Code write. A model can also be misled by instructions hidden in files, web pages, screens or tool output ("prompt injection").
+- An action you approve is authorized by you. So is everything that runs after you turn on a setting that approves actions for you, such as Auto-approve, Approve all, a provider tool's own no-ask mode, browser control, computer use, delegation to other agents or auto-fix after a failed check. As between you and us, those actions are your actions.
+- Plenum's safety features lower some risks, but they are not complete and they can fail. They include approval cards, blocked folders and commands, checkpoints, turn snapshots with Rewind, plan mode, sandbox settings, spend limits and the check that keeps a model from typing into a password field. They do not cover what providers' tools do on their own, such as files that Codex, Gemini or Muse Code write, or what Cursor does when it runs in its print mode. Snapshots cannot undo anything outside your project folder, such as a message that was sent or a change on another system. The password-field check depends on what your operating system tells Plenum about the field that has the focus. On Windows Plenum does not type where it cannot tell. On macOS and Linux it types where the system cannot say, and on Linux it can tell only in programs that expose their fields to the accessibility service. A model can also be misled by instructions hidden in files, web pages, screens or tool output ("prompt injection").
 - You are responsible for protecting your systems and data. Keep backups and use version control. For agents that act without asking, prefer a separate user account, container or virtual machine. Watch long runs. Keep passwords and private information out of view when a model can see your screen. Do not point agents at systems, accounts or data you are not allowed to use.
 - You are responsible for following the terms of every website, app and service an agent uses for you.
 
@@ -99,7 +99,7 @@ Plenum runs on your computer and sends us nothing. It has no telemetry, analytic
 
 ## 11. Updates and changes
 
-We publish new versions of Plenum on GitHub. Unless you turn the checks off under Settings > Updates, the installed app looks for a new version every few hours and, when its build can install itself, downloads it. It installs a downloaded version only when you choose Restart to update or when you quit Plenum, and it never restarts by itself. Other builds show you the new version and where to download it. The Privacy Notice says what the check sends. Separately, the Updates panel only applies changes that a model proposed and that you reviewed and chose to apply. Those changes come from the model, not from us.
+Plenum can check for new versions that we publish on GitHub and, on builds that support it, download them and install them when you choose Restart to update or when you quit Plenum, and it never restarts by itself. You can turn the check off in Settings > Updates; you then update by downloading a new version yourself. The Privacy Notice (section 6) says what the check sends. The Updates panel is different: it only applies changes that a model proposed and that you reviewed and chose to apply. Those changes come from the model, not from us. When Plenum updates to a new version, the changes you applied from the Updates panel are set aside, so that the new version runs as we shipped it.
 
 We may change, suspend or stop Plenum or any feature at any time, and some features may be marked as planned or experimental. We have no duty to support, fix or update Plenum.
 

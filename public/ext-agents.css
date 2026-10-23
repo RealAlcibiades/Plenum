@@ -1,0 +1,42 @@
+/* The Agents tab of the side pane (public/ext-agents.js). Colours and type come from the shared tokens in style.css, so both themes follow.
+   Nothing is set inline: the page writes classes and text only. Rows are laid out for the pane's own width (380 px and up), so there is
+   no viewport query: a long title wraps to two lines, then ellipsis, and the Stop button stays at the right. */
+
+.ext-agl { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 16px; min-width: 0; color: var(--text); }
+.ext-agl[hidden] { display: none; }
+
+.ext-agl-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ext-agl-count { flex: 1 1 auto; min-width: 0; color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.ext-agl-stop-all, .ext-agl-clear, .ext-agl-stop { flex: none; }
+
+.ext-agl-sec { display: flex; flex-direction: column; min-width: 0; }
+.ext-agl-sechead { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-bottom: 2px; }
+
+.ext-agl-row {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  padding: 9px 0; border-top: 1px solid var(--line);
+}
+.ext-agl-nested { margin-left: 16px; padding-left: 10px; border-left: 1px solid var(--line); }
+
+.ext-agl-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ext-agl-row .pill { margin-left: 0; flex: none; }
+.ext-agl-title {
+  flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+}
+
+.ext-agl-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ext-agl-from { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.ext-agl-state { color: var(--muted); }
+.ext-agl-state.warn { color: var(--warn); }
+.ext-agl-state.ok { color: var(--ok); }
+.ext-agl-state.bad { color: var(--bad); }
+
+.ext-agl-error { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; color: var(--bad); font-size: 12.5px; overflow-wrap: anywhere; }
+.ext-agl-error-line { color: var(--bad); font-size: 12px; overflow-wrap: anywhere; }
+
+.ext-agl-wait { display: inline-flex; align-items: center; gap: 9px; margin: 0; color: var(--muted); font-size: 12.5px; }
+.ext-agl-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.ext-agl-text { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.ext-agl-stop:disabled, .ext-agl-stop-all:disabled { opacity: 0.5; cursor: default; }

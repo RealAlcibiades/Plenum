@@ -1,0 +1,58 @@
+/* Settings > Updates (public/ext-app-updates.js). Every colour is a token from style.css, so both themes follow; nothing is set inline.
+   One layout at every width: each button sits under the sentence it belongs to. The dots are drawn from the body class au-has-update:
+   on the Settings link (at its right end, or at its top right in the icon strip) and on the menu button at 860 px and below. */
+
+.au-root { display: grid; gap: 10px; min-width: 0; }
+
+/* The version line: 'Plenum 0.5.0' in text colour, ' · Stable' in muted, and Check now at the right end. */
+.au-version { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.au-name { min-width: 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.au-name-main { font-weight: 600; }
+.au-channel { color: var(--muted); }
+.au-check { flex: none; }
+.au-check-msg { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-2); overflow-wrap: anywhere; }
+
+/* The status block (rows 3 to 6): the sentence, its detail, one action with its quiet line, the bar and What changed. */
+.au-status { display: grid; gap: 6px; min-width: 0; }
+.au-sentence-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.au-sentence { font-size: 13px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.au-detail, .au-quiet, .au-build, .au-installed-text, .au-foot { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.au-quiet.au-plain { color: var(--text-2); }
+.au-actions { gap: 8px; }
+.au-actions .primary, .au-actions .ghost { flex: none; }
+
+/* The download bar: the Usage panel's .meter (track and brand fill come from style.css). */
+.au-meter { margin: 0; }
+
+/* What changed: the summary reads like the Updates panel's summary; the notes are sentences, so they use the UI font. */
+.au-notes summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
+.au-notes-body {
+  margin-top: 8px; padding: 10px 12px; max-height: 240px; overflow: auto;
+  font: 13px/1.55 var(--ui); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+}
+.au-installed { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* The rule between what Plenum found and what you set. */
+.au-rule { height: 0; border-top: 1px solid var(--line); }
+
+/* The save line under a control: muted for 'Saved', red for a refusal. It is absent while empty. */
+.au-save { min-height: 16px; font-size: 12px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.au-save:empty { display: none; }
+.au-save.au-bad { color: var(--bad); }
+
+/* Settings link and menu button dots. */
+body.au-has-update #settingsBtn { position: relative; }
+body.au-has-update #settingsBtn::after {
+  content: ""; flex: none; width: 8px; height: 8px; margin-left: auto; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 2px var(--bg);
+}
+body.au-has-update .app[data-strip] #settingsBtn::after { position: absolute; top: 6px; right: 8px; margin-left: 0; }
+
+@media (max-width: 860px) {
+  /* The same dot as the Updates count on the menu button (ext-sidebar.css .ext-side-dot), so the two overlap as one. */
+  body.au-has-update .ext-side-toggle::after {
+    content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 2px var(--bg);
+  }
+}

@@ -2,8 +2,11 @@
 // A file chosen with the attach button, dropped on the message box, or pasted into it becomes a chip above the text with a
 // button to take it off again. A picture (PNG, JPEG, GIF or WebP, told by its first bytes) goes as an image. A PDF and any
 // other file go as { name, mime, data } too, and the server sorts them by their bytes: text and code are sent inline to every
-// model, a PDF only to Claude through an API key, and anything else is refused in plain words. This page only gives an early
-// message, going by the file's extension and size; it never decides what a file is.
+// model, a PDF goes to Claude through an API key as a document and to every other model as the text Plenum reads from it, and
+// anything else is refused in plain words. Which models take images is the table the server keeps (GET /api/capabilities, see
+// lib/capabilities.mjs), read when the page opens and when the model changes; under the chips a line names the selected model
+// and what it will receive. This page only gives an early message, going by the table and the file's extension and size; the
+// server decides what a file is and what the model gets.
 // The files go with the next chat message in the images field of the POST /api/chat body (data is base64), because that is the
 // list app.js sends. The server checks each one again. They stay in this page until the message is sent and are kept nowhere.
 // app.js reads the files through window.MuseImages (see sendMessage there).
@@ -21,11 +24,10 @@
   const MAX_TEXT_BYTES = 200 * 1024;
   const MAX_TEXT_TOTAL = 600 * 1024;
   const MAX_TOTAL_BYTES = 25 * MB;
-  const IMAGE_REFUSAL = 'This model cannot take images in Plenum yet. Attach the image to a model that can (Claude or Codex).';
-  const PDF_REFUSAL = 'Plenum sends a PDF only to Claude through an API key. Claude through the CLI, Codex, Gemini, Muse Code and the OpenAI-compatible models cannot take one yet. Paste the text you need, or ask Claude by API key (Accounts).';
-  const ATTACHES = 'Plenum attaches text, code, images (PNG, JPEG, GIF, WebP) and PDF (for Claude by API key).';
+  const IMAGE_REFUSAL = 'This model cannot take images in Plenum. The attach chip shows which models can.';
+  const ATTACHES = 'Plenum attaches text, code, images (PNG, JPEG, GIF, WebP) and PDF.';
   const EXTENSION = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
-  const TAKES_IMAGES = new Set(['anthropic', 'codex']);
+  const MIME_WORD = { 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/gif': 'GIF', 'image/webp': 'WebP' };
   // Extensions of files that are plainly not text, so they can be turned away before they are read. Anything else is sent and
   // the server decides.
   const NOT_TEXT = /\.(docx?|dotx?|xlsx?|xlsm|pptx?|odt|ods|odp|zip|7z|rar|tar|gz|tgz|bz2|xz|exe|dll|msi|bin|iso|dmg|jar|apk|class|so|bmp|tiff?|ico|heic|heif|avif|psd|mp3|m4a|wav|flac|ogg|mp4|m4v|mov|avi|mkv|webm|sqlite|db|ttf|otf|woff2?)$/i;
@@ -34,8 +36,11 @@
   // The files waiting to be sent: { name, mime, data, size, kind } with kind 'image', 'pdf' or 'file'.
   let picked = [];
   let pastes = 0;
-  // The reason the last model check said no: the picture words or the PDF words.
+  // The reason the last model check said no, in the words the server would use.
   let lastRefusal = IMAGE_REFUSAL;
+  // What the server says each model takes (GET /api/capabilities): { checkedOn, models: { [ref]: { image, why, mimes, pdf } } }.
+  // null until it has loaded. While it is null the server judges every file, as it does for a model this page cannot place.
+  let caps = null;
   // Files are read one batch at a time, so two quick drops cannot both pass the count check.
   let chain = Promise.resolve();
 
@@ -62,38 +67,63 @@
     reader.readAsDataURL(file);
   });
 
-  // The provider of a model name or ref ("claude" or "anthropic:claude-opus-5-5"); the selected model when none is given.
-  function providerFor(model) {
-    const ref = model ? (MuseUI.aliases?.[String(model).toLowerCase()] ?? String(model)) : MuseUI.state.model;
-    if (ref?.includes(':')) return ref.slice(0, ref.indexOf(':'));
-    return MuseUI.catalog?.find(c => c.id === ref)?.provider ?? '';
+  // The ref of a model name or ref ("claude" or "anthropic:claude-opus-5-5"). The model picker's choice when none is given: the
+  // picker changes at once, before the server's state arrives.
+  function refFor(model) {
+    if (!model) return el.model?.value || MuseUI.state.model || '';
+    return MuseUI.aliases?.[String(model).toLowerCase()] ?? String(model);
   }
 
-  // True when the model takes images. A model this page cannot place is left to the server to judge.
-  const takesImages = provider => !provider || TAKES_IMAGES.has(provider);
-
-  // True when the model could take a PDF: Claude, and not through the CLI. When the route is not known yet the server decides.
-  function takesPdf(provider) {
-    if (!provider) return true;
-    if (provider !== 'anthropic') return false;
-    const route = MuseUI.providers?.anthropic?.route;
-    return !route || route === 'api';
+  // The label of a ref in the model list, or the ref itself.
+  function labelOf(ref) {
+    return MuseUI.catalog?.find(c => (c.ref ?? `${c.provider}:${c.id}`) === ref)?.label ?? ref;
   }
 
-  // app.js asks this before it sends the files it was given. It is false only for files that are in the list and that the
-  // model cannot take; REFUSAL then holds the reason. The list is the files waiting here by default, or the files a queued
-  // message was queued with (B-94). A file of any other kind is left to the server.
+  // The table's row for a model, or null when the table is not loaded or does not list the model (the server judges then).
+  const entryFor = model => caps?.models?.[refFor(model)] ?? null;
+
+  // The types in plain words for a refusal: ['image/png', 'image/jpeg'] -> 'PNG and JPEG'.
+  function wordsOf(mimes) {
+    const names = mimes.map(m => MIME_WORD[m] ?? m);
+    if (names.length <= 1) return names.join('');
+    return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  }
+
+  // app.js asks this before it sends the files it was given. It is false only for an image the model cannot take, or a type it does
+  // not take; REFUSAL then holds the reason. A PDF is never refused here: every model takes one, as a document or as text. The list is
+  // the files waiting here by default, or the files a queued message was queued with (B-94). A file of any other kind is left to the server.
   function takes(model, files = picked) {
-    const provider = providerFor(model);
-    if (files.some(f => f.kind === 'image') && !takesImages(provider)) {
+    const entry = entryFor(model);
+    const images = files.filter(f => f.kind === 'image');
+    if (!entry || !images.length) return true;
+    if (!entry.image) {
       lastRefusal = IMAGE_REFUSAL;
       return false;
     }
-    if (files.some(f => f.kind === 'pdf') && !takesPdf(provider)) {
-      lastRefusal = PDF_REFUSAL;
+    if (images.some(f => entry.mimes.length && !entry.mimes.includes(f.mime))) {
+      lastRefusal = `${labelOf(refFor(model))} takes ${wordsOf(entry.mimes)} images only.`;
       return false;
     }
     return true;
+  }
+
+  // Council mode, from the segmented switch in the composer (app.js sets aria-pressed on it).
+  const inCouncil = () => (el.modeBtns ?? []).some(b => b.dataset.mode === 'council' && b.getAttribute('aria-pressed') === 'true');
+
+  // GET /api/capabilities: the table the server keeps. Read when the page opens and each time the model changes. A failed read keeps the
+  // table it had; with none, the server judges every file.
+  async function loadCaps() {
+    try {
+      await MuseUI.ready;
+      const res = await MuseUI.request('/api/capabilities');
+      if (res.ok) {
+        const body = await res.json();
+        if (body && typeof body.models === 'object' && body.models !== null) caps = body;
+      }
+    } catch {
+      // Keep the table it had. The server judges every file anyway.
+    }
+    paintCaps();
   }
 
   // ---------- the chips above the text ----------
@@ -104,6 +134,11 @@
   row.setAttribute('role', 'group');
   row.setAttribute('aria-label', 'Files to send');
   el.input.before(row);
+  // The line under the chips: the selected model, what it takes, and what it will receive (role status, see paintCaps).
+  const capsLineEl = MuseUI.span('ext-images-caps note-quiet', '');
+  capsLineEl.setAttribute('role', 'status');
+  capsLineEl.hidden = true;
+  row.after(capsLineEl);
 
   function chipFor(file) {
     const chip = MuseUI.span('chip', '');
@@ -123,6 +158,26 @@
   function paint() {
     row.hidden = picked.length === 0;
     row.replaceChildren(...picked.map(chipFor));
+    paintCaps();
+  }
+
+  // The line for the selected model, shown while files are attached: whether it takes images, and whether a PDF goes as a document or as
+  // text. In Council mode the seats get the text only (the council takes no images yet).
+  function paintCaps() {
+    const ref = refFor();
+    const entry = caps?.models?.[ref];
+    if (!picked.length || !entry) {
+      capsLineEl.hidden = true;
+      capsLineEl.textContent = '';
+      capsLineEl.removeAttribute('title');
+      return;
+    }
+    let text = `${labelOf(ref)}: ${entry.image ? 'image ok' : 'images not supported'} · ${entry.pdf === 'native' ? 'PDF ok' : 'PDF as text'}`;
+    if (inCouncil()) text += '. Council seats get the text only.';
+    capsLineEl.textContent = text;
+    if (entry.why) capsLineEl.title = entry.why;
+    else capsLineEl.removeAttribute('title');
+    capsLineEl.hidden = false;
   }
 
   // ---------- adding files ----------
@@ -146,7 +201,7 @@
       return true;
     }
     const mime = sniff(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
-    const provider = providerFor();
+    const entry = entryFor();
     let kind = 'file';
     if (mime) {
       kind = 'image';
@@ -154,8 +209,12 @@
         bad(`At most ${MAX_IMAGES} images can go with one message.`);
         return false;
       }
-      if (!takesImages(provider)) {
+      if (entry && !entry.image) {
         bad(IMAGE_REFUSAL);
+        return true;
+      }
+      if (entry && entry.mimes.length && !entry.mimes.includes(mime)) {
+        bad(`${labelOf(refFor())} takes ${wordsOf(entry.mimes)} images only.`);
         return true;
       }
       if (file.size > MAX_IMAGE_BYTES) {
@@ -164,10 +223,6 @@
       }
     } else if (PDF_NAME.test(file.name)) {
       kind = 'pdf';
-      if (!takesPdf(provider)) {
-        bad(PDF_REFUSAL);
-        return true;
-      }
       if (file.size > MAX_PDF_BYTES) {
         bad(`"${label}" is ${sizeText(file.size)}. A PDF can be at most ${sizeText(MAX_PDF_BYTES)}.`);
         return true;
@@ -277,6 +332,14 @@
   document.addEventListener('drop', e => {
     if (hasFiles(e) && !el.form.contains(e.target)) e.preventDefault();
   });
+
+  // The table is read now, and again when the model changes. The council switch only changes the line's last sentence.
+  el.model?.addEventListener('change', () => {
+    paintCaps();
+    loadCaps();
+  });
+  for (const b of el.modeBtns ?? []) b.addEventListener('click', () => setTimeout(paintCaps, 0));
+  loadCaps();
 
   window.MuseImages = {
     // The reason takes() last said no, in the server's words.

@@ -17,9 +17,15 @@
 //    another user (`ps -o uid=`).
 //  - userInput(): the pointer moved more than 3 px, or CGEventSourceSecondsSinceLastEventType(HID state, key down) is shorter than
 //    the time since our last injection (hardware state excludes our private source). UNVERIFIED.
-//  - isSecureField() is null: macOS does not say which field is secure without the accessibility API. So run.mjs cannot refuse to type
-//    into a password field here, and the start card, the computer-use notice and the system text say so (hasPasswordGuard in
-//    lib/computer/policy.mjs). Reading AXFocusedUIElement's role (AXSecureTextField) would close this; it needs a Mac to check it on.
+//  - isSecureField() asks the accessibility API (ApplicationServices, loaded on the first call, never at start-up; the same Accessibility
+//    permission as input injection): AXUIElementCreateSystemWide -> AXFocusedUIElement (or, when that fails, AXFocusedApplication ->
+//    AXFocusedUIElement) -> AXRole and AXSubrole. AppKit and Chromium mark a password field as role AXTextField with the SUBROLE
+//    AXSecureTextField; the role is checked for that name too. -> true for one. Then the Carbon flag IsSecureEventInputEnabled(),
+//    which AppKit and Chromium switch on while a password field has focus: on -> true for ANY focused element, a plain text role
+//    included (a program may expose its password field as an ordinary AXTextField; a false positive only refuses typing). With the flag
+//    off (or unreadable): false for a text field that is not secure, null (cannot tell) for anything else (no permission, no focused
+//    element, a web area or group whose children are not exposed). The system-wide messaging timeout is set to 0.4 s once, because the calls are synchronous on the main thread
+//    and a hung program must not freeze Stop. A failure to load or call anything answers null. UNVERIFIED on a real Mac, like the rest.
 const nodeFs = require('node:fs');
 const { execFile } = require('node:child_process');
 const { cleanEnv } = require('./env.cjs');
@@ -36,6 +42,14 @@ const UTF8 = 0x08000100;
 const FLAGS = { shift: 0x20000, ctrl: 0x40000, alt: 0x80000, super: 0x100000 };
 const MOUSE_TYPES = { left: { down: 1, up: 2, drag: 6, button: 0 }, right: { down: 3, up: 4, drag: 7, button: 1 }, middle: { down: 25, up: 26, drag: 27, button: 2 } };
 const PIXELS_PER_NOTCH = 50;
+
+// The accessibility side of isSecureField().
+const AX_FRAMEWORK = '/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices';
+const CARBON_FRAMEWORK = '/System/Library/Frameworks/Carbon.framework/Carbon';
+const AX_SECURE = 'AXSecureTextField';
+// The roles of a field the person types into: for these the accessibility answer is false unless the secure-input flag is on.
+const AX_TEXT_ROLES = new Set(['AXTextField', 'AXTextArea', 'AXComboBox', 'AXSearchField']);
+const AX_TIMEOUT_SECONDS = 0.4;
 
 // ANSI virtual key codes.
 const KEYCODES = Object.freeze({
@@ -251,6 +265,123 @@ function createMacNative({ koffi, space, run = defaultRun, env = process.env, ge
       return space.toPhysicalPoint({ x: p.x, y: p.y });
     } finally {
       api.CFRelease(event);
+    }
+  }
+
+  // ---------- the focused field ----------
+
+  // undefined: not tried yet; null: the accessibility API cannot be used here (loaded once, never retried); else the functions.
+  let ax;
+
+  function loadAx() {
+    if (ax !== undefined) return ax;
+    ax = null;
+    try {
+      const services = koffi.load(AX_FRAMEWORK);
+      const fns = {
+        createSystemWide: services.func('void *AXUIElementCreateSystemWide()'),
+        copyAttribute: services.func('int AXUIElementCopyAttributeValue(void *element, void *attribute, _Out_ void **value)'),
+        setTimeout: null,
+        secureInput: null,
+        system: null,
+      };
+      try {
+        fns.setTimeout = services.func('int AXUIElementSetMessagingTimeout(void *element, float timeoutInSeconds)');
+      } catch {
+        // Without it a hung program can make a call wait for the system's own limit; the answer is still right.
+      }
+      try {
+        fns.secureInput = koffi.load(CARBON_FRAMEWORK).func('bool IsSecureEventInputEnabled()');
+      } catch {
+        // Without it only the accessibility answer is used.
+      }
+      fns.system = fns.createSystemWide();
+      if (!fns.system) return ax;
+      if (fns.setTimeout) {
+        try {
+          fns.setTimeout(fns.system, AX_TIMEOUT_SECONDS);
+        } catch {
+          // Not fatal.
+        }
+      }
+      ax = fns;
+    } catch {
+      ax = null;
+    }
+    return ax;
+  }
+
+  // One attribute of an accessibility element, or null. Every value that comes back is the caller's to CFRelease.
+  function axAttribute(f, element, name) {
+    const out = [null];
+    const error = f.copyAttribute(element, key(name), out);
+    return error === 0 && out[0] ? out[0] : null;
+  }
+
+  function axString(f, element, name) {
+    const value = axAttribute(f, element, name);
+    if (!value) return '';
+    try {
+      return readString(value);
+    } finally {
+      api.CFRelease(value);
+    }
+  }
+
+  // The focused element (a +1 reference to release), or null: the system-wide one first, then the focused application's.
+  function axFocused(f) {
+    const direct = axAttribute(f, f.system, 'AXFocusedUIElement');
+    if (direct) return direct;
+    const app = axAttribute(f, f.system, 'AXFocusedApplication');
+    if (!app) return null;
+    try {
+      return axAttribute(f, app, 'AXFocusedUIElement');
+    } finally {
+      api.CFRelease(app);
+    }
+  }
+
+  // The system's secure-input flag: true only when it is readable and on. A flag that cannot be read says nothing.
+  function secureInputOn(f) {
+    try {
+      return !!f.secureInput && f.secureInput() === true;
+    } catch {
+      return false;
+    }
+  }
+
+  // true: the focused field is a password field. false: it is a text field that is not. null: cannot tell.
+  async function isSecureField() {
+    let f;
+    try {
+      f = loadAx();
+    } catch {
+      return null;
+    }
+    if (!f) return null;
+    try {
+      const focused = axFocused(f);
+      let role = '';
+      let subrole = '';
+      if (focused) {
+        try {
+          role = axString(f, focused, 'AXRole');
+          subrole = axString(f, focused, 'AXSubrole');
+        } finally {
+          api.CFRelease(focused);
+        }
+        if (role === AX_SECURE || subrole === AX_SECURE) return true;
+      }
+      // A secure-input flag that is on is the system saying that a password is being typed (AppKit and Chromium switch it on while a
+      // password field has focus). It wins over a plain text role too: a program may expose its password field as an ordinary AXTextField.
+      // A false positive only refuses typing, the safe side; off says nothing either way.
+      if (secureInputOn(f)) return true;
+      // A text field with the flag off: the accessibility answer. Anything else is not conclusive (the program may not expose its fields,
+      // or the permission may be missing).
+      if (AX_TEXT_ROLES.has(role)) return false;
+      return null;
+    } catch {
+      return null;
     }
   }
 
@@ -526,9 +657,7 @@ function createMacNative({ koffi, space, run = defaultRun, env = process.env, ge
       return now2 && now2.pid === target.pid ? { ok: true } : { ok: false, reason: 'no-focus', message: 'macOS did not bring that window to the front.' };
     },
 
-    async isSecureField() {
-      return null;
-    },
+    isSecureField,
 
     async userInput() {
       const here = await cursor().catch(() => null);

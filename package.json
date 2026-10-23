@@ -31,7 +31,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
     "electron-updater": "^6.8.9",
-    "koffi": "^2.9.0"
+    "koffi": "^2.9.0",
+    "pdfjs-dist": "6.4.299"
   },
   "devDependencies": {
     "electron": "^44.7.0",
@@ -68,7 +69,12 @@
       "package.json",
       "build/icon.png",
       "node_modules/**/*",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/pdfjs-dist/web/**",
+      "!node_modules/pdfjs-dist/types/**",
+      "!node_modules/pdfjs-dist/image_decoders/**",
+      "!node_modules/pdfjs-dist/build/**",
+      "!node_modules/@napi-rs/**"
     ],
     "extraFiles": [
       {
@@ -107,6 +113,11 @@
         "build/icon.png",
         "node_modules/**/*",
         "!**/*.map",
+        "!node_modules/pdfjs-dist/web/**",
+        "!node_modules/pdfjs-dist/types/**",
+        "!node_modules/pdfjs-dist/image_decoders/**",
+        "!node_modules/pdfjs-dist/build/**",
+        "!node_modules/@napi-rs/**",
         "!node_modules/koffi/build/koffi/{darwin_*,freebsd_*,linux_*,musl_*,openbsd_*,win32_arm64,win32_ia32}/**"
       ],
       "target": [
@@ -158,6 +169,11 @@
         "build/icon.png",
         "node_modules/**/*",
         "!**/*.map",
+        "!node_modules/pdfjs-dist/web/**",
+        "!node_modules/pdfjs-dist/types/**",
+        "!node_modules/pdfjs-dist/image_decoders/**",
+        "!node_modules/pdfjs-dist/build/**",
+        "!node_modules/@napi-rs/**",
         "!node_modules/koffi/build/koffi/{freebsd_*,linux_*,musl_*,openbsd_*,win32_*}/**"
       ]
     },
@@ -180,6 +196,11 @@
         "build/icon.png",
         "node_modules/**/*",
         "!**/*.map",
+        "!node_modules/pdfjs-dist/web/**",
+        "!node_modules/pdfjs-dist/types/**",
+        "!node_modules/pdfjs-dist/image_decoders/**",
+        "!node_modules/pdfjs-dist/build/**",
+        "!node_modules/@napi-rs/**",
         "!node_modules/koffi/build/koffi/{darwin_*,freebsd_*,musl_*,openbsd_*,win32_*,linux_arm*,linux_ia32,linux_loong64,linux_riscv64d}/**"
       ]
     },

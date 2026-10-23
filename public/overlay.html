@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <!-- The bar of the computer-use overlay (desktop/computer/overlay.cjs loads this page into its 560x44 window, with the state, label,
-       model and theme in the query). It runs under the server's policy and carries the same one itself, so even a server that sends
-       none leaves it with no inline script, no inline style and no network but its own origin. -->
+  <!-- The bar of the computer-use overlay (desktop/computer/overlay.cjs loads this page into its 560x44 window, with the model, the label
+       and the theme in the query). It runs under the server's policy and carries the same one itself, so even a server that sends none
+       leaves it with no inline script, no inline style and no network but its own origin. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
@@ -13,16 +13,18 @@
 </head>
 <body marginwidth="0" marginheight="0" leftmargin="0" topmargin="0">
   <!-- The 6x6 magenta square (#ff00ff) at the top-left of the window: the first capture of a run looks for it to learn whether the
-       system keeps this window out of screenshots (desktop/computer/capture.cjs). It is drawn by attributes alone, so it is there
-       and in the right place even if the stylesheet does not load. Keep it the first thing in the page, and leave its colour alone. -->
-  <table class="mark" role="presentation" aria-hidden="true" width="6" height="6" border="0" cellspacing="0" cellpadding="0" bgcolor="#ff00ff"><tr><td></td></tr></table>
+       system keeps this window out of screenshots (desktop/computer/capture.cjs). It is a table drawn by its attributes, so it is there
+       and in the right place even if the stylesheet does not load (a div would need the stylesheet). Keep it the first thing in the page,
+       and leave its colour alone. -->
+  <table class="ov-marker" role="presentation" aria-hidden="true" width="6" height="6" border="0" cellspacing="0" cellpadding="0" bgcolor="#ff00ff"><tr><td></td></tr></table>
 
   <div class="bar" id="bar" role="group" aria-label="Model control" data-tone="running">
-    <span class="dot" aria-hidden="true"></span>
-    <span class="text" id="text">A model is controlling this computer</span>
+    <span class="ov-dot" aria-hidden="true"></span>
+    <span class="ov-text" id="ovText">A model is controlling this computer</span>
+    <kbd class="ov-key" id="ovKey" aria-label="Stop key"></kbd>
     <span class="actions">
-      <button type="button" class="btn" id="toggle">Pause</button>
-      <button type="button" class="btn stop" id="stop">Stop</button>
+      <button type="button" class="btn" id="ovToggle">Pause</button>
+      <button type="button" class="btn stop" id="ovStop">Stop</button>
     </span>
     <span class="sr" id="live" aria-live="polite"></span>
   </div>

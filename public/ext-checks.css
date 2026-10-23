@@ -1,0 +1,34 @@
+/* ext-checks: the Check after each turn section in Project settings, the badge and its buttons under a reply, and Run checks.
+   Uses the shared colour tokens from style.css only (light and dark follow them). Amber is attention, green passed, red failed. */
+.ext-checks-form { display: grid; gap: 10px; min-width: 0; }
+.ext-checks-form .ext-checks-input { width: 100%; min-width: 0; }
+.ext-checks-form .ext-checks-field { display: grid; gap: 6px; min-width: 0; }
+.ext-checks-form .ext-checks-field input[type="number"] { width: 9em; max-width: 100%; }
+.ext-checks-form .ext-checks-autofix-note { margin: 0; }
+.ext-checks-form .ext-checks-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ext-checks-form .ext-checks-status { min-width: 0; overflow-wrap: anywhere; }
+.ext-checks-form .ext-checks-status.bad { color: var(--bad); }
+.ext-checks-form .ext-checks-row-status:empty { display: none; }
+.ext-checks-form .ext-checks-row-status { display: block; }
+.ext-checks-form .ext-checks-row-status.bad { color: var(--bad); }
+/* The 'auto-checks' strip (ext-notices.js) sits in the form's own grid, so the grid's gap spaces it. */
+.ext-checks-form .risk-note { margin: 0; }
+
+/* The reply's row: the badge takes the row's full width, so the Output text can sit under it. */
+.ext-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex-basis: 100%; min-width: 0; }
+.ext-checks-badge {
+  display: inline-block; max-width: 100%; padding: 2px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line);
+  font: 600 12px/1.4 var(--ui); overflow-wrap: anywhere;
+}
+.ext-checks-badge.ok { color: var(--ok); }
+.ext-checks-badge.bad { color: var(--bad); }
+.ext-checks-badge.skip { color: var(--warn); }
+.ext-checks-output {
+  flex-basis: 100%; box-sizing: border-box; max-height: 280px; margin: 0; padding: 8px 10px; overflow: auto;
+  border-radius: 8px; background: var(--surface-2); color: var(--text-2); box-shadow: inset 0 0 0 1px var(--line);
+  font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ext-checks-output[hidden] { display: none; }
+.ext-checks-toggle, .ext-checks-send, .ext-checks-run { flex: none; }
+.ext-checks-auto { flex: none; }

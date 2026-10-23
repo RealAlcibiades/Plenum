@@ -1,5 +1,27 @@
-# Release builds for version tags (v*). Each platform builds its installers and uploads release/ as a
-# workflow artifact. Nothing is published here (--publish never).
+# Release builds for version tags (v*). Push an annotated tag, such as v0.6.0 or v0.6.0-beta.1, and this workflow:
+#   1. prepare: checks that package.json has the same version as the tag and that build.publish names this repository,
+#      then creates a DRAFT release for the tag. The tag's annotation becomes the notes. A tag with a "-" in it (a beta)
+#      makes a pre-release.
+#   2. build: builds each platform and attaches the installers, the update feed files (latest*.yml, beta*.yml,
+#      alpha*.yml) and the .blockmap files to that draft. Each build is also uploaded as a workflow artifact.
+#   3. feed: merges the two macOS feed files. The arm64 and x64 builds each write the same latest-mac.yml, and the second
+#      upload would replace the first, so the merged file lists both architectures and is uploaded again.
+# Publishing the draft is what makes the update visible to installed apps. A draft is invisible to them until then, so
+# review its assets and its notes first.
+#
+# Secrets (repository settings > Secrets and variables > Actions). The release itself needs none: the workflow's own
+# GITHUB_TOKEN (permissions: contents: write below) creates and fills the draft on this repository, so no personal access
+# token is used. Set only what you use:
+#   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD                  A Windows code-signing certificate and its password. Signs the
+#                                                       Windows installers.
+#   CSC_LINK, CSC_KEY_PASSWORD                          An Apple Developer ID Application certificate and its password.
+#                                                       Signs the macOS builds. A signed macOS build is marked
+#                                                       plenumSigned, and then the Mac app installs updates itself.
+#   APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER   An App Store Connect key for notarisation. All three or none.
+#
+# The app shows the draft's notes as plain text under "What changed in <version>". Bullets and line breaks are kept;
+# links, images and other formatting are dropped; the text is cut at 4000 characters. Short lines or a bullet list read best.
+# A staged rollout is a separate step: node scripts/stage-release.mjs <tag> <percent> (see that file).
 name: Release
 
 on:
@@ -8,11 +30,95 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  prepare:
+    name: Create the draft release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+      repo: ${{ steps.check.outputs.repo }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Each check stops the release before anything is built. The line after each ::error:: says what to change.
+      - name: Check the tag, the version and the release repository
+        id: check
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(node -e 'process.stdout.write(String(require("./package.json").version))')
+          owner=$(node -e 'process.stdout.write(String(require("./package.json").build?.publish?.owner ?? ""))')
+          repo=$(node -e 'process.stdout.write(String(require("./package.json").build?.publish?.repo ?? ""))')
+          if [ "$version" != "${TAG#v}" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version."
+            exit 1
+          fi
+          case "$owner" in
+            ""|*"["*)
+              echo "::error::Set build.publish.owner in package.json to the GitHub account that owns the release repository."
+              exit 1
+              ;;
+          esac
+          case "$repo" in
+            ""|*"["*)
+              echo "::error::Set build.publish.repo in package.json to the name of the release repository."
+              exit 1
+              ;;
+          esac
+          if [ "$(printf '%s/%s' "$owner" "$repo" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')" ]; then
+            echo "::error::build.publish in package.json names $owner/$repo, but this workflow runs in $GITHUB_REPOSITORY. Its token can write only to the repository it runs in, so set build.publish to $GITHUB_REPOSITORY."
+            exit 1
+          fi
+          prerelease=false
+          case "$TAG" in *-*) prerelease=true ;; esac
+          {
+            echo "tag=$TAG"
+            echo "version=$version"
+            echo "repo=$owner/$repo"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      # The app shows these notes as plain text under "What changed in <version>" (see the header): edit them in the draft.
+      - name: Create the draft release
+        shell: bash
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          VERSION: ${{ steps.check.outputs.version }}
+          REPO: ${{ steps.check.outputs.repo }}
+          PRERELEASE: ${{ steps.check.outputs.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The tag's annotation becomes the notes. A lightweight tag has no annotation (git would print the commit message
+          # instead), and an empty annotation gets the plain title.
+          git fetch --tags --force
+          notes="$RUNNER_TEMP/notes.txt"
+          if [ "$(git cat-file -t "refs/tags/$TAG")" = "tag" ]; then
+            git tag -l --format='%(contents)' "$TAG" > "$notes"
+          else
+            : > "$notes"
+          fi
+          if [ -z "$(tr -d '[:space:]' < "$notes")" ]; then
+            echo "Plenum $VERSION" > "$notes"
+          fi
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            echo "A release for $TAG already exists on $REPO. The builds attach their files to it."
+          else
+            args=(release create "$TAG" --repo "$REPO" --draft --title "Plenum $VERSION" --notes-file "$notes")
+            if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+            gh "${args[@]}"
+          fi
+
   build:
     name: Build (${{ matrix.os }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
     # scripts/build-legal.mjs fails the build while a placeholder ([LICENSOR NAME], [CONTACT EMAIL],
     # [GOVERNING LAW], [EFFECTIVE DATE]) remains in the legal texts, LICENSE.txt or package.json.
@@ -24,16 +130,16 @@ jobs:
         include:
           - os: windows-latest
             platform: windows
-            build: npm run dist --
+            args: --win --x64
           - os: macos-latest
             platform: macos
-            build: npm run dist:mac:arm64 --
+            args: --mac dmg zip --arm64
           - os: macos-15-intel
             platform: macos
-            build: npm run dist:mac:x64 --
+            args: --mac dmg zip --x64
           - os: ubuntu-latest
             platform: linux
-            build: npm run dist:linux --
+            args: --linux AppImage deb --x64
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -77,6 +183,10 @@ jobs:
             echo "APPLE_API_ISSUER=$ASC_ISSUER"
           } >> "$GITHUB_ENV"
 
+      # The legal texts are built first, as every pack and dist script does. The build fails while a placeholder remains.
+      - name: Build the legal texts
+        run: npm run legal
+
       # Each platform sees only its own certificate secrets. WIN_CSC_LINK would otherwise fall back to CSC_LINK.
       # forceCodeSigning is added only when that platform's certificate secret is set, so a broken certificate
       # fails the build instead of shipping unsigned.
@@ -88,7 +198,12 @@ jobs:
           WIN_CSC_LINK: ${{ matrix.platform == 'windows' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ matrix.platform == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           FORCE_SIGNING: ${{ (matrix.platform == 'windows' && secrets.WIN_CSC_LINK != '' && '--config.win.forceCodeSigning=true') || (matrix.platform == 'macos' && secrets.CSC_LINK != '' && '--config.mac.forceCodeSigning=true') || '' }}
-        run: ${{ matrix.build }} --publish never $FORCE_SIGNING
+          # The token lets electron-builder find the draft by its tag and attach the files to it. It is this workflow's own
+          # token, so nothing is sent to another repository.
+          GH_TOKEN: ${{ github.token }}
+          # The marker the app reads: a signed macOS build installs updates itself; an unsigned one only shows the notice.
+          SIGNED_META: ${{ (matrix.platform == 'macos' && secrets.CSC_LINK != '' && '--config.extraMetadata.plenumSigned=true') || '' }}
+        run: npx electron-builder ${{ matrix.args }} --publish always $FORCE_SIGNING $SIGNED_META
 
       # Every unpacked build must carry the licence and notice files. Windows and Linux keep them at the top of the
       # unpacked folder. The macOS location is not fixed, so for macOS they are searched for inside Plenum.app.
@@ -133,9 +248,86 @@ jobs:
           done
           exit "$missing"
 
+      # electron-builder has already attached the files to the draft. This copy lets the developer download them from the run.
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.os }}
           path: release/
           if-no-files-found: error
+
+  # Runs after every platform has built. Each macOS build writes its own latest-mac.yml (and alpha-mac.yml and beta-mac.yml),
+  # and electron-builder replaces a file of the same name when it uploads, so the arm64 and x64 feeds would overwrite each
+  # other. This job merges them and uploads the merged files again.
+  feed:
+    name: Merge the macOS update feeds
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      REPO: ${{ needs.prepare.outputs.repo }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the macOS builds
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-macos-*
+          path: feed
+
+      - name: Install the YAML reader for the feed merge
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/feed-tools" --no-audit --no-fund --loglevel=error js-yaml@4.1.0
+
+      - name: Merge the macOS feed files and upload them
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/merge-mac-feeds.cjs" <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const yaml = require('js-yaml');
+
+          const [root, out] = process.argv.slice(2);
+          const dirs = fs.readdirSync(root, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => path.join(root, entry.name))
+            .sort();
+          const names = new Set();
+          for (const dir of dirs) {
+            for (const name of fs.readdirSync(dir)) {
+              if (name.endsWith('-mac.yml')) names.add(name);
+            }
+          }
+          if (names.size === 0) {
+            console.error('::error::No macOS update feed (a *-mac.yml file) was found in the macOS builds.');
+            process.exit(1);
+          }
+          fs.mkdirSync(out, { recursive: true });
+          const isArm = (file) => String(file.url).includes('arm64');
+          for (const name of [...names].sort()) {
+            const docs = dirs
+              .filter((dir) => fs.existsSync(path.join(dir, name)))
+              .map((dir) => yaml.load(fs.readFileSync(path.join(dir, name), 'utf8')));
+            const versions = [...new Set(docs.map((doc) => String(doc.version)))];
+            if (versions.length !== 1) {
+              console.error(`::error::${name} has different versions in the macOS builds: ${versions.join(', ')}`);
+              process.exit(1);
+            }
+            const base = docs.find((doc) => (doc.files || []).some(isArm)) || docs[0];
+            const seen = new Set();
+            const files = [];
+            for (const doc of docs) {
+              for (const file of doc.files || []) {
+                if (seen.has(file.url)) continue;
+                seen.add(file.url);
+                files.push(file);
+              }
+            }
+            fs.writeFileSync(path.join(out, name), yaml.dump({ ...base, files }, { lineWidth: -1, noRefs: true }), 'utf8');
+            console.log(`${name}: ${files.map((file) => file.url).join(', ')}`);
+          }
+          EOF
+          NODE_PATH="$RUNNER_TEMP/feed-tools/node_modules" node "$RUNNER_TEMP/merge-mac-feeds.cjs" feed "$RUNNER_TEMP/merged"
+          for file in "$RUNNER_TEMP"/merged/*.yml; do
+            gh release upload "$TAG" "$file" --clobber --repo "$REPO"
+          done

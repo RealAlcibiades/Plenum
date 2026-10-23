@@ -1,23 +1,30 @@
 {
-  "version": 3,
+  "version": 4,
   "effective": "[EFFECTIVE DATE]",
   "contact": "[CONTACT EMAIL]",
   "sha256": {
-    "EULA.md": "b6af2e81ab57281514a35048ab040d717566604e759e5260506676d941a2b2e5",
-    "PRIVACY.md": "01782869a5f1522e183184f1e3ebb6956bf9d5119b2c3cb050e438b71536ab80"
+    "EULA.md": "b6bdce4c3c136e6c223802fbe3a60dcc82c125f863aec9bbee94078dc0d7e3d4",
+    "PRIVACY.md": "db4197bc8e44c9fe5f40e5473cfd1ba3a3119c37e60ef1b16b8b3d291a892419"
   },
   "changes": {
     "1": [
       "First version of the License Agreement and Privacy Notice."
     ],
     "2": [
-      "The Privacy Notice and the License Agreement no longer say that Plenum does not check for updates or update itself over the internet. The installed app checks GitHub for new versions, every 4 hours unless you turn it off under Settings > Updates, and can download them. A new version installs only when you choose Restart to update or when you quit Plenum.",
+      "The Privacy Notice and the License Agreement now describe the update check. The installed app checks GitHub for new versions, every 4 hours unless you turn it off under Settings > Updates, and can download them. A new version installs only when you choose Restart to update or when you quit Plenum.",
       "The Privacy Notice now lists the update files kept on your computer and the requests the API finder makes, and describes computer use and the in-app browser as features that are here, not planned ones.",
       "Plenum still collects nothing and sends nothing to us."
     ],
     "3": [
       "The Privacy Notice now lists three more things Plenum keeps on your computer: the computer-use run logs (every screenshot the model was shown, and the list of its actions, cards and pauses; 7 days and 200 MB by default), the in-app browser's profile (cookies, sign-ins, site storage, cache and history) and the files you save from the Browser pane.",
       "It says that computer-use screenshots are also kept on your computer in the run log, and how to delete each of these.",
+      "Plenum still collects nothing and sends nothing to us."
+    ],
+    "4": [
+      "The Privacy Notice now lists the turn snapshots Plenum keeps on your computer: copies of your project's files before and after each chat turn, in a private git repository in Plenum's state folder (the newest 100 snapshots for each project). It says which files are left out, that files whose names mark them as holding secrets, such as .env files and private keys, are left out as well, and how to delete the snapshots.",
+      "It also lists the check output kept on replies (the last 8,000 characters) and the tool-test records, and says what the check output and the @ mentions send to a model.",
+      "Cursor is now described as a tool Plenum runs. It signs in through Cursor's own sign-in, and Plenum does not use a Cursor API key.",
+      "Both documents now describe the local bridge through which Claude Code, Codex, Gemini CLI and Cursor can use Plenum's browser, computer use and agents, the check that runs after each turn, the tool test, and where the screenshots of a computer-use run go. The License Agreement says what Plenum's password-field check does and does not cover.",
       "Plenum still collects nothing and sends nothing to us."
     ]
   }

@@ -10,9 +10,16 @@
 //  - exe comes from readlink /proc/<pid>/exe; a window is elevated when its process belongs to another user (the uid in
 //    /proc/<pid>/status differs from ours) or when the process cannot be read.
 //  - xdotool gives no stacking order, so windows({ all: true }) is null and window-scope capture uses the window source.
-//  - There is no way to see the person's keys: userInput().keys is always false. isSecureField() is null (cannot tell), so the start
-//    card, the computer-use notice and the system text say that the password-field rule rests on the model here (hasPasswordGuard in
-//    lib/computer/policy.mjs). AT-SPI (a focused element with the role password text) would close this; it needs a desktop to check on.
+//  - There is no way to see the person's keys: userInput().keys is always false.
+//  - isSecureField() asks AT-SPI through koffi and libatspi (libatspi.so.0 and libgobject-2.0.so.0, loaded on the first call and never
+//    at start-up; koffi is required here, because the shell does not hand it to this module). It walks the desktop's applications
+//    (never Plenum's own: a synchronous D-Bus call from the main thread to its own accessibility bridge would wait for itself), takes
+//    the window whose state is ACTIVE, and searches that window for the element whose state is FOCUSED, passing over what is not
+//    SHOWING, defunct, or manages its own descendants. The answer is true when that element's role is ATSPI_ROLE_PASSWORD_TEXT and
+//    false for any other role. It is null, "cannot tell", when libatspi or the accessibility bus is missing, when no application is
+//    on the bus, when no active window exposes a focused element (many toolkits expose nothing until accessibility is switched on,
+//    which Plenum does not do for the person), or when the search ran out of its budget (500 nodes, 800 ms). The calls are
+//    synchronous on the main thread, which is what the budget is for. UNVERIFIED on a real Linux desktop, like the rest.
 const nodeFs = require('node:fs');
 const nodePath = require('node:path');
 const { execFile } = require('node:child_process');
@@ -22,6 +29,10 @@ const { cleanEnv } = require('./env.cjs');
 const WAYLAND_MESSAGE = 'Computer use needs an X11 session on Linux. Under Wayland Plenum cannot see which window has focus, so it cannot keep the model inside the apps you allowed. Log in with an X11 session, or use the in-app browser.';
 const XDOTOOL_MESSAGE = 'Computer use on Linux needs xdotool. Install it with your package manager (for example: sudo apt install xdotool), then restart Plenum.';
 const NO_DISPLAY_MESSAGE = 'Computer use needs an X11 display, and none is set (DISPLAY is empty).';
+
+// AT-SPI constants (atspi-constants.h): states are AtspiStateType, the role is AtspiRole.
+const ATSPI = Object.freeze({ STATE_ACTIVE: 1, STATE_DEFUNCT: 6, STATE_FOCUSED: 12, STATE_SHOWING: 25, STATE_MANAGES_DESCENDANTS: 31, ROLE_PASSWORD_TEXT: 40 });
+const ATSPI_BUDGET = Object.freeze({ nodes: 500, ms: 800, depth: 40, apps: 64, windows: 24, children: 200 });
 
 const BUTTONS = { left: '1', middle: '2', right: '3' };
 const SCROLL_BUTTONS = { up: '4', down: '5', left: '6', right: '7' };
@@ -87,6 +98,14 @@ function defaultRun(file, args, { input, timeout = 5000, env } = {}) {
   });
 }
 
+function loadKoffi() {
+  try {
+    return require('koffi');
+  } catch {
+    return null;
+  }
+}
+
 function createLinuxNative({
   run = defaultRun,
   env = process.env,
@@ -94,6 +113,8 @@ function createLinuxNative({
   ownPid = process.pid,
   getuid = () => (typeof process.getuid === 'function' ? process.getuid() : -1),
   wait = sleep,
+  koffi,
+  now = Date.now,
 } = {}) {
   const helperEnv = cleanEnv(env);
   const held = new Set();
@@ -198,6 +219,149 @@ function createLinuxNative({
   async function cursor() {
     const g = parseShell(await tool(argv.mouseLocation()));
     return { x: g.X ?? 0, y: g.Y ?? 0 };
+  }
+
+  // ---------- the focused field (AT-SPI) ----------
+
+  // undefined: not tried yet; null: libatspi cannot be used here (loaded once, never retried); else the functions.
+  let atspi;
+  let atspiStarted = false;
+
+  function loadAtspi() {
+    if (atspi !== undefined) return atspi;
+    atspi = null;
+    try {
+      const k = koffi ?? (process.platform === 'linux' ? loadKoffi() : null);
+      if (!k) return atspi;
+      const lib = k.load('libatspi.so.0');
+      const gobject = k.load('libgobject-2.0.so.0');
+      // gboolean is a 32-bit int in GLib, so it is declared as one. GError ** arguments are always passed as NULL (the error is not wanted).
+      atspi = {
+        init: lib.func('int atspi_init()'),
+        desktop: lib.func('void *atspi_get_desktop(int i)'),
+        childCount: lib.func('int atspi_accessible_get_child_count(void *obj, void *error)'),
+        childAt: lib.func('void *atspi_accessible_get_child_at_index(void *obj, int childIndex, void *error)'),
+        stateSet: lib.func('void *atspi_accessible_get_state_set(void *obj)'),
+        contains: lib.func('int atspi_state_set_contains(void *set, int state)'),
+        role: lib.func('int atspi_accessible_get_role(void *obj, void *error)'),
+        pid: lib.func('uint32 atspi_accessible_get_process_id(void *obj, void *error)'),
+        unref: gobject.func('void g_object_unref(void *object)'),
+      };
+    } catch {
+      atspi = null;
+    }
+    return atspi;
+  }
+
+  // true: the element with keyboard focus is a password field. false: it is something else. null: cannot tell.
+  function focusedIsPassword(a) {
+    const deadline = now() + ATSPI_BUDGET.ms;
+    let nodes = 0;
+    let exhausted = false;
+    const spent = () => {
+      if (nodes >= ATSPI_BUDGET.nodes || now() > deadline) exhausted = true;
+      return exhausted;
+    };
+    const drop = object => {
+      try {
+        if (object) a.unref(object);
+      } catch {
+        // A reference that cannot be dropped is a small leak, not a wrong answer.
+      }
+    };
+    const statesOf = object => {
+      const set = a.stateSet(object);
+      if (!set) return null;
+      try {
+        const has = state => !!a.contains(set, state);
+        return {
+          active: has(ATSPI.STATE_ACTIVE),
+          defunct: has(ATSPI.STATE_DEFUNCT),
+          focused: has(ATSPI.STATE_FOCUSED),
+          showing: has(ATSPI.STATE_SHOWING),
+          manages: has(ATSPI.STATE_MANAGES_DESCENDANTS),
+        };
+      } finally {
+        drop(set);
+      }
+    };
+
+    // true / false for the element with focus at or under `node`; undefined when there is none (or the search ran out).
+    const search = (node, depth) => {
+      if (spent()) return undefined;
+      nodes++;
+      const s = statesOf(node);
+      if (!s || s.defunct) return undefined;
+      let found;
+      if (s.focused) {
+        found = a.role(node, null) === ATSPI.ROLE_PASSWORD_TEXT;
+        if (found) return true;
+      } else if (depth > 0 && !s.showing) {
+        return undefined;
+      }
+      if (s.manages || depth >= ATSPI_BUDGET.depth) return found;
+      const count = Math.min(a.childCount(node, null), ATSPI_BUDGET.children);
+      for (let i = 0; i < count; i++) {
+        const child = a.childAt(node, i, null);
+        if (!child) continue;
+        try {
+          const deeper = search(child, depth + 1);
+          if (deeper !== undefined) return deeper;
+        } finally {
+          drop(child);
+        }
+        if (exhausted) break;
+      }
+      // A focused element that has children (a window that holds the focus itself) is final only if its children were all looked at.
+      return exhausted ? undefined : found;
+    };
+
+    const desktop = a.desktop(0);
+    if (!desktop) return null;
+    try {
+      const apps = a.childCount(desktop, null);
+      if (!(apps > 0)) return null;
+      for (let i = 0; i < Math.min(apps, ATSPI_BUDGET.apps) && !spent(); i++) {
+        const app = a.childAt(desktop, i, null);
+        if (!app) continue;
+        try {
+          // Plenum's own windows are never typed into, and a synchronous call from this thread into its own accessibility bridge would wait for itself.
+          if (ownPid && a.pid(app, null) === ownPid) continue;
+          const windows = Math.min(a.childCount(app, null), ATSPI_BUDGET.windows);
+          for (let j = 0; j < windows && !spent(); j++) {
+            const win = a.childAt(app, j, null);
+            if (!win) continue;
+            try {
+              const s = statesOf(win);
+              if (!s || s.defunct || !s.active) continue;
+              const answer = search(win, 0);
+              if (answer !== undefined) return answer;
+            } finally {
+              drop(win);
+            }
+          }
+        } finally {
+          drop(app);
+        }
+      }
+      return null;
+    } finally {
+      drop(desktop);
+    }
+  }
+
+  async function isSecureField() {
+    try {
+      const a = loadAtspi();
+      if (!a) return null;
+      if (!atspiStarted) {
+        a.init();
+        atspiStarted = true;
+      }
+      return focusedIsPassword(a);
+    } catch {
+      return null;
+    }
   }
 
   // ---------- input ----------
@@ -350,9 +514,7 @@ function createLinuxNative({
       return now && now.id === id ? { ok: true } : { ok: false, reason: 'no-focus', message: 'The window manager did not bring that window to the front.' };
     },
 
-    async isSecureField() {
-      return null;
-    },
+    isSecureField,
 
     async userInput() {
       const here = await cursor().catch(() => null);
@@ -387,4 +549,4 @@ function createLinuxNative({
   };
 }
 
-module.exports = { createLinuxNative, argv, keysymOf, parseShell, isWayland, WAYLAND_MESSAGE, XDOTOOL_MESSAGE, NO_DISPLAY_MESSAGE };
+module.exports = { createLinuxNative, argv, keysymOf, parseShell, isWayland, ATSPI, ATSPI_BUDGET, WAYLAND_MESSAGE, XDOTOOL_MESSAGE, NO_DISPLAY_MESSAGE };

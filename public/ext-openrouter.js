@@ -1,5 +1,6 @@
 // ext-openrouter. Builds on window.MuseUI (see app.js).
-// The OpenRouter model picker in the Accounts drawer, below the model-provider keys. OpenRouter has no fixed list in Plenum: any
+// The OpenRouter model picker, a section of Settings > Accounts right after the model-provider keys (MuseUI.settings.register, scope
+// 'app', group 'accounts'). OpenRouter has no fixed list in Plenum: any
 // model id it lists works, written openrouter:<id>. The server fetches the list with the saved key and keeps it ten minutes
 // (GET /api/openrouter/models). This card lists it, narrows it as you type, and takes any other id typed into the same field.
 // Using a model goes through the existing model setting (MuseUI.update). The panel never handles a key, and every piece of
@@ -10,12 +11,13 @@
   if (!MuseUI) return;
 
   const SECTION = 'ext-openrouter';
-  const KEYS_SECTION = 'ext-apikeys';
-  const DRAWER = 'Accounts';
+  // The Settings section: its id, its title and where it sorts. The keys section (ext-accounts-api) is order 20 and the tool test is
+  // order 30, so the picker comes between them (UI-ARCH section 5: API keys, OpenRouter, tools for API models).
+  const SECTION_ID = 'openrouter';
+  const SECTION_TITLE = 'OpenRouter';
+  const SECTION_ORDER = 25;
   const TITLE = 'OpenRouter model';
   const LOADING = 'Loading the OpenRouter models…';
-  // app.js shows this line while the Accounts drawer waits for its own request. The panel waits for it to go.
-  const ACCOUNTS_LOADING = 'Checking your accounts';
   const PREFIX = 'openrouter:';
   // The same shape the server accepts for an id (parseRef in lib/providers.mjs), which checks it again.
   const ID_SHAPE = /^[A-Za-z0-9._/:-]{1,120}$/;
@@ -63,27 +65,19 @@
 
   // ---------- the card ----------
 
-  function accountsOpen() {
-    const { drawer, drawerTitle } = MuseUI.el;
-    return !drawer.hidden && drawerTitle.textContent === DRAWER;
-  }
-
-  // An empty body is between renders. The loading line is the Accounts drawer's own placeholder, so the
-  // panel waits until the real content has replaced it.
-  function settled(body) {
-    if (body.children.length === 0) return false;
-    return !(body.children.length === 1 && body.textContent.startsWith(ACCOUNTS_LOADING));
-  }
-
-  // Runs on every change to the drawer body. The card goes in once, after the provider keys. Adding it triggers this again,
-  // but it is already there by then, so the call returns and nothing loops.
-  function sync() {
-    const body = MuseUI.el.drawerBody;
-    if (!accountsOpen() || !settled(body)) return;
-    if (body.querySelector(`:scope > .${SECTION}`)) return;
-    const keys = body.querySelector(`:scope > .${KEYS_SECTION}`);
-    if (!keys) return;
-    keys.after(buildSection());
+  // Settings draws every section each time it opens, but a model list is a request to OpenRouter, so the list is read once the card is
+  // on screen (IntersectionObserver) and not when the page opens at some other group. Without the observer it is read at once.
+  function whenShown(node, fn) {
+    if (typeof IntersectionObserver !== 'function') {
+      fn();
+      return;
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      observer.disconnect();
+      fn();
+    });
+    observer.observe(node);
   }
 
   function buildSection() {
@@ -208,7 +202,7 @@
       try {
         const r = await call('/api/openrouter/check', {});
         show(r.message || (r.ok ? 'OpenRouter accepted the saved key.' : 'OpenRouter did not accept the saved key.'), r.ok ? 'ok' : 'bad');
-        // A key saved after the drawer opened is picked up here: the list is asked for again when it came back empty.
+        // A key saved after Settings opened is picked up here: the list is asked for again when it came back empty.
         if (r.ok && !models.length) await load();
       } catch (err) {
         show(err.message, 'bad');
@@ -224,14 +218,15 @@
     section.append(card);
     paintPill();
     paintButtons();
-    load();
+    whenShown(section, load);
     return section;
   }
 
-  // Attach. Only the drawer body is watched. The card is one child of it, so the observer sees the card come and go, but not
-  // what is inside it.
-  new MutationObserver(sync).observe(MuseUI.el.drawerBody, { childList: true });
-  sync();
+  // Attach. Settings draws the section fresh each time it opens, so nothing is watched. A page without the Settings registry has
+  // nowhere to show the card.
+  if (typeof MuseUI.settings?.register === 'function') {
+    MuseUI.settings.register({ id: SECTION_ID, scope: 'app', title: SECTION_TITLE, group: 'accounts', order: SECTION_ORDER, render: body => body.append(buildSection()) });
+  }
 
   // A saved OpenRouter model has to be named in the model menu when the page opens. app.js sets the menu's value on every render
   // and redraws the project list on every render too, so a change to either one means the value was just set. The menu is

@@ -19,7 +19,9 @@
   const IN = 'in';
   const OUT = 'out';
   const NONE = 'none';
-  const STATE_TEXT = { in: 'Signed in', out: 'Not signed in', none: 'Not installed' };
+  // The CLI is installed, but its sign-in could not be read (Cursor's status command timed out or was not read).
+  const UNKNOWN = 'unknown';
+  const STATE_TEXT = { in: 'Signed in', out: 'Not signed in', none: 'Not installed', unknown: 'Sign-in unknown' };
   const MISSING = 'Not installed. Install it, then press Check again.';
 
   // Step 3, in order. Each label and variable name matches lib/api-providers.mjs (Anthropic: lib/keys.mjs). GET /api/keys
@@ -37,8 +39,10 @@
   // Claude's key is in use only when Claude runs through the API, which is when the Claude CLI is not installed.
   const claudeUsesKey = a => a?.claude?.route === 'api';
   const cliState = (c, signedInKey) => (!c?.installed ? NONE : c[signedInKey] ? IN : OUT);
+  // Cursor's status comes from GET /api/accounts/cli (see withCli). It is null when that read failed, and its sign-in may be unknown.
+  const cursorState = c => (!c ? UNKNOWN : !c.installed ? NONE : c.signedIn === true ? IN : c.signedIn === false ? OUT : UNKNOWN);
 
-  // Step 2, in order. Each row reads its state from GET /api/accounts and signs in through its own route.
+  // Step 2, in order. Each row reads its state from GET /api/accounts (Cursor's from GET /api/accounts/cli) and signs in through its own route.
   const CLIS = [
     {
       id: 'claude', name: 'Claude Code', account: 'Claude account', mark: 'C', path: '/api/accounts/claude/login',
@@ -49,7 +53,13 @@
     { id: 'codex', name: 'Codex', account: 'ChatGPT account', mark: 'X', path: '/api/accounts/codex/login', state: a => cliState(a?.codex, 'loggedIn'), missing: MISSING },
     { id: 'gemini', name: 'Gemini CLI', account: 'Google account', mark: 'G', path: '/api/accounts/gemini/login', state: a => cliState(a?.gemini, 'signedIn'), missing: MISSING },
     { id: 'muse', name: 'Muse Code', account: 'Meta account', mark: 'M', path: '/api/accounts/muse/login', state: a => cliState(a?.muse, 'signedIn'), missing: MISSING },
+    { id: 'cursor', name: 'Cursor', account: 'Cursor account', mark: 'U', path: '/api/accounts/cursor/login', state: a => cursorState(a?.cursor), missing: MISSING },
   ];
+
+  // GET /api/accounts/cli: the coding agents added after the first four (Cursor). A failed read is null, and its row says it is unknown.
+  const cliStatus = () => MuseUI.api('/api/accounts/cli').catch(() => null);
+  // The sign-ins the rows read: GET /api/accounts, with Cursor's status from GET /api/accounts/cli added as accounts.cursor.
+  const withCli = (accounts, cli) => ({ ...accounts, cursor: cli?.cursor ?? null });
 
   // Whether a key is saved for a provider: Anthropic's through the Claude route, the others through GET /api/keys.
   function keyConfigured(s, id) {
@@ -197,7 +207,7 @@
       make('li', '', 'Nothing is sent anywhere else.'),
       make('li', '', 'The license agreement and privacy notice are under Legal in Settings.'),
     );
-    const lead = make('p', 'setup-lead', 'Plenum is a local console for working with Claude, Codex, Gemini, Muse Code and per-token API models in your own project folders.');
+    const lead = make('p', 'setup-lead', 'Plenum is a local console for working with Claude, Codex, Gemini, Muse Code, Cursor and per-token API models in your own project folders.');
     // Opens the Legal section. The wizard is the drawer's content, so the Legal page takes its place; Setup in the menu brings it back.
     const terms = make('button', 'ghost small', 'Read the terms');
     terms.type = 'button';
@@ -259,7 +269,8 @@
     row.note.textContent = !state ? 'Checking your accounts…'
       : state === IN ? 'Signed in on this computer.'
         : state === NONE ? row.c.missing
-          : 'Not signed in. Sign in opens a window that you complete there.';
+          : state === UNKNOWN ? 'Plenum could not read this sign-in. Sign in opens a window that you complete there, or press Check again.'
+            : 'Not signed in. Sign in opens a window that you complete there.';
     row.button.textContent = state === IN ? 'Sign in again' : 'Sign in';
     row.button.disabled = row.busy || state === null || state === NONE;
   }
@@ -428,12 +439,12 @@
   // Reads the keys and the sign-ins again and paints them. A failed read leaves the last status on screen and says so.
   async function loadStatus() {
     try {
-      const [keys, accounts] = await Promise.all([MuseUI.api('/api/keys'), MuseUI.api('/api/accounts')]);
+      const [keys, accounts, cli] = await Promise.all([MuseUI.api('/api/keys'), MuseUI.api('/api/accounts'), cliStatus()]);
       if (!Array.isArray(keys?.providers) || !accounts?.claude) {
         showLine('The status did not come back. Try again.', true);
         return;
       }
-      status = { keys, accounts };
+      status = { keys, accounts: withCli(accounts, cli) };
     } catch (err) {
       showLine(err.message, true);
       return;
@@ -457,15 +468,16 @@
     if (dismissed()) return;
     let keys;
     let accounts;
+    let cli;
     try {
-      [keys, accounts] = await Promise.all([MuseUI.api('/api/keys'), MuseUI.api('/api/accounts')]);
+      [keys, accounts, cli] = await Promise.all([MuseUI.api('/api/keys'), MuseUI.api('/api/accounts'), cliStatus()]);
     } catch {
       // The server has not answered, so nothing is opened. The next visit checks again.
       return;
     }
     if (!Array.isArray(keys?.providers) || !accounts?.claude) return;
-    status = { keys, accounts };
-    if (KEYS.some(k => keyConfigured(status, k.id)) || CLIS.some(c => c.state(accounts) === IN)) return;
+    status = { keys, accounts: withCli(accounts, cli) };
+    if (KEYS.some(k => keyConfigured(status, k.id)) || CLIS.some(c => c.state(status.accounts) === IN)) return;
     // The person may have opened another panel while the check ran. The wizard waits for an empty drawer and never replaces one.
     if (!MuseUI.el.drawer.hidden) return;
     openWizard();

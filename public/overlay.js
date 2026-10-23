@@ -1,19 +1,20 @@
 // The bar of the computer-use overlay (public/overlay.html): the words the person reads on their screen while a model has the mouse
-// and the keyboard, with Pause (Resume) and Stop. The overlay window (desktop/computer/overlay.cjs) loads this page with
-//   ?state=running|paused&label=<what is driven>&model=<the model's name>&theme=light|dark
-// and these are shown at once; after that the server is the source of truth: GET /api/drive every second, and the answers to the
-// buttons. The page has no preload, no Node and never holds the per-launch token: the overlay's own session adds it to this page's
-// requests for /api/ paths (and nothing else), so every request here is a plain same-origin fetch.
+// and the keyboard, with Pause or Resume, Show Plenum while a card waits, and Stop. The overlay window (desktop/computer/overlay.cjs)
+// loads this page with ?state=running|paused&label=<what is driven>&model=<the model's name>&theme=light|dark. These are shown at once;
+// after that the server is the source of truth: GET /api/drive every 500 ms, and the answers to the buttons. The page has no preload, no
+// Node and never holds the per-launch token: the overlay's own session adds the x-plenum-token header to this page's requests for /api/
+// paths and nothing else (desktop/computer/overlay.cjs), so every request here is a plain same-origin fetch.
 //
-// Stop is the emergency stop (AMENDMENTS floor): it is never disabled, it reads the server afresh before it acts so a run that began
-// a moment ago is stopped too, it stops every computer run, it answers a run that had already ended as done, and when it cannot
-// reach Plenum it says so and names the stop key, which does not depend on this page. Everything that arrives (the server's words,
-// the model's note, the address) is set with textContent; there is no markup built from strings, no storage, no logging.
+// Stop is the emergency stop (AMENDMENTS floor): it is never disabled, it reads the server afresh before it acts so a run that began a
+// moment ago is stopped too, it stops every computer run, it answers a run that had already ended as done, and when it cannot reach
+// Plenum it says so and names the stop key, which does not depend on this page. Show Plenum (POST /api/drive/show-app) brings the window
+// forward while a card waits; this page has no Approve and no Deny. Everything that arrives (the server's words, the model's note, the
+// address) is set with textContent; there is no markup built from strings, no storage, no logging.
 (function () {
   'use strict';
 
   const KIND = 'computer';
-  const POLL_MS = 1000;
+  const POLL_MS = 500;
   const TICK_MS = 1000;
   const CALL_MS = 3000;
   const NOTICE_MS = 6000;
@@ -23,9 +24,10 @@
   const byId = id => document.getElementById(id);
   const root = document.documentElement;
   const bar = byId('bar');
-  const textEl = byId('text');
-  const toggleBtn = byId('toggle');
-  const stopBtn = byId('stop');
+  const textEl = byId('ovText');
+  const toggleBtn = byId('ovToggle');
+  const stopBtn = byId('ovStop');
+  const keyEl = byId('ovKey');
   const live = byId('live');
   if (!bar || !textEl || !toggleBtn || !stopBtn) return;
 
@@ -79,43 +81,51 @@
     return text;
   }
 
-  // Where the stop key is named in a message: the server's word for it, else the usual key for this system.
-  function keyHint() {
-    if (hotkey && hotkey.ok === false) return 'Try Stop again, or use Stop in Plenum.';
-    if (hotkey && hotkey.ok && hotkey.label) return `Press ${clean(hotkey.label, 30)} to stop.`;
+  // The stop key's name: the server's word for it, else the usual key for this system.
+  function keyName() {
+    if (hotkey && hotkey.ok && hotkey.label) return clean(hotkey.label, 30);
     const mac = typeof navigator === 'object' && navigator && /Mac/i.test(String(navigator.userAgent || ''));
-    return `Press ${mac ? 'Control+Option+Esc' : 'Ctrl+Alt+Esc'} to stop.`;
+    return mac ? 'Control+Option+Esc' : 'Ctrl+Alt+Esc';
   }
 
-  // The words for the run: { text, tone, said, cardWait, paused }. tone is running (amber), paused (grey) or wait (accent).
+  // Where the stop key is named in a message.
+  function keyHint() {
+    if (hotkey && hotkey.ok === false) return 'Try Stop again, or use Stop in Plenum.';
+    return `Press ${keyName()} to stop.`;
+  }
+
+  // The words for the run: { text, tone, said, action, cardWait }. tone is running (amber), paused (grey) or wait (accent). action is what
+  // the first button does: pause, resume or show (Show Plenum, while a card waits in the app).
   function describe(entry) {
     const who = first.model || 'The model';
     if (!entry) {
       if (drives === null) {
         const where = first.label || 'this computer';
         return first.state === 'paused'
-          ? { text: `Paused · ${where}`, tone: 'paused', said: 'Paused.', paused: true }
-          : { text: `${who} is using ${where}`, tone: 'running', said: `${who} is using ${where}.` };
+          ? { text: `Paused · ${where}`, tone: 'paused', said: 'Paused.', action: 'resume', where }
+          : { text: `${who} is using ${where}`, tone: 'running', said: `${who} is using ${where}.`, action: 'pause', where };
       }
-      return { text: 'Stopped · no model is controlling this computer', tone: 'paused', said: 'Stopped.' };
+      return { text: 'Stopped · no model is controlling this computer', tone: 'paused', said: 'Stopped.', action: 'none', where: '' };
     }
     const s = entry.s;
     const where = clean(s.label, 80) || first.label || 'this computer';
     if (s.state === 'running') {
-      return { text: `${who} is using ${where} · ${progress(entry)}`, tone: 'running', said: `${who} is using ${where}.` };
+      return { text: `${who} is using ${where} · ${progress(entry)}`, tone: 'running', said: `${who} is using ${where}.`, action: 'pause', where };
     }
     if (s.pausedBy === 'model') {
       // The model's own words are quoted and named; they are never shown as Plenum's.
       const note = clean(s.note, 120);
-      return { text: note ? `Your turn · ${who} asks: "${note}"` : `Your turn · ${who} is waiting for you`, tone: 'wait', said: 'Your turn.', paused: true };
+      const text = note ? `Your turn · ${who} asks: "${note}"` : `Your turn · ${who} is waiting for you`;
+      return { text, tone: 'wait', said: 'Your turn.', action: 'resume', where };
     }
     if (s.pausedBy === 'card') {
-      return { text: 'Waiting for your answer on the card in Plenum', tone: 'wait', said: 'Waiting for your answer.', paused: true, cardWait: true };
+      return { text: 'Waiting for your answer on the card in Plenum', tone: 'wait', said: 'Waiting for your answer.', action: 'show', where, cardWait: true };
     }
+    // The paused lines name the app and the step, as the bar does while it runs (COMPUTERUSE.json ui_design).
     if (s.pausedBy === 'input') {
-      return { text: `Paused: you used the mouse or keyboard · ${where} · ${progress(entry)}`, tone: 'paused', said: 'Paused.', paused: true };
+      return { text: `Paused: you used the mouse or keyboard · ${where} · ${progress(entry)}`, tone: 'paused', said: 'Paused.', action: 'resume', where };
     }
-    return { text: `Paused · ${where} · ${progress(entry)}`, tone: 'paused', said: 'Paused.', paused: true };
+    return { text: `Paused · ${where} · ${progress(entry)}`, tone: 'paused', said: 'Paused.', action: 'resume', where };
   }
 
   // A line that replaces the usual words for a few seconds (a refusal, a failure).
@@ -139,13 +149,19 @@
     bar.dataset.tone = tone;
     if (textEl.textContent !== text) textEl.textContent = text;
     textEl.title = text;
-    const label = d.paused ? 'Resume' : 'Pause';
+    const label = d.action === 'resume' ? 'Resume' : d.action === 'show' ? 'Show Plenum' : 'Pause';
     if (toggleBtn.textContent !== label) toggleBtn.textContent = label;
-    // A card waiting for the person is answered first; Resume would skip it, so the button waits. Stop is never disabled.
-    toggleBtn.disabled = !entry || busy || d.cardWait === true;
-    toggleBtn.title = d.cardWait ? 'Answer the card in Plenum first. Stop ends the run.' : (d.paused ? 'Let the model carry on' : 'Pause the model’s control');
+    toggleBtn.dataset.action = d.action;
+    // With no run there is nothing to pause or resume; a waiting card can always be brought forward. Stop is never disabled.
+    toggleBtn.disabled = !entry || busy;
+    toggleBtn.title = d.action === 'show' ? 'Bring Plenum forward to answer the card'
+      : d.action === 'resume' ? 'Let the model carry on' : 'Pause the model’s control';
     stopBtn.disabled = false;
-    stopBtn.title = hotkey && hotkey.ok && hotkey.label ? `Stop the model’s control now (${clean(hotkey.label, 30)})` : 'Stop the model’s control now';
+    stopBtn.title = hotkey && hotkey.ok && hotkey.label ? `Stop the model’s control now (${keyName()})` : 'Stop the model’s control now';
+    if (keyEl) {
+      const name = keyName();
+      if (keyEl.textContent !== name) keyEl.textContent = name;
+    }
 
     // The live region says a change of state once, never the clock.
     const key = entry ? `${entry.s.id}|${entry.s.state}|${entry.s.pausedBy || ''}` : (drives === null ? 'first' : 'none');
@@ -195,16 +211,23 @@
 
   const wordsOf = r => (r && r.data && typeof r.data.error === 'string' ? clean(r.data.error, 160) : '');
 
-  // Pause or Resume, whichever the run is waiting for. A refusal (409: a card waits; 404: the run ended) is shown in the server's words.
+  // The first button: Pause or Resume, or Show Plenum while a card waits. A refusal (409: a card waits; 404: the run ended) is shown in
+  // the server's words.
   async function toggle() {
     const entry = current();
-    if (!entry || busy || (entry.s.state === 'paused' && entry.s.pausedBy === 'card')) return;
+    if (!entry || busy) return;
+    const action = describe(entry).action;
     busy = true;
     paint();
     try {
-      const r = await call(entry.s.state === 'paused' ? '/api/drive/resume' : '/api/drive/pause', { id: entry.s.id });
-      if (r.ok && r.data && r.data.drive) take(r.data.drive);
-      else say(wordsOf(r) || 'That did not work. Try again, or press Stop.');
+      if (action === 'show') {
+        const r = await call('/api/drive/show-app', {});
+        if (!r.ok) say(wordsOf(r) || 'Plenum could not be brought forward. Switch to it from the taskbar.');
+      } else {
+        const r = await call(action === 'resume' ? '/api/drive/resume' : '/api/drive/pause', { id: entry.s.id });
+        if (r.ok && r.data && r.data.drive) take(r.data.drive);
+        else say(wordsOf(r) || 'That did not work. Try again, or press Stop.');
+      }
     } catch {
       say(`Plenum did not answer. ${keyHint()}`);
     } finally {
@@ -265,7 +288,7 @@
     toggle().catch(() => {});
   });
 
-  // One read after another, a second apart, never two at once.
+  // One read after another, half a second apart, never two at once.
   async function poll() {
     try {
       await read();

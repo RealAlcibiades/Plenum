@@ -31,6 +31,12 @@
   const MUSE_READ_NOTE = 'Muse Code has no read-only setting, so a read-only agent on it runs in an empty folder and cannot open the project\'s files.';
   const BUILD_DEFAULT_NOTE = 'In /build this is the reviewer or planner you chose (the council moderator by default).';
   const RESEARCH_TEXT = 'More than 30 steps or 10 minutes is above what the research behind agent runs supports. It still works, but a run costs more and can stall for longer.';
+  // agent-roles. Which models can start agents in the council, relay, quick compare and pipeline roles; shown under the group's first paragraph.
+  const SEAT_MODELS_NOTE = 'Only Claude (through the API or the Claude CLI) and the API models with verified tools can start agents in these roles. Codex, Gemini and Muse Code seats answer from the prompt.';
+  // The first paragraph while those roles have no approval cards, and once the Agents board shows their cards (amendment 21).
+  const SEAT_INTRO_NO_CARDS = 'These roles have no approval cards, so they can start only types that read files and run no commands. The seat itself still cannot open files.';
+  const SEAT_INTRO_CARDS = 'These roles can start any type. The seat itself still cannot open files. A type that edits files or runs commands asks first, and its cards appear on the Agents board.';
+  const SEAT_EDIT_NOTICE = 'A council seat that edits files or runs commands acts on your project while the council runs. Its cards appear on the Agents board; Ask first still applies.';
   const NAME_RE = /^[a-z][a-z0-9-]{0,23}$/;
   const SAVED_MS = 1500;
 
@@ -171,15 +177,21 @@
   const providerOf = ref => (ref ? ref.slice(0, ref.indexOf(':')) : '');
   const blockOf = (scope, data) => (scope === 'project' ? data?.project?.agents ?? null : data?.app ?? null);
   const roleLabel = (data, r) => data?.roles?.[r]?.label ?? r;
+  // Whether a role's agents can ask for approval (the server's ROLE_META.cards). Chat and builds always can. The council, relay,
+  // quick compare and pipeline roles can once the Agents board shows their cards; until then the server allows them read-only types only.
+  const cardsOf = (data, r) => (data?.roles?.[r] ? data.roles[r].cards === true : r === 'chat' || r === 'build');
+  const isRisky = t => Boolean(t) && (t.kind === 'edit' || t.commands === true);
   const isBuiltIn = (data, name) => (data?.builtIn ?? []).includes(name);
   const takenNames = block => new Set(block.types.map(t => t.name));
   const accessOf = t => (!t.files ? 'none' : t.kind === 'edit' ? 'edit' : 'read');
   const accessText = t => (!t.files ? 'No file access' : t.kind === 'edit' ? 'Edits files' : 'Reads files');
   const returnText = d => (d === 'json' ? 'JSON for /build' : (RETURN_CHOICES.find(c => c[0] === d)?.[1] ?? d));
+  // The nesting choice in force: the saved `nested`, or for a block saved before it existed, what two levels or one meant.
+  const nestedOf = block => block.limits.nested ?? (block.limits.depth >= 2 ? 'read' : 'off');
   const summaryOf = block => {
     const chat = block.limits.roles.chat;
-    const depth = block.limits.depth >= 2 ? 'agents may start read-only agents' : 'agents cannot start agents';
-    return `${block.types.length} types · Chat: ${chat.concurrent} at once, ${chat.total} per reply · ${depth}`;
+    const nesting = { off: 'agents cannot start agents', read: 'agents may start read-only agents', any: 'agents may start any type' }[nestedOf(block)];
+    return `${block.types.length} types · Chat: ${chat.concurrent} at once, ${chat.total} per reply · ${nesting}`;
   };
 
   // A name from a label: lowercase, spaces to hyphens, other characters dropped, a leading non-letter dropped, cut at 24.
@@ -824,8 +836,8 @@
   }
 
   // The types a role may take: the server's rule. Chat and builds may take read and edit types (no Planner); the others read types that run no commands.
-  function typesAllowedFor(block, roleName) {
-    const cards = roleName === 'chat' || roleName === 'build';
+  function typesAllowedFor(block, roleName, data) {
+    const cards = cardsOf(data, roleName);
     return block.types.filter(t => (cards ? true : t.kind === 'read' && !t.commands) && !t.buildOnly);
   }
 
@@ -847,8 +859,11 @@
     }
     row.append(chips);
 
-    const allowed = typesAllowedFor(block, roleName).filter(t => !lim.types.includes(t.name));
-    const choices = [['', allowed.length ? 'Add a type…' : 'None left', !allowed.length], ...allowed.map(t => [t.name, t.label, false])];
+    const allowed = typesAllowedFor(block, roleName, data).filter(t => !lim.types.includes(t.name));
+    // A seat role whose cards are on lists the read-only types first and marks them as the suggested ones (amendment 21).
+    const seatRole = GROUP_ROLES.includes(roleName) && cardsOf(data, roleName);
+    const ordered = seatRole ? [...allowed.filter(t => !isRisky(t)), ...allowed.filter(isRisky)] : allowed;
+    const choices = [['', allowed.length ? 'Add a type…' : 'None left', !allowed.length], ...ordered.map(t => [t.name, seatRole && !isRisky(t) ? `${t.label} (suggested)` : t.label, false])];
     const add = selectEl(choices, '', v => {
       if (!v) return;
       save(m, next => {
@@ -897,17 +912,46 @@
     const summary = document.createElement('summary');
     const labels = GROUP_ROLES.filter(r => block.limits.roles[r].types.length > 0).map(r => roleLabel(data, r));
     summary.append(make('span', '', 'Council, relay, quick compare and pipelines'), make('span', 'ext-ag-state', labels.length ? `On for ${labels.join(', ')}` : 'Off'));
-    details.append(summary, para('ext-ag-intro', 'These roles have no approval cards, so they can start only types that read files and run no commands. The seat itself still cannot open files.'));
+    const anyCards = GROUP_ROLES.some(r => cardsOf(data, r));
+    details.append(summary, para('ext-ag-intro', anyCards ? SEAT_INTRO_CARDS : SEAT_INTRO_NO_CARDS), para('ext-ag-intro', SEAT_MODELS_NOTE));
+    // The notice is shown where the risk starts: a seat role (or a per-model override for one) that holds a type which edits or runs commands.
+    const typeOf = n => block.types.find(x => x.name === n);
+    const risky = GROUP_ROLES.some(r => cardsOf(data, r) && block.limits.roles[r].types.some(n => isRisky(typeOf(n))))
+      || block.limits.models.some(o => (o.role === 'all' ? GROUP_ROLES.some(r => cardsOf(data, r)) : GROUP_ROLES.includes(o.role) && cardsOf(data, o.role)) && (o.types ?? []).some(n => isRisky(typeOf(n))));
+    if (risky) details.append(note(SEAT_EDIT_NOTICE));
     for (const r of GROUP_ROLES) details.append(callerRow(m, block, data, r, true));
     return details;
+  }
+
+  // Every run's nesting choice (amendment 20). Each choice saves its depth and its nested mode together, as the server reads them.
+  const NESTED_CHOICES = [
+    ['off', 'Off', 1, 'Agents cannot start agents.'],
+    ['read', 'Read-only agents', 2, 'An agent may start read-only agents one level down, within the same limits.'],
+    ['any', 'Any type', 3, 'An agent may start any type its row lists, one level down. An editing agent may start an editing agent only inside its parent\'s scope, and the agents one level below those are read-only.'],
+  ];
+
+  // The three-way segmented control: the choice in force is pressed. Each press is one save, like every other control here.
+  function nestedSeg(m, mode) {
+    const seg = make('div', 'seg ext-ag-nested');
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', 'Agents may start');
+    for (const [key, label, depth] of NESTED_CHOICES) {
+      const b = button('seg-btn', label, () => save(m, next => {
+        next.limits.depth = depth;
+        next.limits.nested = key;
+      }), `nested-${key}`);
+      b.setAttribute('aria-pressed', String(mode === key));
+      seg.append(b);
+    }
+    return seg;
   }
 
   function runCard(m, block) {
     const card = make('section', 'card ext-ag-run');
     card.append(make('span', 'kicker', 'Every run'));
-    card.append(switchRow('Agents may start read-only agents', 'Off: agents cannot start agents. On: an agent may start read-only agents one level down, within the same limits.', block.limits.depth >= 2, false, v => save(m, next => {
-      next.limits.depth = v ? 2 : 1;
-    }), 'depth'));
+    const mode = nestedOf(block);
+    const described = NESTED_CHOICES.find(c => c[0] === mode);
+    card.append(field('Agents may start read-only agents', nestedSeg(m, mode), note(described ? described[3] : '')));
     card.append(numberBox('Most agents in one run', block.limits.perRun, 1, LIMITS.perRun, v => save(m, next => {
       next.limits.perRun = v;
     }), 'per-run'));
@@ -919,7 +963,9 @@
   function modelsCard(m, block, data) {
     const card = make('section', 'card ext-ag-models');
     card.append(make('span', 'kicker', 'Per model'));
-    card.append(para('ext-ag-intro', 'Give one model its own numbers, and if you like its own types, in every role or in one. Read-only roles still start only types that read and run no commands.'));
+    card.append(para('ext-ag-intro', GROUP_ROLES.every(r => cardsOf(data, r))
+      ? 'Give one model its own numbers, and if you like its own types, in every role or in one.'
+      : 'Give one model its own numbers, and if you like its own types, in every role or in one. Read-only roles still start only types that read and run no commands.'));
     const list = block.limits.models;
     if (!list.length) card.append(note('No overrides. Every model uses its role\'s limits.'));
     list.forEach((o, i) => card.append(overrideBox(m, block, data, o, i)));
@@ -963,7 +1009,7 @@
     }
     box.append(field('Types', chips));
 
-    const allowed = block.types.filter(t => !names.includes(t.name) && !t.buildOnly && (o.role === 'all' || ROLE_ORDER.slice(0, 2).includes(o.role) || (t.kind === 'read' && !t.commands)));
+    const allowed = block.types.filter(t => !names.includes(t.name) && !t.buildOnly && (o.role === 'all' || cardsOf(data, o.role) || (t.kind === 'read' && !t.commands)));
     const addChoices = [['', allowed.length ? 'Add a type…' : 'None left', !allowed.length], ...allowed.map(t => [t.name, t.label, false])];
     const addType = selectEl(addChoices, '', v => {
       if (!v) return;

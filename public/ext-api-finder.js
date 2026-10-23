@@ -23,8 +23,6 @@
   const LINK_HOOK = 'openBrowser';
   // The LEGAL strip for this page (lib/notices.mjs id api-finder-prices). The page asks for it above the caveat.
   const NOTICE_ID = 'api-finder-prices';
-  const ACCOUNTS = 'Accounts';
-  const ACCOUNTS_LOADING = 'Checking your accounts';
 
   const CAVEAT = 'Prices are per million tokens, before router fees, as each source publishes them. Direct prices come from Plenum\'s own table, checked 14 Oct 2026. They change often: check the source\'s own page before you rely on one.';
   const FOOTER = 'Read without a key: OpenRouter, Vercel AI Gateway, DeepInfra and Martian. Plenum reads them only while this panel is open, keeps each list for ten minutes and sends them no keys, chats or project files. A model a router names differently shows as its own row.';
@@ -398,10 +396,11 @@
       ?? null;
   }
 
-  // Opens Accounts and scrolls to the provider's card, focusing its key box. It waits up to four seconds for the card.
+  // Opens Accounts and scrolls to the provider's card, focusing its key box. It waits up to four seconds for the card. Accounts is
+  // a group of the Settings page, whose sections are drawn into settingsContent.
   function openAccounts(provider) {
     MuseUI.el.accountsBtn.click();
-    const body = MuseUI.el.drawerBody;
+    const body = MuseUI.el.settingsContent ?? MuseUI.el.drawerBody;
     const done = card => {
       card.scrollIntoView({ block: 'center' });
       const input = card.querySelector('input[type=password]') ?? card.querySelector('input');
@@ -1436,15 +1435,8 @@
 
   // ---------- the link from Accounts ----------
 
-  const accountsOpen = () => !MuseUI.el.drawer.hidden && MuseUI.el.drawerTitle.textContent === ACCOUNTS;
-
-  // An empty body is between renders, and the loading line is Accounts' own placeholder: the entry waits for the real content.
-  function settled(body) {
-    if (body.children.length === 0) return false;
-    return !(body.children.length === 1 && body.textContent.startsWith(ACCOUNTS_LOADING));
-  }
-
-  // The quiet row under the OpenRouter card (or under the provider keys when that card is missing).
+  // The quiet row at the end of the API keys section in Settings > Accounts. The keys section (ext-accounts-api) draws it into
+  // itself by calling MuseUI.apiFinderEntry() each time Settings opens, so nothing here watches a drawer for it.
   function accountsEntry() {
     const p = make('p', 'af-accounts-entry');
     p.append(make('span', '', 'Looking for a cheaper route to a model? '));
@@ -1454,17 +1446,7 @@
     return p;
   }
 
-  function syncAccounts() {
-    const body = MuseUI.el.drawerBody;
-    if (!accountsOpen() || !settled(body)) return;
-    if (body.querySelector(':scope > .af-accounts-entry')) return;
-    const anchor = body.querySelector(':scope > .ext-openrouter') ?? body.querySelector(':scope > .ext-apikeys');
-    if (!anchor) return;
-    anchor.after(accountsEntry());
-  }
-
-  new MutationObserver(syncAccounts).observe(MuseUI.el.drawerBody, { childList: true });
-  syncAccounts();
+  MuseUI.apiFinderEntry = accountsEntry;
 
   MuseUI.apiFinder = MODULE_EXPORTS;
 })();

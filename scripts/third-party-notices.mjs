@@ -5,7 +5,9 @@
 // what the lock file cannot see: Electron (a dev dependency that ships in the app), Chromium (its
 // text is LICENSES.chromium.html beside the app), partial-json-parser (vendored inside
 // @anthropic-ai/sdk), elevate.exe (electron-builder's NSIS tools, Windows only) and any package
-// whose npm package ships no licence file (standardwebhooks, lazy-val).
+// whose npm package ships no licence file (standardwebhooks, lazy-val). A lock package whose folder build.files leaves out of
+// the app whole ('!node_modules/<folder>/**', such as the optional @napi-rs canvas packages) is not shipped, so it is skipped:
+// neither listed nor checked.
 //
 // Usage: node scripts/third-party-notices.mjs [--check]
 //   (no flag)  writes THIRD-PARTY-NOTICES.txt when there are no errors
@@ -148,6 +150,24 @@ export function licenceFiles(dir) {
   return found.sort();
 }
 
+// The folders under node_modules that build.files leaves out of the app whole: a plain '!node_modules/<folder>/**' pattern with no
+// wildcard or brace in the folder name. A pattern that leaves out only part of a package (pdfjs-dist/web, or the koffi platform
+// builds in braces) does not exclude the package: the rest of it still ships.
+export function wholeFolderExclusions(buildFiles) {
+  const folders = [];
+  for (const p of Array.isArray(buildFiles) ? buildFiles : []) {
+    if (typeof p !== 'string' || !p.startsWith('!node_modules/') || !p.endsWith('/**')) continue;
+    const folder = p.slice(1, -3);
+    if (!/[*?{}[\]]/.test(folder)) folders.push(folder);
+  }
+  return folders;
+}
+
+// True when a lock-file key (node_modules/<name>, or a package nested under it) lies inside one of those folders.
+export function isExcludedFromApp(key, folders) {
+  return folders.some((f) => key === f || key.startsWith(`${f}/`));
+}
+
 function readJsonIfExists(p) {
   if (!fs.existsSync(p)) return null;
   return JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -186,8 +206,11 @@ export function buildNotices({ root = ROOT, release = false } = {}) {
     }
   }
 
+  // Packages that build.files leaves out of the app whole are not shipped, so they are neither listed nor checked.
+  const outOfApp = wholeFolderExclusions(pkg.build && pkg.build.files);
   const scannedKeys = Object.keys(lock.packages)
-    .filter((k) => k.startsWith('node_modules/') && !lock.packages[k].dev);
+    .filter((k) => k.startsWith('node_modules/') && !lock.packages[k].dev)
+    .filter((k) => !isExcludedFromApp(k, outOfApp));
   const keys = [...new Set([...scannedKeys, ...Object.keys(FIXED_BY_KEY)])];
   const entries = [];
 

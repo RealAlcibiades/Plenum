@@ -19,8 +19,21 @@
 //  - ApplicationFrameHost.exe windows (Store apps) are reported as the app they host (the first child window with another pid), so
 //    Calculator reads as CalculatorApp.exe; when no hosted app is found the window keeps applicationframehost.exe, which the gate
 //    refuses.
+//  - isSecureField() asks UI Automation, the interface behind Narrator, so it reaches Chromium and Edge, Electron, WPF, WinUI and UWP
+//    password fields as well as classic Win32 ones. COM through koffi, loaded on the first call and never at start-up: CoInitializeEx,
+//    CoCreateInstance(CUIAutomation8), IUIAutomation::GetFocusedElement (vtable slot 8), then IUIAutomationElement::get_CurrentIsPassword
+//    (35) and get_CurrentControlType (21); every pointer is released and the IUIAutomation object is kept until close(). It runs on the
+//    thread that calls it (the shell's main thread) and is bounded twice: IUIAutomation2 connection and transaction timeouts of 350 ms
+//    (the system default is 2 s and 20 s) and a 1.2 s budget for the whole answer. -> true when the focused element is a password field;
+//    false only when UI Automation says it is not one AND the element is one that can hold typed text or a single control (a pane,
+//    window, group or custom element may sit around a field its program has not exposed yet: Chromium answers with the pane until its
+//    accessibility tree is built, so that is retried twice and is otherwise "cannot tell"); null when it cannot tell (UI Automation
+//    missing or failing, a timeout, nothing focused, an element that says nothing). The old check (an Edit control with ES_PASSWORD)
+//    stays as a fallback and as a second vote: either one saying true wins. lib/computer/run.mjs refuses to type on true, and on Windows
+//    on null as well.
 //  - The module sends only what normalizeAction (actions.cjs) produced. It never logs, and typed text exists only in the call.
 const koffiBindings = new WeakMap();
+const uiaBindings = new WeakMap();
 
 class NativeUnavailable extends Error {}
 class InputBlocked extends Error {}
@@ -41,6 +54,29 @@ const MOUSEEVENTF = Object.freeze({
 const WHEEL_DELTA = 120;
 const CLICK_GAP_MS = 40;
 const CHAR_GAP_MS = 8;
+
+// UI Automation (isSecureField). The class and interface ids, and the vtable slots (UIAutomationClient.h: IUnknown is 0..2, each
+// interface follows its parent's methods in declaration order; the timeout slots are read back from the object before they are trusted).
+const CLSID_CUIAutomation8 = 'e22ad333-b25f-460c-83d0-0581107395c9';
+const CLSID_CUIAutomation = 'ff48dba4-60ef-4201-aa87-54103eef594e';
+const IID_IUIAutomation = '30cbe57d-d9d0-452a-ab13-7ac5ac4825ee';
+const IID_IUIAutomation2 = '34723aff-0c9d-49d0-9896-7ab52df8cd8a';
+const SLOT = Object.freeze({
+  QueryInterface: 0, Release: 2,
+  GetFocusedElement: 8, // IUIAutomation
+  get_ConnectionTimeout: 60, put_ConnectionTimeout: 61, get_TransactionTimeout: 62, put_TransactionTimeout: 63, // IUIAutomation2
+  get_CurrentControlType: 21, get_CurrentIsPassword: 35, // IUIAutomationElement
+});
+const UIA_TIMEOUT_MS = 350;
+const UIA_BUDGET_MS = 1200;
+const UIA_RETRY_GAPS_MS = Object.freeze([150, 350]);
+const HR_ELEMENT_NOT_AVAILABLE = 0x80040201 | 0;
+const HR_TIMEOUT = 0x80131505 | 0;
+// ControlTypes (50000 to 50040) that say nothing about a field inside them: Custom, Group, Window and Pane. Every other type is the
+// control itself, so "IsPassword is false" is an answer for it.
+const UIA_CONTROL_TYPE_MIN = 50000;
+const UIA_CONTROL_TYPE_MAX = 50040;
+const UIA_HOST_TYPES = new Set([50025, 50026, 50032, 50033]);
 
 // Virtual-key codes for the canonical key names (actions.cjs KEY_NAMES).
 const VK = Object.freeze({
@@ -128,6 +164,21 @@ const wide = (buf, chars) => buf.toString('utf16le', 0, Math.max(0, chars) * 2);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const baseName = exe => String(exe ?? '').split(/[\\/]/).pop().toLowerCase();
 
+// The 16 bytes of a GUID written as 8-4-4-4-12 hex digits: Data1, Data2 and Data3 little-endian, then Data4 as written.
+function guidBytes(text) {
+  const hex = String(text).replace(/[{}-]/g, '');
+  if (!/^[0-9a-f]{32}$/i.test(hex)) throw new TypeError('Not a GUID.');
+  const buf = Buffer.alloc(16);
+  buf.writeUInt32LE(parseInt(hex.slice(0, 8), 16), 0);
+  buf.writeUInt16LE(parseInt(hex.slice(8, 12), 16), 4);
+  buf.writeUInt16LE(parseInt(hex.slice(12, 16), 16), 6);
+  Buffer.from(hex.slice(16), 'hex').copy(buf, 8);
+  return buf;
+}
+
+// Whether "UI Automation says this element is not a password" is a real answer for an element of this ControlType.
+const uiaTypeCanAnswer = type => Number.isInteger(type) && type >= UIA_CONTROL_TYPE_MIN && type <= UIA_CONTROL_TYPE_MAX && !UIA_HOST_TYPES.has(type);
+
 // ---------- koffi declarations ----------
 
 function bind(koffi) {
@@ -184,6 +235,38 @@ function bind(koffi) {
     DwmGetWindowAttribute: dwmapi.func('int32 __stdcall DwmGetWindowAttribute(intptr_t hwnd, uint32 dwAttribute, void *pvAttribute, uint32 cbAttribute)'),
   };
   koffiBindings.set(koffi, api);
+  return api;
+}
+
+// The COM side of isSecureField: declared on the first call, never at start-up, and once for each koffi (a prototype name can be
+// declared once). A COM object is a pointer to a pointer to a table of function pointers, so a method is read out of its slot and called
+// with koffi.call. -> the functions, or null when koffi cannot do it here (the caller then answers from the classic check alone).
+function uiaApi(koffi) {
+  if (uiaBindings.has(koffi)) return uiaBindings.get(koffi);
+  let api = null;
+  try {
+    const ole32 = koffi.load('ole32.dll');
+    const protos = {
+      queryInterface: koffi.proto('int32 __stdcall PlenumUiaQueryInterface(void *self, void *riid, _Out_ void **ppv)'),
+      release: koffi.proto('uint32 __stdcall PlenumUiaRelease(void *self)'),
+      outPointer: koffi.proto('int32 __stdcall PlenumUiaOutPointer(void *self, _Out_ void **out)'),
+      outInt: koffi.proto('int32 __stdcall PlenumUiaOutInt(void *self, _Out_ int32 *out)'),
+      putInt: koffi.proto('int32 __stdcall PlenumUiaPutInt(void *self, uint32 value)'),
+    };
+    const slotOf = (com, index) => koffi.decode(koffi.decode(com, 'void *'), index * 8, 'void *');
+    api = {
+      CoInitializeEx: ole32.func('int32 __stdcall CoInitializeEx(void *pvReserved, uint32 dwCoInit)'),
+      CoUninitialize: ole32.func('void __stdcall CoUninitialize()'),
+      CoCreateInstance: ole32.func('int32 __stdcall CoCreateInstance(void *rclsid, void *pUnkOuter, uint32 dwClsContext, void *riid, _Out_ void **ppv)'),
+      protos,
+      // Calls method `slot` of the COM object `com`; the object itself is always the first argument.
+      call: (com, slot, proto, ...args) => koffi.call(slotOf(com, slot), proto, com, ...args),
+      release: com => koffi.call(slotOf(com, SLOT.Release), protos.release, com),
+    };
+  } catch {
+    api = null;
+  }
+  uiaBindings.set(koffi, api);
   return api;
 }
 
@@ -641,17 +724,180 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
     return idOf(api.GetForegroundWindow()) === String(windowId) ? { ok: true } : { ok: false, reason: 'no-focus', message: 'Windows did not bring that window to the front.' };
   }
 
+  // ---------- the focused field ----------
+
+  // The classic check: the window with the keyboard focus is an Edit control with ES_PASSWORD. true | false | null. Never throws.
+  function classicSecure(fg) {
+    try {
+      const { tid } = pidOf(fg);
+      const info = Buffer.alloc(72);
+      info.writeUInt32LE(72, 0);
+      if (!api.GetGUIThreadInfo(tid, info)) return null;
+      const focusHandle = info.readBigUInt64LE(16);
+      if (focusHandle === 0n) return null;
+      if (classOf(focusHandle).toLowerCase() !== 'edit') return null;
+      return (api.GetWindowLongW(Number(focusHandle), -16) & 0x20) !== 0;
+    } catch {
+      return null;
+    }
+  }
+
+  // The IUIAutomation object, kept until close() so that each question does not create one, and the COM state that goes with it.
+  let uia = null; // the functions of uiaApi(koffi), once an automation object exists
+  let automation = null;
+  let comTried = false;
+  let comStarted = false;
+
+  const releaseCom = com => {
+    try {
+      uia?.release(com);
+    } catch {
+      // A pointer that cannot be released is dropped with the process.
+    }
+  };
+
+  function dropAutomation() {
+    const old = automation;
+    automation = null;
+    if (old) releaseCom(old);
+  }
+
+  // An integer out of a COM getter, or null when the getter failed.
+  function comInt(u, com, slot) {
+    const out = [0];
+    const hr = u.call(com, slot, u.protos.outInt, out);
+    return hr >= 0 && Number.isInteger(out[0]) ? out[0] : null;
+  }
+
+  // Sets the connection and transaction timeouts (IUIAutomation2) and reads both back, which proves that the slots are the right ones.
+  function boundCalls(u, auto) {
+    const out = [null];
+    if (u.call(auto, SLOT.QueryInterface, u.protos.queryInterface, guidBytes(IID_IUIAutomation2), out) < 0 || !out[0]) return false;
+    const second = out[0];
+    try {
+      if (u.call(second, SLOT.put_ConnectionTimeout, u.protos.putInt, UIA_TIMEOUT_MS) < 0) return false;
+      if (u.call(second, SLOT.put_TransactionTimeout, u.protos.putInt, UIA_TIMEOUT_MS) < 0) return false;
+      return comInt(u, second, SLOT.get_ConnectionTimeout) === UIA_TIMEOUT_MS && comInt(u, second, SLOT.get_TransactionTimeout) === UIA_TIMEOUT_MS;
+    } finally {
+      releaseCom(second);
+    }
+  }
+
+  // The IUIAutomation object with its calls bounded, or null. Without a bound a hung program could stall the answer for 20 s, so an object
+  // whose timeouts cannot be set and read back is not used.
+  function automationFor(u) {
+    if (automation) return automation;
+    if (!comTried) {
+      comTried = true;
+      // Multithreaded. On a thread that is already a single-threaded apartment (the shell's main thread) it answers RPC_E_CHANGED_MODE, which
+      // leaves COM usable as it was; only a success has to be undone, by CoUninitialize in close().
+      comStarted = u.CoInitializeEx(null, 0) >= 0;
+    }
+    uia = u;
+    for (const clsid of [CLSID_CUIAutomation8, CLSID_CUIAutomation]) {
+      const out = [null];
+      if (u.CoCreateInstance(guidBytes(clsid), null, 1, guidBytes(IID_IUIAutomation), out) < 0 || !out[0]) continue;
+      let bounded = false;
+      try {
+        bounded = boundCalls(u, out[0]);
+      } catch {
+        bounded = false;
+      }
+      if (bounded) {
+        automation = out[0];
+        return automation;
+      }
+      releaseCom(out[0]);
+    }
+    return null;
+  }
+
+  // One look at the focused element. -> { answer: true | false | null, again } (again: a null that a moment may turn into an answer)
+  function uiaLook(u, auto) {
+    const out = [null];
+    const hr = u.call(auto, SLOT.GetFocusedElement, u.protos.outPointer, out);
+    if (hr === HR_TIMEOUT) return { answer: null, again: false };
+    if (hr < 0) {
+      // Nothing focused at this instant is a moment that passes; any other failure may be a UI Automation that was restarted, so the
+      // object is dropped and made again next time.
+      if (hr !== HR_ELEMENT_NOT_AVAILABLE) dropAutomation();
+      return { answer: null, again: hr === HR_ELEMENT_NOT_AVAILABLE };
+    }
+    const element = out[0];
+    if (!element) return { answer: null, again: true };
+    try {
+      const password = comInt(u, element, SLOT.get_CurrentIsPassword);
+      if (password === null) return { answer: null, again: false };
+      if (password !== 0) return { answer: true, again: false };
+      const type = comInt(u, element, SLOT.get_CurrentControlType);
+      if (uiaTypeCanAnswer(type)) return { answer: false, again: false };
+      return { answer: null, again: type !== null };
+    } finally {
+      releaseCom(element);
+    }
+  }
+
+  // What UI Automation says about the focused element: true, false or null. Synchronous COM on the calling thread, bounded by the
+  // timeouts set in boundCalls and by UIA_BUDGET_MS for the whole answer. A browser whose tree is not built yet answers with the pane
+  // around the page and builds the tree because it was asked, so a "pane" is looked at again after a short wait.
+  async function uiaAnswer() {
+    const u = uiaApi(koffi);
+    if (!u) return null;
+    const started = now();
+    let answer = null;
+    try {
+      for (let attempt = 0; attempt <= UIA_RETRY_GAPS_MS.length; attempt++) {
+        if (attempt > 0) {
+          if (now() - started + UIA_RETRY_GAPS_MS[attempt - 1] >= UIA_BUDGET_MS) break;
+          await wait(UIA_RETRY_GAPS_MS[attempt - 1]);
+        }
+        const auto = automationFor(u);
+        if (!auto) break;
+        const look = uiaLook(u, auto);
+        answer = look.answer;
+        if (answer !== null || !look.again) break;
+      }
+    } catch {
+      dropAutomation();
+      answer = null;
+    }
+    // A late "not a password" is not trusted (the focus may have moved on while a program was slow); a late "password" still counts.
+    if (answer !== true && now() - started > UIA_BUDGET_MS) return null;
+    return answer;
+  }
+
+  // true: the focused field is a password field. false: UI Automation (or the classic check) says it is not. null: cannot tell.
   async function isSecureField() {
     const fg = api.GetForegroundWindow();
     if (isZero(fg)) return null;
-    const { tid } = pidOf(fg);
-    const info = Buffer.alloc(72);
-    info.writeUInt32LE(72, 0);
-    if (!api.GetGUIThreadInfo(tid, info)) return null;
-    const focusHandle = info.readBigUInt64LE(16);
-    if (focusHandle === 0n) return null;
-    if (classOf(focusHandle).toLowerCase() !== 'edit') return null;
-    return (api.GetWindowLongW(Number(focusHandle), -16) & 0x20) !== 0;
+    const classic = classicSecure(fg);
+    if (classic === true) return true;
+    // Plenum's own windows are refused before any typing, and a call from this process's thread into this process's own interface is the
+    // one case in which UI Automation can deadlock, so it is not made.
+    let ours = true;
+    try {
+      ours = pidOf(fg).pid === ownPid;
+    } catch {
+      ours = true;
+    }
+    const answer = ours ? null : await uiaAnswer();
+    if (answer === true) return true;
+    if (answer === false) return false;
+    return classic;
+  }
+
+  // Lets go of the UI Automation object and of the COM state this backend started.
+  function closeUia() {
+    dropAutomation();
+    if (comStarted) {
+      comStarted = false;
+      try {
+        uia?.CoUninitialize();
+      } catch {
+        // Nothing more can be done.
+      }
+    }
+    comTried = false;
   }
 
   // ---------- user input ----------
@@ -799,6 +1045,7 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
 
     close() {
       this.watch(false);
+      closeUia();
       return release();
     },
   };
@@ -807,5 +1054,6 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
 module.exports = {
   createWinNative, NativeUnavailable,
   VK, EXTENDED_KEYS, MODIFIER_NAMES, MOUSEEVENTF, INPUT_SIZE, EXTRA_INFO, WHEEL_DELTA,
-  normalizeAbsolute, encodeEvents, writeKeyboard, writeMouse, utf16Units, integrityRid, rectFrom,
+  UIA_SLOTS: SLOT, UIA_TIMEOUT_MS, UIA_BUDGET_MS, UIA_RETRY_GAPS_MS,
+  normalizeAbsolute, encodeEvents, writeKeyboard, writeMouse, utf16Units, integrityRid, rectFrom, guidBytes, uiaTypeCanAnswer,
 };

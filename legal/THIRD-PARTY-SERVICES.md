@@ -1,6 +1,6 @@
 # Third-Party Services and Trademarks
 
-Version 1 · Effective [EFFECTIVE DATE]
+Version 2 · Effective [EFFECTIVE DATE]
 
 **Plenum is an independent app made by [LICENSOR NAME].** It is not affiliated with, endorsed by, sponsored by or approved by Anthropic, OpenAI, Google, Meta, xAI, DeepSeek, Mistral AI, OpenRouter, Cursor or any other company whose products it works with.
 
@@ -21,12 +21,14 @@ Product and company names appear in Plenum only to say which services it works w
 | DeepSeek API | DeepSeek | Sends requests to DeepSeek models | Your API key |
 | Mistral API | Mistral AI | Sends requests to Mistral models | Your API key |
 | OpenRouter | OpenRouter | Sends requests to models from many providers through OpenRouter | Your API key |
-| Cursor CLI (planned) | Cursor | Will run the official program that you installed | Your Cursor account, or `CURSOR_API_KEY` |
+| Cursor CLI | Cursor | Runs the official Cursor program (`agent`, or `cursor-agent`) that you installed, and answers its permission requests for you | Your Cursor account, through Cursor's own sign-in. Plenum does not take a Cursor API key, and removes `CURSOR_API_KEY` from the program's environment |
 | Grok sign-in (planned) | xAI | Will use xAI's own sign-in | Your xAI account |
 
 ## What this means for you
 
 - **Plenum does not bundle, change or resell these services.** You install each tool from its publisher, and you sign in or add keys yourself. Plenum does not collect or store your sign-ins for these tools.
+- **Cursor.** Plenum runs the Cursor program that you installed and signs it in through Cursor's own `login` command, which opens your browser. Plenum never sees your Cursor password or token. It does not use a Cursor API key: `CURSOR_API_KEY` and every other `CURSOR_` setting are removed from the program's environment. Your message, the recent chat and the instructions Plenum adds go to that program. What Cursor does with them, which models it uses and what it charges are decided by Cursor and governed by Cursor's terms of service and privacy policy, not by Plenum. In its default mode Cursor sends its permission requests to Plenum, which answers them as the approval mode you chose says. In its print mode, which only a setting in your environment turns on, it cannot ask.
+
 - **Their terms govern your use.** Your agreement with each provider and its usage policies apply to everything you do with that provider through Plenum. That includes any limits on using a subscription through other software and any limits on automated use. Some providers restrict this. For example, Anthropic's Claude Code documentation sets out how Claude Code may be used in third-party products and says that products should use API keys. Google's Gemini CLI terms say that reaching the services behind Gemini CLI through third-party software breaks its terms, and Google has announced that Gemini CLI sign-in for consumer plans ended in June 2026, while API-key access continues. Read the current terms before you connect a service. If a subscription plan does not allow it, use an API key where the provider offers one.
 - **Services can change.** Providers can change prices, models, terms or access at any time, and Plenum may stop working with a service.
 - **Prices and model details are not offers.** Prices, model names and limits shown in Plenum come from providers' pages and public listings as of the date shown, and they can be out of date. They are not offers from the providers or from us.

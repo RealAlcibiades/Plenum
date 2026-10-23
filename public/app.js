@@ -84,7 +84,25 @@ const DEFAULT_HINT = el.hint.textContent;
 // Shown while a run is going: Enter then queues what is typed (see queueFollowUp).
 const BUSY_HINT = 'Working… Esc stops · Enter queues what you type';
 const MAX_QUEUED = 5;
-const GROUPS = [['muse', 'Muse Code'], ['anthropic', 'Claude'], ['codex', 'Codex'], ['gemini', 'Gemini'], ['xai', 'Grok'], ['openai', 'OpenAI'], ['deepseek', 'DeepSeek'], ['mistral', 'Mistral'], ['googleai', 'Google AI'], ['openrouter', 'OpenRouter'], ['echo', 'Test']];
+// The provider registry (UI-ARCH sections 1 and 10.9). Every model picker, the compare and pipeline group names and the Accounts
+// badges read this one list, so a provider that joins Plenum is one row here, plus its colour token in style.css. The order is the
+// order the pickers show. name is the picker's name for the provider; mark is the letter on its badge. MuseUI.providerRegistry
+// hands a copy to the panels.
+const PROVIDER_REGISTRY = Object.freeze([
+  { id: 'muse', name: 'Muse Code', mark: 'M' },
+  { id: 'anthropic', name: 'Claude', mark: 'C' },
+  { id: 'codex', name: 'Codex', mark: 'X' },
+  { id: 'gemini', name: 'Gemini', mark: 'G' },
+  { id: 'cursor', name: 'Cursor', mark: 'U' },
+  { id: 'xai', name: 'Grok', mark: 'X' },
+  { id: 'openai', name: 'OpenAI', mark: 'O' },
+  { id: 'deepseek', name: 'DeepSeek', mark: 'D' },
+  { id: 'mistral', name: 'Mistral', mark: 'M' },
+  { id: 'googleai', name: 'Google AI', mark: 'G' },
+  { id: 'openrouter', name: 'OpenRouter', mark: 'R' },
+  { id: 'echo', name: 'Test', mark: 'T' },
+]);
+const GROUPS = PROVIDER_REGISTRY.map(p => [p.id, p.name]);
 const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
 const EFFORT_NOTES = { low: 'Fastest replies', medium: 'A little more thought', high: 'Recommended', xhigh: 'Deeper reasoning', max: 'Slowest and most thorough' };
 // Newer browsers let a menu be styled; there each choice gets a provider dot and a note.
@@ -112,6 +130,7 @@ const CODERS = [
   { ref: 'anthropic:claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
   { ref: 'gemini:gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { ref: 'codex:default', label: 'Codex' },
+  { ref: 'cursor:default', label: 'Cursor' },
   { ref: 'muse:muse-spark-1.2', label: 'Muse Spark 1.2' },
 ];
 const DEFAULT_CODER = CODERS[0].ref;
@@ -120,6 +139,8 @@ const HOP_CHOICES = [['none', 'No limit'], ['2', '2'], ['4', '4'], ['8', '8'], [
 const STOP_TEXT = { finished: 'every hop ran', limit: 'the hop limit was reached', user: 'stopped by you', error: 'a hop failed', 'paused-forever': 'left paused' };
 const STATE_WORDS = { waiting: 'Waiting', skipped: 'Skipped', stopped: 'Stopped' };
 const GEMINI_EDIT = 'Gemini edits files only when Auto-approve or Approve all is on. Headless Gemini cannot ask first.';
+// B-84: a council seat never edits, so its tooltip says so. GEMINI_EDIT is for the build coder and the status bar.
+const GEMINI_SEAT = 'Gemini reads the project in plan mode here, so this seat never edits files, whatever Auto-approve is set to.';
 // The approval modes of a project: Ask first (the default), Auto-approve, and Approve all (every card answered for you; the
 // credential and system folders, Plenum's own source and the built-in rules stay as the server enforces them). See DECISIONS 22.
 const APPROVAL_MODES = ['ask', 'auto', 'all'];
@@ -141,10 +162,12 @@ const COMMANDS = [
   { name: 'approvals', args: '[ask|auto|all]', desc: 'Ask before edits and commands, auto-approve them, or approve all for this project' },
   { name: 'effort', args: '[low|medium|high|xhigh|max]', desc: 'How hard the main model thinks (higher is slower and more thorough)' },
   { name: 'plan', args: '<task>', desc: 'Ask for a plan. Edits still follow the approval setting.' },
+  { name: 'focus', args: '[on|off]', desc: 'Build focus: run only the checks that are strictly needed in this project' },
   { name: 'ask', args: '<model> <message>', desc: 'Ask one model without switching' },
   { name: 'council', args: '<question> | off', desc: 'Ask every seat, then a moderator sums up. /council off returns to Chat' },
   { name: 'build', args: '', desc: 'Turn the last council recommendation into tasks, then run them' },
   { name: 'relay', args: '', desc: 'Pass a finished reply from one seat to another, once or as a route' },
+  { name: 'rules', args: '', desc: 'Edit the project rules files (AGENTS.md, CLAUDE.md, GEMINI.md) and your global rules' },
   { name: 'add', args: '<folder>', desc: 'Add a project folder' },
   { name: 'project', aliases: ['switch'], args: '[name]', desc: 'Switch project' },
   { name: 'remove', aliases: ['forget'], args: '<name>', desc: 'Forget a project (files are kept)' },
@@ -158,6 +181,7 @@ const COMMANDS = [
   { name: 'music', args: '[on|off|style]', desc: 'Background music: turn it on or off, or pick a style' },
   { name: 'accounts', aliases: ['login', 'keys'], args: '', desc: 'Sign in and manage keys' },
   { name: 'gemini', args: '', desc: 'Open Accounts at the Gemini card' },
+  { name: 'computer', args: '[task|runs]', desc: 'Let the model use your mouse and keyboard for one task, in apps you allow' },
   { name: 'updates', args: '', desc: 'Review updates to Plenum' },
   { name: 'status', args: '', desc: 'Check what is connected' },
 ];
@@ -188,10 +212,10 @@ const TOOL_ICONS = {
   edit_file: 'pencil', run_command: 'terminal', propose_update: 'update',
   Read: 'file', Glob: 'folder', Grep: 'search', Write: 'file-plus', Edit: 'pencil', NotebookEdit: 'pencil',
   Bash: 'terminal', PowerShell: 'terminal', WebFetch: 'layers', WebSearch: 'search',
-  'computer.click': 'play', 'computer.right_click': 'play', 'computer.middle_click': 'play', 'computer.double_click': 'play', 'computer.triple_click': 'play',
-  'computer.drag': 'play', 'computer.move': 'play', 'computer.scroll': 'play', 'computer.mouse_down': 'play', 'computer.mouse_up': 'play',
-  'computer.type': 'pencil', 'computer.key': 'pencil', 'computer.hold': 'pencil', 'computer.screenshot': 'expand', 'computer.zoom': 'expand',
-  'computer.cursor': 'gauge', 'computer.wait': 'gauge', confirm_with_user: 'shield', hand_over: 'user',
+  'computer.click': 'pointer', 'computer.right_click': 'pointer', 'computer.middle_click': 'pointer', 'computer.double_click': 'pointer', 'computer.triple_click': 'pointer',
+  'computer.drag': 'pointer', 'computer.move': 'pointer', 'computer.scroll': 'pointer', 'computer.mouse_down': 'pointer', 'computer.mouse_up': 'pointer',
+  'computer.type': 'keyboard', 'computer.key': 'keyboard', 'computer.hold': 'keyboard', 'computer.screenshot': 'monitor', 'computer.zoom': 'monitor',
+  'computer.cursor': 'monitor', 'computer.wait': 'monitor', confirm_with_user: 'shield', hand_over: 'user',
 };
 
 const THEMES = { system: 'System', dark: 'Dark', light: 'Light' };
@@ -207,6 +231,8 @@ let notes = [];
 // The text of the last chat send and the project it went to, kept until the run is known to have gone through (B-5). Retry in
 // ext-connection.js puts this text back in the composer after a refused or failed send; it is never sent again by itself.
 let lastSent = null;
+// Why the last run was refused before it started: 'policy' (the spend cap) or 'other'; null when it was not refused (B-105).
+let refusedBy = null;
 // The run this page has in flight for each project, keyed by project id (B-8). Stop, Esc and a finished run touch only their own
 // project's controller, so an idle project never stops another project's reply.
 const runs = new Map();
@@ -916,7 +942,7 @@ function messageNodes(m) {
     // A message that started a computer run says so under its text: the apps the model may use.
     if (m.computer) {
       const chip = span('chip', '');
-      chip.append(icon('shield'), span('img-name', `Computer use${Array.isArray(m.computer.apps) && m.computer.apps.length ? ` · ${m.computer.apps.join(', ')}` : ''}`));
+      chip.append(icon('monitor'), span('img-name', `Computer use${Array.isArray(m.computer.apps) && m.computer.apps.length ? ` · ${m.computer.apps.join(', ')}` : ''}`));
       const row = document.createElement('div');
       row.className = 'chips msg-images';
       row.append(chip);
@@ -938,9 +964,9 @@ function messageNodes(m) {
     const run = m.computerRun;
     const head = document.createElement('div');
     head.className = 'computer-run';
-    head.append(icon('shield'), span('cr-text', ` Computer run · ${(run.apps ?? []).join(', ') || 'no app'} · ${run.actions ?? 0} actions · ${stopWordOf(run.stopReason)}`));
-    const review = button('ghost small', 'Past runs');
-    review.addEventListener('click', () => openComputerRuns());
+    head.append(icon('monitor'), span('cr-text', ` Computer run · ${(run.apps ?? []).join(', ') || 'no app'} · ${run.actions ?? 0} actions · ${stopWordOf(run.stopReason)}`));
+    const review = button('ghost small', 'Review');
+    review.addEventListener('click', () => window.MuseUI?.openComputerRuns?.(run.id));
     head.append(review);
     nodes.push(head);
     if (toolRows.length) {
@@ -1071,6 +1097,7 @@ function welcomeProject(p) {
 // ---------- rendering ----------
 
 function renderAll() {
+  tellPromptsHealth(S.promptsHealth);
   renderTop();
   renderProjects();
   renderChat();
@@ -1082,6 +1109,7 @@ function renderAll() {
 
 // Everything renderAll draws except the transcript, so a reply that is streaming into it is never wiped by a settings change.
 function renderShell() {
+  tellPromptsHealth(S.promptsHealth);
   renderTop();
   renderProjects();
   renderStatus();
@@ -1220,7 +1248,8 @@ function renderChat() {
     for (const node of nodes) streamEl.append(node);
     host = m.kind === 'council' && m.role === 'assistant' ? nodes[0] : null;
   }
-  for (const n of notes) streamEl.append(n.startsWith('Error: ') ? errorEl(n.slice(7)) : systemTurn(n));
+  // A 'Notice: ' line is a refusal the person can act on (the spend cap), drawn as a Plenum line, not as an error (B-105).
+  for (const n of notes) streamEl.append(n.startsWith('Error: ') ? errorEl(n.slice(7)) : systemTurn(n.startsWith('Notice: ') ? n.slice(8) : n));
   // The live run of this project, if it has one, goes back under the saved messages (B-9, B-10).
   const live = S.activeProject ? runBoxes.get(S.activeProject) : null;
   if (live) streamEl.append(live);
@@ -1423,6 +1452,7 @@ async function runStream(url, body, onEvent, { tick } = {}) {
   // Set when the run failed (a refused send, a dropped stream or an error event), so its text stays in lastSent for Retry (B-5).
   let failed = false;
   liveRunId = '';
+  refusedBy = null;
   // Every event of the stream carries the run's id. The first one tells which run is ours, so the events channel (which carries
   // every run) does not draw it a second time. Each event is also announced to the page's panels as 'muse:stream'.
   const watch = ev => {
@@ -1437,13 +1467,22 @@ async function runStream(url, body, onEvent, { tick } = {}) {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (tokenRefused(res)) showTokenCard();
-      throw new Error(data.error || `Request failed (${res.status})`);
+      // B-105: a policy refusal (the spend cap; the server marks it with policy: true) is a notice, and its text goes back to the
+      // composer. Any other refusal keeps its error line and Retry.
+      const e = new Error(data.error || `Request failed (${res.status})`);
+      e.policy = data.policy === true;
+      refusedBy = e.policy ? 'policy' : 'other';
+      throw e;
     }
     await readSSE(res, watch);
     if (!reported) throw new Error('The run ended before it finished. Try again.');
   } catch (err) {
     ok = false;
-    if (err.name !== 'AbortError') {
+    if (err.name !== 'AbortError' && err.policy === true) {
+      // B-105: the spend cap refused the send. A notice, not a failure, so there is no Retry; the text goes back to the composer.
+      notes.push(`Notice: ${err.message}`);
+      box.append(systemTurn(err.message));
+    } else if (err.name !== 'AbortError') {
       failed = true;
       notes.push(`Error: ${err.message}`);
       box.append(errorEl(err.message));
@@ -1591,6 +1630,13 @@ function turnRenderer(project = S.activeProject) {
         stickBottom();
         break;
       case 'notice':
+        // The Plenum bridge reached a CLI agent (lib/providers.mjs sends this once per launch): the strip above the composer says it, and the
+        // same words are not added to the turn as well. Without the notices module or its entry the plain line below is the fallback.
+        if (ev.kind === 'cli-bridge' && window.MuseUI?.notices?.list?.().some(n => n.id === 'cli-bridge')) {
+          window.MuseUI.notice?.('cli-bridge', { before: el.form });
+          stickBottom();
+          break;
+        }
         // A short note from the server, such as a session that had to start again with the transcript.
         box.append(systemTurn(ev.text));
         // The server sends the Approve all notice once per thread per launch, and the end-of-run refresh would drop it, so it is kept
@@ -1668,6 +1714,7 @@ const imageRefusal = (list, model) => (list.length && window.MuseImages && !wind
 
 // computer (optional) is the settings of a computer run that this message starts (see sendComputer); appNames are its apps, for the chip.
 async function sendMessage(text, model, images, computer, appNames) {
+  refusedBy = null;
   if (text.length > 14_000_000) return toast('That message is too long to send (over 14 million characters). Split it up or attach the file with @path.', 'bad');
   if (!S.activeProject) {
     openAddForm();
@@ -2265,7 +2312,7 @@ async function openPlan(cd, slot, btn) {
   slot.append(wait);
   btn.disabled = true;
   try {
-    const data = await api('/api/plan', { project: S.activeProject, goal: cd.question, recommendation });
+    const [data] = await Promise.all([api('/api/plan', { project: S.activeProject, goal: cd.question, recommendation }), loadAgentsInfo()]);
     if (data.error) throw new Error(data.error);
     const tasks = (data.tasks ?? []).map(normalizeTask);
     if (!tasks.length) throw new Error('The planner returned no tasks. Try again, or ask the council a narrower question.');
@@ -2279,6 +2326,57 @@ async function openPlan(cd, slot, btn) {
   }
 }
 
+// The agent types and models a build task can use, from GET /api/agents?project= (lib/routes/agents.mjs): effective.types (each type's
+// own model, effort and limits), effective.limits.roles.build.types (the types a build may start) and catalog (the models). Read once
+// per plan open, and again when a build starts without it, so the plan and the build card can name them. null until it is read.
+let agentsInfo = null;
+// The built-in types a build can start, for when the server's list cannot be read.
+const FALLBACK_TYPES = [
+  { name: 'coder', label: 'Coder', kind: 'edit', model: null, effort: 'high', maxSteps: 30, timeoutMin: 15 },
+  { name: 'researcher', label: 'Researcher', kind: 'read', model: null, effort: 'medium', maxSteps: 30, timeoutMin: 10 },
+  { name: 'tester', label: 'Tester', kind: 'read', model: null, effort: 'medium', maxSteps: 30, timeoutMin: 15 },
+  { name: 'reviewer', label: 'Reviewer', kind: 'read', model: null, effort: 'high', maxSteps: 20, timeoutMin: 10 },
+];
+// Why a task's agent ended early, in the words the Agents tab uses (ext-agents.js).
+const AGENT_STOP_WORDS = { timeout: 'Stopped at its time limit', idle: 'Stopped at its idle limit', steps: 'Stopped at its tool step limit', user: 'Stopped by you', parent: 'Stopped with the run', denied: 'Not started: you said no' };
+
+async function loadAgentsInfo() {
+  if (!S.activeProject) return agentsInfo;
+  try {
+    agentsInfo = await api(`/api/agents?project=${encodeURIComponent(S.activeProject)}`);
+  } catch {
+    // The menus then offer the built-in types, and the models the page already knows.
+  }
+  return agentsInfo;
+}
+
+const agentTypeOf = name => agentsInfo?.effective?.types?.find(t => t.name === name) ?? FALLBACK_TYPES.find(t => t.name === name) ?? null;
+// The types a build may start, in the order the limits list them.
+function buildTypes() {
+  const names = agentsInfo?.effective?.limits?.roles?.build?.types;
+  if (!Array.isArray(names)) return FALLBACK_TYPES;
+  return names.map(n => agentTypeOf(n) ?? { name: n, label: n, kind: 'read', model: null, maxSteps: 0, timeoutMin: 0 });
+}
+// edit or read. Without the list, the Coder edits files and the other built-in types only read.
+const kindOf = name => agentTypeOf(name)?.kind ?? (!name || name === 'coder' ? 'edit' : 'read');
+// A type's name for people: its label, the name itself for a type the list lacks, and 'Coder' for a task saved before types existed.
+const typeLabel = name => agentTypeOf(name)?.label ?? (name ? String(name) : 'Coder');
+// A model's full name ("Claude Haiku 5.5") from the catalog, else the coders list, else the reference. The catalog's own note in
+// brackets ("(Muse Code default)") is left out, as modelName leaves it out.
+const plainModel = label => String(label ?? '').replace(/\s*\(.*\)$/, '');
+function fullModelLabel(ref) {
+  if (!ref) return '';
+  const named = catalog.find(c => `${c.provider}:${c.id}` === ref)?.label ?? (agentsInfo?.catalog ?? []).find(c => c.ref === ref)?.label ?? CODERS.find(c => c.ref === ref)?.label;
+  return named ? plainModel(named) : ref;
+}
+// The models a task of this kind may run on. An edit type needs a model whose tool calls the page can check, as lib/agents.mjs canRun.
+function modelsFor(kind) {
+  const list = agentsInfo?.catalog?.length
+    ? agentsInfo.catalog
+    : CODERS.map(c => ({ ref: c.ref, label: c.label, provider: c.ref.slice(0, c.ref.indexOf(':')), tools: c.ref.startsWith('anthropic:') ? 'yes' : 'cli' }));
+  return list.filter(m => kind !== 'edit' || ((m.tools === 'yes' || m.tools === 'cli') && m.provider !== 'echo'));
+}
+
 function normalizeTask(t) {
   return {
     id: String(t.id ?? ''),
@@ -2286,8 +2384,10 @@ function normalizeTask(t) {
     instructions: String(t.instructions ?? ''),
     scope: Array.isArray(t.scope) ? t.scope.map(String) : [],
     depends: Array.isArray(t.depends) ? t.depends.map(String) : [],
-    coder: t.coder || DEFAULT_CODER,
-    effort: t.effort || 'high',
+    agent: t.agent || 'coder',
+    // '' means the agent type's own model and effort.
+    coder: t.coder || '',
+    effort: t.effort || '',
   };
 }
 
@@ -2305,18 +2405,14 @@ function scopesOverlap(a = [], b = []) {
   }));
 }
 
-function coderOptions(select, ref) {
-  const list = CODERS.some(c => c.ref === ref) ? CODERS : [...CODERS, { ref, label: ref }];
-  select.replaceChildren(...list.map(c => new Option(c.note ? `${c.label} (${c.note})` : c.label, c.ref)));
-  select.value = ref;
-}
-
 function planPanel(cd, slot, tasks) {
   const panel = document.createElement('section');
   panel.className = 'plan fresh';
   const head = document.createElement('div');
   head.className = 'plan-head';
-  head.append(span('kicker', 'Build plan'), span('plan-note', 'Change titles, coders, scope or instructions. Nothing runs until you press Run.'));
+  head.append(span('kicker', 'Build plan'));
+  if (buildFocusOn(S.activeProject)) head.append(span('pill warn', 'Build focus'));
+  head.append(span('plan-note', 'Change titles, agents, models, scope or instructions. Nothing runs until you press Run.'));
   const list = document.createElement('div');
   list.className = 'plan-list';
   for (const t of tasks) list.append(taskEditor(t));
@@ -2324,8 +2420,8 @@ function planPanel(cd, slot, tasks) {
   foot.className = 'plan-foot';
   const run = button('primary small', `Run ${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}`);
   run.addEventListener('click', () => {
-    const bad = tasks.find(t => !t.title.trim() || !t.scope.length);
-    if (bad) return toast(`Task ${bad.id} needs a title and at least one scope path.`, 'bad');
+    const bad = tasks.find(t => !t.title.trim() || (kindOf(t.agent) === 'edit' && !t.scope.length));
+    if (bad) return toast(`Task ${bad.id} needs a title and, for a type that edits files, at least one scope path.`, 'bad');
     panel.remove();
     runBuild(cd, slot, tasks);
   });
@@ -2350,19 +2446,68 @@ function taskEditor(t) {
   title.placeholder = 'Task title';
   title.setAttribute('aria-label', `Title of ${t.id}`);
   title.addEventListener('input', () => { t.title = title.value; });
+  const agent = document.createElement('select');
+  agent.className = 'plain-select pt-agent';
+  agent.setAttribute('aria-label', `Agent for ${t.id}`);
   const coder = document.createElement('select');
   coder.className = 'plain-select pt-coder';
-  coder.setAttribute('aria-label', `Coder for ${t.id}`);
-  coderOptions(coder, t.coder);
+  coder.setAttribute('aria-label', `Model for ${t.id}`);
+  const effort = document.createElement('select');
+  effort.className = 'plain-select pt-effort';
+  effort.setAttribute('aria-label', `Effort for ${t.id}`);
+  const limits = span('pt-limits', '');
   const gem = quietNote(GEMINI_EDIT, 'pt-note');
+  let scopeBox = null;
+
+  // The types a build may start. A type the list lacks (a task saved under it) stays as one more choice.
+  const fillAgents = () => {
+    const list = buildTypes();
+    const opts = list.map(x => new Option(x.label ?? x.name, x.name));
+    if (!list.some(x => x.name === t.agent)) opts.push(new Option(typeLabel(t.agent), t.agent));
+    agent.replaceChildren(...opts);
+    agent.value = t.agent;
+  };
+  // The type's own model first, then the models its kind may run on.
+  const fillModels = () => {
+    const allowed = modelsFor(kindOf(t.agent));
+    const typeRef = agentTypeOf(t.agent)?.model || DEFAULT_CODER;
+    const opts = [new Option(`Type default (${fullModelLabel(typeRef)})`, '')];
+    for (const m of allowed) opts.push(new Option(plainModel(m.label) || m.ref, m.ref));
+    if (t.coder && !allowed.some(m => m.ref === t.coder)) opts.push(new Option(fullModelLabel(t.coder), t.coder));
+    coder.replaceChildren(...opts);
+    coder.value = t.coder;
+  };
+  const fillEffort = () => {
+    effort.replaceChildren(new Option('Type default', ''), ...Object.entries(EFFORT_LABELS).map(([v, label]) => new Option(label, v)));
+    effort.value = t.effort;
+  };
+  const paintLimits = () => {
+    const type = agentTypeOf(t.agent);
+    limits.textContent = type?.maxSteps ? `${type.maxSteps} steps · ${type.timeoutMin} min` : '';
+  };
   const markGemini = () => {
-    const isGemini = t.coder.startsWith('gemini:');
+    const ref = t.coder || agentTypeOf(t.agent)?.model || '';
+    const isGemini = ref.startsWith('gemini:') && kindOf(t.agent) === 'edit';
     gem.hidden = !isGemini;
     coder.title = isGemini ? GEMINI_EDIT : '';
   };
-  coder.addEventListener('change', () => { t.coder = coder.value; markGemini(); });
+  fillAgents();
+  fillModels();
+  fillEffort();
+  paintLimits();
   markGemini();
-  top.append(span('pt-id', t.id), title, coder);
+  agent.addEventListener('change', () => {
+    t.agent = agent.value;
+    // A model the new type cannot run goes back to the type's own.
+    if (t.coder && !modelsFor(kindOf(t.agent)).some(m => m.ref === t.coder)) t.coder = '';
+    fillModels();
+    paintLimits();
+    markGemini();
+    scopeBox?.repaint?.();
+  });
+  coder.addEventListener('change', () => { t.coder = coder.value; markGemini(); });
+  effort.addEventListener('change', () => { t.effort = effort.value; });
+  top.append(span('pt-id', t.id), title, agent, coder);
   const line = document.createElement('div');
   line.className = 'pt-line';
   const dep = document.createElement('input');
@@ -2372,7 +2517,7 @@ function taskEditor(t) {
   dep.placeholder = 'none';
   dep.setAttribute('aria-label', `Depends on, for ${t.id}`);
   dep.addEventListener('change', () => { t.depends = dep.value.split(/[\s,]+/).filter(Boolean); });
-  line.append(span('', 'Depends on'), dep);
+  line.append(span('', 'Depends on'), dep, span('', 'Effort'), effort, limits);
   const instr = document.createElement('details');
   instr.className = 'pt-instr';
   const sum = document.createElement('summary');
@@ -2382,7 +2527,8 @@ function taskEditor(t) {
   area.setAttribute('aria-label', `Instructions for ${t.id}`);
   area.addEventListener('input', () => { t.instructions = area.value; });
   instr.append(sum, area);
-  row.append(top, scopeChips(t), line, gem, instr);
+  scopeBox = scopeChips(t);
+  row.append(top, scopeBox, line, gem, instr);
   return row;
 }
 
@@ -2404,7 +2550,7 @@ function scopeChips(t) {
     const add = document.createElement('input');
     add.type = 'text';
     add.className = 'chip-add';
-    add.placeholder = t.scope.length ? 'Add a path, then Enter' : 'Add a folder or file, then Enter';
+    add.placeholder = kindOf(t.agent) !== 'edit' ? 'Focus (optional)' : t.scope.length ? 'Add a path, then Enter' : 'Add a folder or file, then Enter';
     add.setAttribute('aria-label', `Add a scope path for ${t.id}`);
     add.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;
@@ -2419,13 +2565,15 @@ function scopeChips(t) {
     if (focusAdd) add.focus();
   };
   paint(false);
+  box.repaint = () => paint(false);
   return box;
 }
 
 // Runs a plan: the build streams into the card, and the review follows it.
 async function runBuild(cd, slot, tasks) {
   if (busyNow()) return toast('This project is already running. Use /cancel first.', 'bad');
-  const payload = tasks.map(t => ({ id: t.id, title: t.title.trim(), instructions: t.instructions, scope: t.scope, depends: t.depends, coder: t.coder, effort: t.effort }));
+  // A task names its agent type. Its model and effort are sent only when they differ from the type's own.
+  const payload = tasks.map(t => ({ id: t.id, title: t.title.trim(), instructions: t.instructions, scope: t.scope, depends: t.depends, agent: t.agent || 'coder', ...(t.coder ? { coder: t.coder } : {}), ...(t.effort ? { effort: t.effort } : {}) }));
   const run = {
     goal: cd.question,
     tasks: payload.map(t => ({ ...t, state: 'waiting', started: false, summary: '', changed: [], outOfScope: [], steps: [] })),
@@ -2439,6 +2587,8 @@ async function runBuild(cd, slot, tasks) {
     error: '',
     clock: '',
     open: {},
+    // Build focus for this build, from build-start (see buildHandler). Shown as a pill in the card head.
+    focus: false,
   };
   let live = buildEl(run, true);
   slot.append(live);
@@ -2456,6 +2606,8 @@ async function runBuild(cd, slot, tasks) {
       stickBottom();
     });
   };
+  // The build card names each task's type and model; read them now when the plan was not opened with them.
+  if (!agentsInfo) loadAgentsInfo().then(() => paint());
   notes = [];
   cue('start');
   await runStream('/api/build', { project: S.activeProject, goal: cd.question, tasks: payload }, buildHandler(run, paint), {
@@ -2463,8 +2615,15 @@ async function runBuild(cd, slot, tasks) {
       run.clock = time;
       const t = el.chat.querySelector('.build-timer');
       if (t) t.textContent = `Working · ${time}`;
+      // Each running task counts up from its own start (taskRowEl).
+      for (const n of el.chat.querySelectorAll('.bt-elapsed[data-start]')) n.textContent = clockText(Math.floor((Date.now() - Number(n.dataset.start)) / 1000));
     },
   });
+}
+
+// Build focus for a project as the Focus control and the Mode menu last showed it (MuseUI.focusOf, ext-focus.js).
+function buildFocusOn(projectId) {
+  return window.MuseUI?.focusOf?.(projectId) === true;
 }
 
 function buildHandler(run, paint) {
@@ -2474,12 +2633,15 @@ function buildHandler(run, paint) {
     switch (ev.type) {
       case 'build-start':
         run.tasks = ev.tasks.map(t => ({ state: 'waiting', started: false, summary: '', changed: [], outOfScope: [], steps: [], ...t }));
+        // The server may send focus on build-start; until it does, the project's flag as the page knows it is the same answer.
+        run.focus = typeof ev.focus === 'boolean' ? ev.focus : buildFocusOn(S.activeProject);
         break;
       case 'task-start': {
         const t = byId(ev.id);
         if (t) {
           t.state = 'running';
           t.started = true;
+          t.startedAt = Date.now();
         }
         break;
       }
@@ -2501,9 +2663,13 @@ function buildHandler(run, paint) {
         const t = byId(ev.id);
         if (t) {
           t.state = ev.ok ? 'done' : (t.started ? 'failed' : 'skipped');
-          t.summary = ev.ok ? (ev.summary ?? '') : (ev.error || ev.summary || '');
+          // A stopped task shows the stop reason where its summary would be.
+          const stopWord = !ev.ok && ev.stopped ? AGENT_STOP_WORDS[ev.stopped] : '';
+          t.summary = ev.ok ? (ev.summary ?? '') : (stopWord || ev.error || ev.summary || '');
           t.changed = ev.changed ?? [];
           t.outOfScope = ev.outOfScope ?? [];
+          t.elapsedMs = ev.elapsedMs;
+          t.turns = ev.turns;
         }
         break;
       }
@@ -2559,7 +2725,11 @@ function buildEl(run, fresh = false) {
   box.className = fresh ? 'build-run fresh' : 'build-run';
   const head = document.createElement('div');
   head.className = 'build-head';
-  head.append(icon('terminal'), span('kicker', 'Build'), span('build-goal', run.goal || 'the agreed plan'));
+  head.append(icon('terminal'), span('kicker', 'Build'));
+  // A build run with Build focus is marked here. A card redrawn from the transcript after a reload shows no pill: the saved
+  // build message does not carry the flag (server.mjs keeps the tasks and review only).
+  if (run.focus) head.append(span('pill warn', 'Build focus'));
+  head.append(span('build-goal', run.goal || 'the agreed plan'));
   if (!run.done) head.append(span('build-timer', run.clock ? `Working · ${run.clock}` : 'Working'));
   box.append(head);
   const list = document.createElement('ol');
@@ -2601,11 +2771,21 @@ function taskRowEl(run, t) {
   const st = span('bt-state');
   const nodes = stateNodes(t.state);
   st.append(...(nodes.length ? nodes : [STATE_WORDS[t.state] ?? '']));
-  top.append(st, span('bt-title', `${t.id} · ${t.title}`), span('bt-coder', coderLabel(t.coder)));
+  const modelRef = t.coder || agentTypeOf(t.agent)?.model || DEFAULT_CODER;
+  top.append(st, span('bt-title', `${t.id} · ${t.title}`), span('bt-coder', `${typeLabel(t.agent)} · ${coderLabel(modelRef)}`));
+  if (t.state === 'running' && t.startedAt) {
+    const clock = span('bt-elapsed', clockText(Math.floor((Date.now() - t.startedAt) / 1000)));
+    clock.dataset.start = String(t.startedAt);
+    top.append(clock);
+  }
   li.append(top);
   if (t.scope?.length) li.append(span('bt-scope', t.scope.join(', ')));
   const wait = waitNote(run, t);
   if (wait) li.append(span('bt-note', wait));
+  if (['done', 'failed', 'stopped'].includes(t.state) && typeof t.elapsedMs === 'number') {
+    const n = Number(t.turns) || 0;
+    li.append(span('bt-note', `${clockText(Math.floor(t.elapsedMs / 1000))} · ${n} ${n === 1 ? 'step' : 'steps'}`));
+  }
   if (t.summary) li.append(Object.assign(document.createElement('p'), { className: 'bt-summary', textContent: t.summary }));
   if (t.outOfScope?.length) li.append(span('bt-warn', `Changed outside its scope: ${t.outOfScope.join(', ')}`));
   if (t.steps?.length) {
@@ -2623,7 +2803,7 @@ function stepEl(run, s) {
 }
 
 function coderLabel(ref) {
-  return CODERS.find(c => c.ref === ref)?.label ?? ref ?? '';
+  return CODERS.find(c => c.ref === ref)?.label ?? fullModelLabel(ref);
 }
 
 // Why a task has not started: a dependency that is not finished, or a running task whose scope overlaps.
@@ -2814,13 +2994,15 @@ function seatPill(index) {
       role.value = s.role;
       ensureOption(model.select, s.ref);
       model.select.value = s.ref;
-      model.pickEl.title = gemini ? GEMINI_EDIT : 'The model for this seat';
+      model.pickEl.title = gemini ? GEMINI_SEAT : 'The model for this seat';
       effort.select.value = s.effort ?? 'high';
       effort.select.disabled = gemini;
       effort.select.title = gemini ? GEMINI_EFFORT : '';
       effort.pickEl.title = gemini ? GEMINI_EFFORT : 'How hard this seat thinks';
-      sess.textContent = `Sessions: ${(s.sessions ?? S.sessions) === 'native' ? 'Native' : 'Transcript'}`;
-      sess.title = 'How this seat keeps the chat: Native uses the provider\'s own session; Transcript sends the chat again each time';
+      // B-83: a council seat always sends the chat again. Its turns are read-only and lib/council.mjs never passes a native session
+      // to streamChat, so the label is fixed. Native sessions apply to the main chat with Claude or Codex.
+      sess.textContent = 'Sessions: Transcript';
+      sess.title = 'Council seats always send the chat again with each message. Native sessions apply to the main chat with Claude or Codex.';
     },
   };
 }
@@ -2917,8 +3099,17 @@ function renderCouncilDrawer(body) {
 
 // ---------- relay: the route panel, the route bar and the log ----------
 
-function relaySettings() {
+// The relay settings a route in the active project uses: the project's own when it has them, else the app's (B-63; the server reads the
+// same in handleRelayRoute). The Start gate, the route bar's limit and the route sent all come from here, so they match what the
+// server enforces. The switches of the route panel change the app's settings (appRelaySettings), which a project with its own ignores.
+// The state's activeRelay is { settings, own } for the active project (server.mjs publicState).
+function appRelaySettings() {
   return { ...RELAY_DEFAULTS, ...(S.relay ?? {}) };
+}
+
+function relaySettings() {
+  const effective = S.activeRelay?.settings;
+  return effective && typeof effective === 'object' ? { ...RELAY_DEFAULTS, ...effective } : appRelaySettings();
 }
 
 function latestSeatId(seats) {
@@ -2965,7 +3156,7 @@ function switchRow(label, desc, checked, onChange) {
 
 async function saveRelay(patch) {
   try {
-    S = await api('/api/settings', { relay: { ...relaySettings(), ...patch } });
+    S = await api('/api/settings', { relay: { ...appRelaySettings(), ...patch } });
   } catch (err) {
     toast(err.message, 'bad');
   }
@@ -3036,6 +3227,11 @@ function renderRelayPanel(body) {
   form.append(fieldRow('Send to', kind, d.kind === 'chain' ? 'Each seat gets the reply from the seat before it, in order.' : 'Every other seat gets the reply at once.'));
   if (d.kind === 'chain') form.append(chainEditor(d, seats));
 
+  // B-63: a project with its own relay settings runs its routes on those, so they are shown here and the switches are off; the app's
+  // switches would change nothing for it.
+  const ownRelay = S.activeRelay?.own === true;
+  if (ownRelay) form.append(para('This project has its own relay settings, so its routes use those. They are shown here; change them in the project settings.'));
+
   const hopSel = document.createElement('select');
   hopSel.setAttribute('aria-label', 'Hop limit');
   for (const [value, label] of HOP_CHOICES) hopSel.append(new Option(label, value));
@@ -3052,6 +3248,10 @@ function renderRelayPanel(body) {
   hopSel.addEventListener('change', () => {
     if (hopSel.value === 'custom') {
       custom.hidden = false;
+      // B-63: the box shows 3 until a number is typed, so choosing Custom saves the number the box shows. Otherwise the route
+      // would run with no limit while the box reads 3. saveRelay redraws the drawer; the box's own change handler saves typed values.
+      const n = Math.floor(Number(custom.value));
+      saveRelay({ hops: n >= 1 && n <= 50 ? n : 3 });
       custom.focus();
       return;
     }
@@ -3087,9 +3287,11 @@ function renderRelayPanel(body) {
   form.append(switchRow('Skip repeats', 'Do not send a reply that was already sent in this route. Off by default, since a repeated answer is sometimes the right one.', rs.dedupe, v => saveRelay({ dedupe: v })));
   form.append(switchRow(`Auto relay is ${rs.autoRoute ? 'on' : 'off'}`, rs.autoRoute ? 'Routes run on their own until a limit, a stop or an error.' : 'Off by default. While it is off, nothing is passed on without you.', rs.autoRoute, v => saveRelay({ autoRoute: v })));
 
+  if (ownRelay) for (const control of [hopSel, custom, range, ...form.querySelectorAll('.switch-row input')]) control.disabled = true;
+
   const start = button('primary small', 'Start route');
   const reason = !rs.autoRoute
-    ? 'Turn on auto relay to start a route.'
+    ? ownRelay ? 'Turn on auto relay in the project settings to start a route.' : 'Turn on auto relay to start a route.'
     : busyNow()
       ? 'Something is already running in this project.'
       : d.kind === 'chain' && !d.targets.length
@@ -3201,11 +3403,27 @@ function logRow(r) {
 
 // ---------- state ----------
 
+// B-91: the connection line in the transcript is drawn from notes, so it is taken out here once the server answers. Only
+// those lines go; failed sends ("Error: ...") stay for Retry and Copy error.
+const CONNECTION_LINE = 'Cannot reach the Plenum server';
+
+// B-78: lib/prompts.mjs sets a damaged prompts.json aside and starts an empty list; the state says so (promptsHealth, the name of the
+// kept file). The person is told once per file, and the server is told it was shown, so a reload does not say it again. renderShell and
+// renderAll call it, which covers the state events, the first load and the fallback poll.
+let toldPromptsFile = null;
+function tellPromptsHealth(health) {
+  if (!health || typeof health.file !== 'string' || !health.file || health.file === toldPromptsFile) return;
+  toldPromptsFile = health.file;
+  toast(`The saved prompts file could not be read, so Plenum kept it as ${health.file} in its state folder and started an empty list. Your earlier prompts are in that file.`, 'bad', 12000);
+  api('/api/prompts/health/ack', {}).catch(() => {});
+}
+
 async function refresh() {
   try {
     S = await api('/api/state');
+    notes = notes.filter(n => !n.startsWith(CONNECTION_LINE));
   } catch (err) {
-    notes.push(`Cannot reach the Plenum server (${err.message}).`);
+    if (!notes.some(n => n.startsWith(CONNECTION_LINE))) notes.push(`${CONNECTION_LINE} (${err.message}).`);
   }
   renderAll();
 }
@@ -3409,9 +3627,20 @@ function takeOverlay(info) {
   if (key === rollbackSeen) return;
   rollbackSeen = key;
   rollbackNotice = rb;
-  const why = rb.reason || 'Plenum did not start with it';
-  toast(`The last update was rolled back: ${why}.${rb.from !== null ? ' Its files are kept under overlay in the state folder.' : ''}`, 'bad', 8000);
+  if (setAsideNotice(rb)) {
+    // Setting old changes aside after a Plenum update is expected, so the notice is not the red one.
+    toast(`Changes applied for Plenum ${rb.setAsideFor} were set aside. The Updates panel says why.`, 'ok', 8000);
+  } else {
+    const why = rb.reason || 'Plenum did not start with it';
+    toast(`The last update was rolled back: ${why}.${rb.from !== null ? ' Its files are kept under overlay in the state folder.' : ''}`, 'bad', 8000);
+  }
   api('/api/updates/ack-rollback', {}).catch(() => {});
+}
+
+// True for a record the bootstrap wrote when a Plenum version change set the applied changes aside (rollback.json with to null and
+// setAsideFor set). Such a record is not a failed start, so its toast and strip are not the red ones.
+function setAsideNotice(rb) {
+  return rb.to === null && typeof rb.setAsideFor === 'string' && rb.setAsideFor !== '';
 }
 
 // A settings change keeps the transcript. Only a switch to another project redraws it, so a reply, approval card or plan that is
@@ -3423,8 +3652,15 @@ async function update(body) {
   else renderShell();
 }
 
+// B-93: these three report a refusal themselves. Their callers (the sidebar, the row and key handlers, and the slash commands)
+// do not catch, so an unhandled rejection would be the only sign; the toast here is the one message.
 async function addFolder(path) {
-  S = await api('/api/projects', { path: path.replace(/^["']+|["']+$/g, '') });
+  try {
+    S = await api('/api/projects', { path: path.replace(/^["']+|["']+$/g, '') });
+  } catch (err) {
+    toast(err.message, 'bad');
+    return;
+  }
   notes = [];
   el.addForm.hidden = true;
   el.addPath.value = '';
@@ -3434,13 +3670,26 @@ async function addFolder(path) {
 
 async function switchProject(p) {
   if (p.id === S.activeProject) return;
+  const kept = notes;
   notes = [];
-  await update({ activeProject: p.id });
+  try {
+    await update({ activeProject: p.id });
+  } catch (err) {
+    // B-93: the switch was refused (the project was removed, say). The transcript of this project stays as it was.
+    notes = kept;
+    toast(err.message, 'bad');
+    return;
+  }
   await loadUpdates();
 }
 
 async function removeProject(p) {
-  S = await api('/api/projects/remove', { project: p.id });
+  try {
+    S = await api('/api/projects/remove', { project: p.id });
+  } catch (err) {
+    toast(err.message, 'bad');
+    return;
+  }
   renderAll();
   toast(`Forgot ${p.name}. Its files were not touched.`);
 }
@@ -3584,7 +3833,7 @@ function claudeCliCard(c) {
   const card = cardShell('C', 'claude', 'Claude', c.plan ? `Claude account · ${c.plan} plan` : 'Claude account', c.connected ? 'Signed in' : 'Not signed in', c.connected);
   card.append(para(c.connected
     ? `Claude runs through the Claude CLI on this computer${c.email ? `, signed in as ${c.email}` : ''}. It uses your Claude plan, not an API key.`
-    : 'Sign in with your Claude account. A sign-in window opens; finish in your browser, then press Refresh here.'));
+    : 'Sign in to your Claude account. A sign-in window opens; finish in your browser, then press Refresh here.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
   // The button names the product, not the provider's own sign-in button (LEGAL provider_risks, Trademarks).
@@ -3614,7 +3863,9 @@ function claudeCard(c) {
   const card = cardShell('C', 'claude', 'Claude', 'Anthropic API key', c.connected ? 'Connected' : 'Not connected', c.connected);
   card.append(para(c.connected
     ? `A key is saved${c.source ? ` (${c.source})` : ''}. Paste a new key below to replace it.`
-    : 'Paste your Anthropic API key. It is checked with one small request, then saved to your Windows account so it survives restarts.'));
+    // B-95: where the key is kept depends on how Plenum runs (keyvault.cjs notes, lib/keys.mjs). c.storageNote is that text when
+    // the server sends it (GET /api/accounts); until then the card says only what is certain, and never "survives restarts".
+    : `Paste your Anthropic API key. It is checked with one small request.${c.storageNote ? ` ${c.storageNote}` : ''}`));
   const input = document.createElement('input');
   input.type = 'password';
   input.placeholder = 'sk-ant-…';
@@ -3671,7 +3922,7 @@ function museCard(m) {
     ? 'Install Muse Code first (see the README), then come back here.'
     : m.signedIn
       ? 'Muse Code has a saved sign-in on this computer.'
-      : 'Sign in with your Meta account. A sign-in window opens; approve the code in your browser, then press Refresh here.'));
+      : 'Sign in to your Meta account. A sign-in window opens; approve the code in your browser, then press Refresh here.'));
   if (m.metaApiKey) card.append(para('META_API_KEY is set on this computer. It overrides the Meta account sign-in and decides which account is billed.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
@@ -3699,7 +3950,7 @@ function codexCard(c) {
   const card = cardShell('X', 'codex', 'Codex', 'ChatGPT account', pill, c.installed && c.loggedIn);
   card.append(para(!c.installed
     ? 'Install the Codex CLI with npm install -g @openai/codex, then come back here.'
-    : c.status || 'Sign in with your ChatGPT account. A sign-in window opens in your browser.'));
+    : c.status || 'Sign in to your ChatGPT account. A sign-in window opens in your browser.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
   const signIn = button('primary small', c.loggedIn ? 'Sign in again' : 'Sign in to Codex');
@@ -3733,7 +3984,7 @@ function geminiCard(g) {
       ? GEMINI_INSTALL
       : g.signedIn
         ? `Gemini has a saved sign-in${g.email ? ` for ${g.email}` : ''}.`
-        : 'Sign in with your Google account. A sign-in window opens; choose Sign in with Google there, then press Refresh here.'));
+        : 'Sign in to your Google account. A sign-in window opens; choose "Sign in with Google" there, as Google shows it, then press Refresh here.'));
   card.append(para('Gemini runs headless, so it edits files only when Auto-approve or Approve all is on.'));
   const actions = document.createElement('div');
   actions.className = 'actions';
@@ -3759,19 +4010,64 @@ function geminiCard(g) {
   return card;
 }
 
+// ---------- Coding agents (UI-ARCH section 10.9) ----------
+// One group in Accounts for every coding agent CLI. The built-in cards are drawn here. A panel adds its own card with
+// MuseUI.codingAgents.add({ id, order, card }): card({ accounts, cli }) returns one element, where cli is GET /api/accounts/cli
+// (null when that read failed). Cards show in order of their number, and a panel's card with a built-in id replaces that card.
+const BUILT_IN_AGENTS = [
+  { id: 'claude', order: 10, card: ctx => claudeCard(ctx.accounts.claude) },
+  { id: 'codex', order: 20, card: ctx => codexCard(ctx.accounts.codex) },
+  { id: 'gemini', order: 30, card: ctx => geminiCard(ctx.accounts.gemini) },
+  { id: 'muse', order: 40, card: ctx => museCard(ctx.accounts.muse) },
+];
+const CODING_AGENTS = new Map();
+const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
+
+function addCodingAgent({ id, order = 100, card } = {}) {
+  if (typeof id !== 'string' || !AGENT_ID.test(id) || typeof card !== 'function') {
+    throw new Error('A coding agent needs an id (lower-case letters, digits and dashes) and a card function.');
+  }
+  CODING_AGENTS.set(id, { id, order: Number.isFinite(order) ? order : 100, card });
+  // A panel that loads after Accounts was drawn shows its card on the next draw, and an open page is drawn again now.
+  refreshDrawer();
+}
+
+function codingAgentsGroup(ctx) {
+  const group = document.createElement('section');
+  group.className = 'coding-agents';
+  group.append(Object.assign(document.createElement('h5'), { className: 'coding-agents-title', textContent: 'Coding agents' }));
+  const entries = new Map(BUILT_IN_AGENTS.map(e => [e.id, e]));
+  for (const [id, e] of CODING_AGENTS) entries.set(id, e);
+  for (const entry of [...entries.values()].sort((x, y) => x.order - y.order)) {
+    // A card that fails shows its own error line, and the cards after it still draw.
+    let node;
+    try {
+      node = entry.card(ctx);
+    } catch (err) {
+      node = cardShell('!', entry.id, entry.id, 'Could not be shown', 'Error', false);
+      node.append(para(String(err?.message ?? err)));
+    }
+    node.dataset.card = entry.id;
+    group.append(node);
+  }
+  return group;
+}
+
 async function renderAccounts(body) {
   const gen = drawerGen;
   body.append(para('Checking your accounts…'));
   let a;
+  let cli = null;
   try {
-    a = await api('/api/accounts');
+    // GET /api/accounts/cli is the coding agents added after the first four (Cursor now). A failed read leaves cli null, and its cards say so.
+    [a, cli] = await Promise.all([api('/api/accounts'), api('/api/accounts/cli').catch(() => null)]);
   } catch (err) {
     if (gen === drawerGen) body.replaceChildren(para(err.message));
     return;
   }
   // The drawer was closed or refreshed while the answer was on its way, so it is not painted here (B-62).
   if (gen !== drawerGen) return;
-  body.replaceChildren(claudeCard(a.claude), museCard(a.muse), codexCard(a.codex), geminiCard(a.gemini));
+  body.replaceChildren(codingAgentsGroup({ accounts: a, cli }));
   body.append(Object.assign(document.createElement('p'), { textContent: 'Keys and sign-ins stay on this computer. Plenum sends them only to the provider they belong to.' }));
   if (accountsFocus) {
     body.querySelector(`[data-card="${accountsFocus}"]`)?.scrollIntoView({ block: 'start' });
@@ -3801,6 +4097,8 @@ async function renderUpdates(body) {
   }
   for (const u of updates) body.append(updateCard(u));
   body.append(overlayCard());
+  // New versions of Plenum are not offered here: a person who looks for one is sent to the Updates section of Settings.
+  body.append(Object.assign(para('New versions of Plenum are in Settings › Updates.'), { className: 'note-quiet' }));
 }
 
 // "14 Oct 2026"
@@ -3821,7 +4119,13 @@ function overlayCard() {
   const active = overlayInfo?.active ?? null;
   const gen = active === null ? null : gens.find(g => g.n === active);
   if (!gen) {
-    card.append(span('um', 'Plenum is running its shipped files.'));
+    card.append(span('um', keptLine(gens)));
+    if (gens.length) {
+      const row = document.createElement('div');
+      row.className = 'actions';
+      row.append(resetButton());
+      card.append(row);
+    }
     return card;
   }
   card.append(span('um', `Generation ${gen.n}, applied ${shortDate(gen.appliedAt)}: ${gen.summary}`));
@@ -3837,26 +4141,42 @@ function overlayCard() {
   const back = button('ghost small', 'Roll back');
   back.title = gen.previous ? `Go back to generation ${gen.previous}` : 'Go back to the shipped files';
   back.addEventListener('click', () => restartWith('/api/updates/rollback'));
+  row.append(back, resetButton());
+  card.append(details, row);
+  return card;
+}
+
+// The button that removes every applied update, after a confirmation. It is shown whenever some generation is kept.
+function resetButton() {
   const reset = button('ghost small', 'Remove all applied updates');
   reset.title = 'Delete every applied update and restart with the shipped files';
   reset.addEventListener('click', () => {
     confirmBox({ title: 'Remove every applied update?', body: 'Plenum deletes every applied update and restarts with the files it shipped with.', action: 'Remove and restart', tone: 'danger' })
       .then(yes => { if (yes) restartWith('/api/updates/reset'); });
   });
-  row.append(back, reset);
-  card.append(details, row);
-  return card;
+  return reset;
 }
 
-// The warning strip for an automatic rollback: what happened, which generations were involved, and OK.
+// The line under Applied updates when no generation is active. With generations kept (for example after a Plenum version change set
+// them aside) it says how many there are and which Plenum version the newest was applied under, when it recorded one.
+function keptLine(gens) {
+  if (!gens.length) return 'Plenum is running its shipped files.';
+  const newest = gens.reduce((a, b) => (b.n > a.n ? b : a));
+  const many = gens.length !== 1;
+  const under = typeof newest.appVersion === 'string' && newest.appVersion !== '' ? `, applied under Plenum ${newest.appVersion},` : '';
+  return `Plenum is running the files it shipped with. ${gens.length} ${many ? 'earlier generations' : 'earlier generation'}${under} ${many ? 'are kept' : 'is kept'} under overlay in the state folder; ask the model again for any change you still need.`;
+}
+
+// The warning strip for an automatic rollback: what happened, which generations were involved, and OK. A set-aside shows its reason alone.
 function rollbackStrip(rb) {
   const strip = document.createElement('div');
   strip.className = 'rollback-strip';
   strip.setAttribute('role', 'status');
   const reason = rb.reason || 'Plenum did not start with it';
-  const text = rb.from === null
-    ? `The last update was rolled back: ${reason}.`
-    : `The last update was rolled back: ${reason}. Generation ${rb.from} was replaced by ${rb.to === null ? 'the shipped files' : `generation ${rb.to}`}.`;
+  const text = setAsideNotice(rb) ? reason
+    : rb.from === null
+      ? `The last update was rolled back: ${reason}.`
+      : `The last update was rolled back: ${reason}. Generation ${rb.from} was replaced by ${rb.to === null ? 'the shipped files' : `generation ${rb.to}`}.`;
   const ok = button('ghost small', 'OK');
   ok.addEventListener('click', () => {
     rollbackNotice = null;
@@ -4057,18 +4377,12 @@ function renderCommands(body) {
   body.append(Object.assign(document.createElement('p'), { textContent: 'Enter sends. Shift+Enter adds a line. Esc stops a run. @path/to/file attaches a file.' }));
 }
 
-// ---------- computer use: the Computer panel, /computer, the cards of a run and the list of past runs ----------
+// ---------- computer use in the chat: the cards of a run, the notes between its steps and the "Your turn" box ----------
 
-// Start in the panel is the consent (UI-ARCH 10.5): the person's settings go with the next chat message, and the server checks them
-// before anything is stored or shown (POST /api/chat, `computer`; lib/computer/policy.mjs normalizeRunSettings). Nothing in this
-// block reaches the screen: the run, its cards and its limits are the server's. The panel remembers its choices per project
-// (POST /api/computer/prefs), so the usual run is: type the task, pick a window, Start.
-
-// Looks that style.css does not carry are set through the style object, which the page's policy allows (a style attribute it does not).
-const looks = (node, props) => {
-  Object.assign(node.style, props);
-  return node;
-};
+// The Computer panel (the dialog, the list of past runs and one run's timeline) is public/ext-computer.js. What is here is what the chat
+// shows, and sendComputer, which sends one run as a chat turn. Start in the panel is the consent (UI-ARCH 10.5): the person's settings go
+// with the next message, and the server checks them before anything is stored or shown (POST /api/chat, `computer`;
+// lib/computer/policy.mjs normalizeRunSettings). Nothing here decides a run: its cards, limits and steps are the server's.
 
 // A screenshot of a run is a PNG the server keeps. Its route wants the Plenum token, which an <img> cannot send, so the page reads it
 // with the token and shows it as a data: image (img-src 'self' data:). A few are kept, so a card that is built again does not read it twice.
@@ -4091,46 +4405,33 @@ async function frameDataUrl(runId, n) {
 }
 
 // The picture on a computer-use card: the screenshot the model is acting on, with a ring at the point it is about to act on. The ring is
-// placed by percentage, so it stays on its point at any card width. A click on the picture makes it as wide as the card.
+// placed by share of the picture, so it stays on its point at any card width (its position is data, so it is set through the style object,
+// which the page's policy allows; the look of the ring and the picture is in ext-computer.css). A click on the picture makes it card-wide.
 function frameShot(frame) {
   const shot = span('approval-shot', '');
-  looks(shot, { position: 'relative', display: 'inline-block', maxWidth: '100%' });
   const img = document.createElement('img');
   img.className = 'approval-frame';
   img.alt = 'Screenshot the model is acting on';
-  looks(img, { display: 'block', maxWidth: '100%', maxHeight: '320px', width: 'auto', height: 'auto', borderRadius: '8px', border: '1px solid var(--line-2)', cursor: 'zoom-in' });
   frameDataUrl(frame.run, frame.n).then(url => { img.src = url; }, () => { img.replaceWith(quietNote('The screenshot is not available.')); });
+  img.addEventListener('click', () => img.classList.toggle('big'));
   shot.append(img);
   if (frame.marker && frame.w > 0 && frame.h > 0) {
     const ring = span('approval-marker', '');
     ring.setAttribute('aria-hidden', 'true');
-    looks(ring, {
-      position: 'absolute', width: '22px', height: '22px', marginLeft: '-11px', marginTop: '-11px', borderRadius: '50%', pointerEvents: 'none',
-      border: '2px solid var(--accent)', boxShadow: '0 0 0 2px var(--bg)',
-      left: `${Math.min(100, Math.max(0, (frame.marker.x / frame.w) * 100))}%`, top: `${Math.min(100, Math.max(0, (frame.marker.y / frame.h) * 100))}%`,
-    });
+    ring.style.left = `${Math.min(100, Math.max(0, (frame.marker.x / frame.w) * 100))}%`;
+    ring.style.top = `${Math.min(100, Math.max(0, (frame.marker.y / frame.h) * 100))}%`;
     shot.append(ring);
   }
-  img.addEventListener('click', () => {
-    const big = img.dataset.big !== '1';
-    img.dataset.big = big ? '1' : '0';
-    looks(img, big ? { maxHeight: 'none', width: '100%', cursor: 'zoom-out' } : { maxHeight: '320px', width: 'auto', cursor: 'zoom-in' });
-  });
   return shot;
 }
 
-// The model's notes between actions, as short grey lines. A run narrates each step; a note is two lines tall until it is clicked.
+// The model's notes between actions, as short muted lines. A note is two lines tall until it is clicked (ext-computer.css .thought).
 function thoughtLine() {
   const line = document.createElement('div');
   line.className = 'thought note-quiet';
   line.tabIndex = 0;
   line.title = 'Click to show all of it';
-  const clamp = on => looks(line, on
-    ? { display: '-webkit-box', webkitLineClamp: '2', webkitBoxOrient: 'vertical', overflow: 'hidden', cursor: 'pointer' }
-    : { display: 'block', webkitLineClamp: 'unset', overflow: 'visible', cursor: 'pointer' });
-  clamp(true);
-  let closed = true;
-  const flip = () => { closed = !closed; clamp(closed); };
+  const flip = () => line.classList.toggle('open');
   line.addEventListener('click', flip);
   line.addEventListener('keydown', e => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -4152,7 +4453,8 @@ function typeItCard(drive) {
   const head = span('approval-head', 'Your turn');
   head.prepend(icon('user'));
   const asks = drive.note ? `The model asks: "${drive.note}"` : 'The model asks you to do a step.';
-  const note = span('approval-note', 'Do it yourself in the app, then press Resume on the bar. For a password or a code you can type it here instead. Plenum types it into the window the model was using. The model never sees it, and Plenum does not keep it.');
+  const note = span('approval-note', 'Do the step yourself in the app, then press Resume. For a password or a code you can type it here instead. Plenum types it into the window the model was using.');
+  const straight = span('approval-note typeit-notice', 'This is typed straight into the field. The model never sees it, and Plenum does not keep it.');
   const box = document.createElement('input');
   box.type = 'password';
   box.className = 'approval-reason';
@@ -4161,14 +4463,24 @@ function typeItCard(drive) {
   box.maxLength = 512;
   box.placeholder = 'Text to type for you';
   box.setAttribute('aria-label', 'Text for Plenum to type into the window');
+  const resume = button('ghost small', 'Resume');
   const typeBtn = button('primary small', 'Type it for me');
   typeBtn.disabled = true;
   const status = span('hint', '');
   status.setAttribute('role', 'status');
   const actions = document.createElement('div');
   actions.className = 'approval-actions';
-  actions.append(typeBtn, status);
+  actions.append(resume, typeBtn, status);
   box.addEventListener('input', () => { typeBtn.disabled = box.value === ''; });
+  resume.addEventListener('click', async () => {
+    resume.disabled = true;
+    try {
+      await api('/api/drive/resume', { id: drive.id });
+    } catch (err) {
+      status.textContent = err.message;
+      resume.disabled = false;
+    }
+  });
   const send = async () => {
     if (box.value === '' || typeBtn.disabled) return;
     let secret = box.value;
@@ -4193,7 +4505,7 @@ function typeItCard(drive) {
     e.preventDefault();
     send();
   });
-  card.append(head, span('approval-summary', asks), note, box, actions);
+  card.append(head, span('approval-summary', asks), note, straight, box, actions);
   return card;
 }
 
@@ -4225,371 +4537,16 @@ function typeItTracker(box) {
   };
 }
 
-// ---------- the Computer panel ----------
-
-const COMPUTER_MAX_APPS = 32;
-const COMPUTER_UNKNOWN = [['ask', 'Ask each time'], ['refuse', 'Refuse'], ['allow', 'Any app, no asking']];
-const COMPUTER_EDGES = [[1280, '1280 px (default)'], [1600, '1600 px'], [2000, '2000 px'], [2576, '2576 px']];
-const COMPUTER_CONFIRMS = [
-  ['send', 'Sending messages or email'], ['buy', 'Buying or paying'], ['delete', 'Deleting or discarding'],
-  ['submit', 'Submitting forms'], ['terms', 'Agreeing to terms'], ['signin', 'Signing in'],
-];
-const clipText = (text, n) => (String(text).length > n ? `${String(text).slice(0, n - 1)}…` : String(text));
-
-// Opens the panel (the + menu, /computer and MuseUI.openComputer). task fills the first box.
-function openComputer(task = '') {
-  if (!S.activeProject) {
-    openAddForm();
-    return toast('Add a project folder first.', 'bad');
-  }
-  const first = typeof task === 'string' ? task : '';
-  return openDrawer('Computer use', body => renderComputer(body, first));
-}
-
-async function renderComputer(body, firstTask) {
-  const gen = drawerGen;
-  body.append(para('Checking this computer…'));
-  let probe;
-  let wins;
-  let prefs;
-  try {
-    [probe, wins, prefs] = await Promise.all([
-      api('/api/computer/probe'),
-      api('/api/computer/windows').catch(() => ({ windows: [] })),
-      api(`/api/computer/prefs?project=${encodeURIComponent(S.activeProject)}`).then(r => r.prefs).catch(() => null),
-    ]);
-  } catch (err) {
-    if (gen !== drawerGen) return;
-    const again = button('ghost small', 'Try again');
-    again.addEventListener('click', () => refreshDrawer());
-    body.replaceChildren(para(err.message), again);
-    return;
-  }
-  if (gen !== drawerGen) return;
-  body.replaceChildren();
-  const project = S.projects.find(p => p.id === S.activeProject);
-  const hotkey = probe.hotkey?.label ?? 'Ctrl+Alt+Esc';
-  const stopped = line => {
-    body.append(para(line));
-    const past = button('ghost small', 'Past runs');
-    past.addEventListener('click', () => openComputerRuns());
-    body.append(past);
-  };
-  if (!probe.available) return stopped('Computer use needs the desktop app.');
-  if (project?.chatMode === 'plan') return stopped(`Plan mode is on for ${project.name}, so Plenum will not control the computer here. Turn Plan off first.`);
-  if (!probe.supported) {
-    body.append(para([probe.reason, probe.help].filter(Boolean).join(' ') || 'Computer use is not available on this computer.'));
-    if (probe.platform === 'darwin') {
-      const ask = button('primary small', 'Request permissions');
-      ask.addEventListener('click', async () => {
-        ask.disabled = true;
-        try {
-          await api('/api/computer/request-permissions', {});
-          toast('Asked. Grant them in System Settings, then restart Plenum.');
-        } catch (err) {
-          toast(err.message, 'bad');
-        }
-        ask.disabled = false;
-      });
-      body.append(ask, quietNote('Restart Plenum after granting them.'));
-    }
-    return undefined;
-  }
-  const ready = (probe.models ?? []).filter(m => m.ready);
-  if (!ready.length) {
-    return stopped('No model here can use the computer. Add an Anthropic API key in Accounts for Claude Opus 5.5, Sonnet 5.5, Haiku 5.5 or Opus 5, or an OpenAI or Google AI key.');
-  }
-
-  // ---- what the person chose ----
-  const usable = (wins.windows ?? []).filter(w => !w.denied);
-  const barred = (wins.windows ?? []).filter(w => w.denied);
-  const displays = probe.displays ?? [];
-  const exeOf = w => String(w.exe ?? '').toLowerCase();
-  const d = {
-    task: firstTask || '',
-    choice: '',
-    apps: new Set(),
-    model: '',
-    steps: prefs && 'steps' in prefs ? prefs.steps : 200,
-    minutes: prefs?.minutes ?? 30,
-    confirmEvery: prefs?.confirmEvery === true,
-    unknownApps: prefs?.unknownApps ?? 'ask',
-    maxEdge: prefs?.maxEdge ?? 1280,
-    numberGuard: prefs?.numberGuard !== false,
-    confirm: Object.fromEntries(COMPUTER_CONFIRMS.map(([id]) => [id, prefs?.confirm?.[id] !== false])),
-  };
-  const remembered = new Set((prefs?.allowExes ?? []).map(e => String(e).toLowerCase()));
-  if (prefs?.scope === 'display' && displays.length) {
-    d.choice = `d:${displays[0].id}`;
-    for (const w of usable) if (remembered.has(exeOf(w))) d.apps.add(exeOf(w));
-  } else if (prefs?.targetExe) {
-    const hit = usable.find(w => exeOf(w) === String(prefs.targetExe).toLowerCase());
-    if (hit) d.choice = `w:${hit.id}`;
-  }
-  const current = project?.model ?? S.model;
-  d.model = ready.find(m => m.ref === current)?.ref ?? ready.find(m => m.ref === prefs?.model)?.ref ?? ready.find(m => m.ref === 'anthropic:claude-opus-5-5')?.ref ?? ready[0].ref;
-
-  const form = document.createElement('div');
-  form.className = 'relay-form';
-  form.append(para('Let a model see your screen and use the mouse and keyboard for one task.'));
-
-  // 1. The task.
-  const taskBox = document.createElement('textarea');
-  taskBox.className = 'cu-task';
-  taskBox.rows = 4;
-  taskBox.maxLength = 2000;
-  taskBox.value = d.task;
-  taskBox.placeholder = 'What should the model do?';
-  taskBox.setAttribute('aria-label', 'The task');
-  looks(taskBox, { width: '100%', minHeight: '84px', padding: '8px 10px', resize: 'vertical', borderRadius: '9px', border: '1px solid var(--line-2)', background: 'var(--bg)', color: 'var(--text)', font: 'inherit', fontSize: '13px' });
-  taskBox.addEventListener('input', () => { d.task = taskBox.value; paint(); });
-  form.append(fieldRow('Task', taskBox, 'Say it as you would to a person. The model asks before it sends, buys, deletes or signs in.'));
-
-  // 2. What the model sees.
-  const pick = document.createElement('select');
-  pick.setAttribute('aria-label', 'What the model sees');
-  const placeholder = new Option('Choose a window or a display', '', true, true);
-  placeholder.disabled = true;
-  pick.append(placeholder);
-  if (usable.length) {
-    const group = document.createElement('optgroup');
-    group.label = 'Windows';
-    for (const w of usable) {
-      const option = new Option(`${w.app} — ${clipText(w.title || '(no title)', 70)}`, `w:${w.id}`);
-      option.title = w.title;
-      group.append(option);
-    }
-    pick.append(group);
-  }
-  if (displays.length) {
-    const group = document.createElement('optgroup');
-    group.label = 'Whole display';
-    displays.forEach((disp, i) => group.append(new Option(`${disp.label || `Display ${i + 1}`} (every window on it)`, `d:${disp.id}`)));
-    pick.append(group);
-  }
-  pick.value = d.choice;
-  pick.addEventListener('change', () => { d.choice = pick.value; paintApps(); paint(); });
-  const refreshWins = button('ghost small', 'Refresh');
-  refreshWins.addEventListener('click', () => refreshDrawer());
-  const pickRow = document.createElement('div');
-  pickRow.className = 'hop-row';
-  pickRow.append(pick, refreshWins);
-  const seeNote = span('field-note', '');
-  const seeWarn = span('field-note', '');
-  looks(seeWarn, { color: 'var(--warn)' });
-  const field = fieldRow('What the model sees', pickRow);
-  field.append(seeNote, seeWarn);
-  if (barred.length) field.append(span('field-note', 'Password managers and other credential programs are never offered.'));
-  form.append(field);
-
-  // 3. For a display: the apps the model may use.
-  const appsBox = document.createElement('div');
-  appsBox.className = 'field';
-  form.append(appsBox);
-  function paintApps() {
-    appsBox.replaceChildren();
-    const display = d.choice.startsWith('d:');
-    appsBox.hidden = !display;
-    if (!display) return;
-    appsBox.append(span('field-label', 'Apps the model may use'));
-    const byExe = new Map();
-    for (const w of usable) {
-      const key = exeOf(w);
-      if (!byExe.has(key)) byExe.set(key, { first: w, count: 0 });
-      byExe.get(key).count += 1;
-    }
-    const rows = [...byExe.entries()].sort((a, b) => Number(d.apps.has(b[0])) - Number(d.apps.has(a[0])) || Number(remembered.has(b[0])) - Number(remembered.has(a[0])));
-    for (const [key, { first, count }] of rows) {
-      const row = switchRow(first.app, `${clipText(first.title || '(no title)', 60)}${count > 1 ? ` · ${count} windows` : ''}`, d.apps.has(key), on => {
-        if (on && d.apps.size >= COMPUTER_MAX_APPS) {
-          toast(`Pick at most ${COMPUTER_MAX_APPS} apps.`, 'bad');
-          return paintApps();
-        }
-        if (on) d.apps.add(key); else d.apps.delete(key);
-        paint();
-      });
-      if (first.flag) row.lastElementChild.append(' ', span('pill warn', first.flag === 'browser' ? 'browser' : 'runs commands'));
-      appsBox.append(row);
-    }
-    for (const w of barred) {
-      const row = document.createElement('div');
-      row.className = 'note-quiet';
-      row.append(`${w.app} `, span('pill', 'never allowed'));
-      appsBox.append(row);
-    }
-    if (!rows.length) appsBox.append(span('field-note', 'No windows are open. Open the apps the task needs, then press Refresh.'));
-  }
-
-  // 4. The model.
-  const modelSel = document.createElement('select');
-  modelSel.setAttribute('aria-label', 'Model');
-  for (const m of probe.models ?? []) {
-    const option = new Option(`${m.name}${m.note ? ` (${m.note})` : ''}`, m.ref);
-    option.disabled = !m.ready;
-    modelSel.append(option);
-  }
-  modelSel.value = d.model;
-  modelSel.addEventListener('change', () => { d.model = modelSel.value; paint(); });
-  form.append(fieldRow('Model', modelSel, 'Only models that can use the computer are offered. Their requests go to the model\'s provider with a screenshot each.'));
-
-  // 5. Limits and checks.
-  const more = document.createElement('details');
-  more.className = 'cu-more';
-  const moreSum = document.createElement('summary');
-  more.append(moreSum);
-  const moreBody = document.createElement('div');
-  moreBody.className = 'relay-form';
-  looks(moreBody, { marginTop: '12px' });
-  more.append(moreBody);
-  const steps = document.createElement('input');
-  steps.type = 'number';
-  steps.min = '10';
-  steps.max = '2000';
-  steps.step = '1';
-  steps.value = String(d.steps ?? 200);
-  steps.disabled = d.steps === null;
-  steps.setAttribute('aria-label', 'Up to this many actions');
-  const noLimit = switchRow('No limit on actions', '', d.steps === null, on => {
-    d.steps = on ? null : Math.min(2000, Math.max(10, Math.floor(Number(steps.value)) || 200));
-    steps.disabled = on;
-    paint();
-  });
-  steps.addEventListener('change', () => { d.steps = Math.min(2000, Math.max(10, Math.floor(Number(steps.value)) || 200)); steps.value = String(d.steps); paint(); });
-  moreBody.append(fieldRow('Up to this many actions', steps, '10 to 2000. A click, a key press, a typing step and a scroll are one action each.'), noLimit);
-  const minutes = document.createElement('input');
-  minutes.type = 'number';
-  minutes.min = '1';
-  minutes.max = '480';
-  minutes.step = '1';
-  minutes.value = String(d.minutes);
-  minutes.setAttribute('aria-label', 'Minutes of activity');
-  minutes.addEventListener('change', () => { d.minutes = Math.min(480, Math.max(1, Math.floor(Number(minutes.value)) || 30)); minutes.value = String(d.minutes); paint(); });
-  moreBody.append(fieldRow('Up to this many minutes of activity', minutes, 'Paused time does not count.'));
-  moreBody.append(switchRow('Ask before every action', 'A card before each click, key and typing step. Slow; useful for a first try.', d.confirmEvery, on => { d.confirmEvery = on; paint(); }));
-  const unknown = document.createElement('div');
-  unknown.className = 'seg';
-  unknown.setAttribute('role', 'group');
-  unknown.setAttribute('aria-label', 'Other apps');
-  const unknownField = fieldRow('Other apps', unknown, 'What happens when an action lands in an app that is not in the list.');
-  moreBody.append(unknownField);
-  const paintUnknown = () => {
-    unknown.replaceChildren(...COMPUTER_UNKNOWN.map(([value, label]) => {
-      const b = button('seg-btn', label);
-      b.setAttribute('aria-pressed', String(d.unknownApps === value));
-      b.addEventListener('click', () => { d.unknownApps = value; paintUnknown(); paint(); });
-      return b;
-    }));
-  };
-  const edge = document.createElement('select');
-  edge.setAttribute('aria-label', 'Screenshot size');
-  edge.append(...COMPUTER_EDGES.map(([value, label]) => new Option(label, String(value))));
-  edge.value = String(d.maxEdge);
-  edge.addEventListener('change', () => { d.maxEdge = Number(edge.value); });
-  moreBody.append(fieldRow('Screenshot size', edge, 'The long edge of each screenshot. Larger is sharper and costs more.'));
-  moreBody.append(span('field-label', 'Ask first before the model'));
-  for (const [id, label] of COMPUTER_CONFIRMS) {
-    moreBody.append(switchRow(label, '', d.confirm[id], on => { d.confirm[id] = on; paint(); }));
-  }
-  moreBody.append(switchRow('Block card, bank and id numbers', 'Off: the model may type numbers it reads in your chat or on the screen. Use that for test cards in your own app, not real ones.', d.numberGuard, on => { d.numberGuard = on; paint(); }));
-  form.append(more);
-
-  // 6. The note.
-  const rules = document.createElement('p');
-  rules.className = 'field-note';
-  looks(rules, { border: '1px solid var(--line-2)', borderRadius: '9px', padding: '9px 11px' });
-  form.append(rules);
-
-  // 7. The actions.
-  const start = button('primary', 'Start');
-  const cancel = button('ghost', 'Cancel');
-  const past = button('ghost small', 'Past runs');
-  const missing = span('field-note', '');
-  const actions = document.createElement('div');
-  actions.className = 'actions';
-  actions.append(start, cancel, past);
-  form.append(actions, missing, span('field-note', 'The model starts only after you press Start. Nothing it does changes what Plenum refuses: password managers, Plenum itself and system prompts stay off limits.'));
-  cancel.addEventListener('click', closeDrawer);
-  past.addEventListener('click', () => openComputerRuns());
-  body.append(form);
-  // The danger strip sits above Start. It informs; pressing Start is the consent.
-  window.MuseUI?.notice?.('computer-use', { before: actions });
-
-  // ---- keeping the page in step with the choices ----
-  const stepsText = () => (d.steps === null ? 'no action limit' : `${d.steps} actions`);
-  const asked = () => COMPUTER_CONFIRMS.filter(([id]) => d.confirm[id]).map(([, label]) => label.toLowerCase());
-  function targetWindow() {
-    return d.choice.startsWith('w:') ? usable.find(w => `w:${w.id}` === d.choice) ?? null : null;
-  }
-  function paint() {
-    const win = targetWindow();
-    const display = d.choice.startsWith('d:');
-    unknownField.hidden = !display;
-    seeNote.textContent = win
-      ? `The model sees this window with the menus and dialogs it opens, and can act only in ${win.app}.`
-      : display ? 'The model sees every window on this display. Pick the apps it may use below.' : 'Pick the one window the model works in, or a whole display.';
-    seeWarn.textContent = win?.flag === 'browser' || (display && [...d.apps].some(e => usable.find(w => exeOf(w) === e)?.flag === 'browser'))
-      ? 'A browser gives the model every site you are signed in to. The in-app browser is safer for web tasks.'
-      : win?.flag === 'terminal' ? `In ${win.app} the model can run commands, and Plenum's command rules do not apply there.` : '';
-    moreSum.textContent = `Limits and checks: ${stepsText()} · ${d.minutes} minutes${display ? ` · other apps: ${d.unknownApps === 'allow' ? 'any' : d.unknownApps === 'refuse' ? 'refused' : 'ask'}` : ''}${d.confirmEvery ? ' · ask before every action' : ''}`;
-    const asks = asked();
-    rules.textContent = `Never: typing passwords, codes${d.numberGuard ? ', card or bank details' : ''} (the model asks you to do those steps). ${asks.length ? `Asks first: ${asks.join(', ')}${display && d.unknownApps === 'ask' ? ', and any app not in the list' : ''}. ` : ''}Approve all answers these cards only where Settings allow it. Moving the mouse pauses the run; press Resume to go on. Stop any time with Stop on the bar, or ${hotkey}.`;
-    const reason = !d.task.trim() ? 'Type what the model should do.'
-      : !d.choice ? 'Choose a window or a display.'
-        : display && !d.apps.size && d.unknownApps !== 'allow' ? 'Tick at least one app, or let the model use any app.'
-          : busyNow() ? 'A reply is running in this project. Wait for it to end, or press Esc to stop it.' : '';
-    start.disabled = reason !== '';
-    missing.textContent = reason;
-  }
-  paintUnknown();
-  paintApps();
-  paint();
-
-  start.addEventListener('click', async () => {
-    const win = targetWindow();
-    const display = d.choice.startsWith('d:');
-    const ids = [];
-    if (display) {
-      for (const exe of d.apps) {
-        const w = usable.find(x => exeOf(x) === exe);
-        if (w) ids.push(w.id);
-      }
-    }
-    const settings = {
-      scope: display ? 'display' : 'window',
-      target: d.choice.slice(2),
-      ...(display ? { allow: ids } : {}),
-      steps: d.steps,
-      minutes: d.minutes,
-      confirmEvery: d.confirmEvery,
-      ...(display ? { unknownApps: d.unknownApps } : {}),
-      maxEdge: d.maxEdge,
-      confirm: { ...d.confirm },
-      numberGuard: d.numberGuard,
-      appNames: display ? [...d.apps].map(e => usable.find(x => exeOf(x) === e)?.app).filter(Boolean) : [win?.app].filter(Boolean),
-    };
-    const remember = {
-      scope: settings.scope,
-      ...(win ? { targetExe: win.exe } : {}),
-      allowExes: display ? [...d.apps] : prefs?.allowExes ?? [],
-      steps: d.steps,
-      minutes: d.minutes,
-      confirmEvery: d.confirmEvery,
-      unknownApps: d.unknownApps,
-      maxEdge: d.maxEdge,
-      confirm: { ...d.confirm },
-      numberGuard: d.numberGuard,
-      model: d.model,
-    };
-    start.disabled = true;
-    // The remembered choices are a convenience; a project that cannot keep them still runs.
-    await api('/api/computer/prefs', { project: S.activeProject, prefs: remember }).catch(() => {});
-    closeDrawer();
-    await sendComputer(d.task.trim(), d.model, settings);
-  });
-}
+// The words of a run's end, in the chat and in the panel: "finished", "stopped by you" and so on.
+const STOP_WORDS_PAGE = {
+  done: 'finished', user: 'stopped by you', hotkey: 'stopped with the stop key', idle: 'left paused', limit: 'limit reached',
+  budget: 'spend cap reached', cancelled: 'stopped', error: 'failed', declined: 'not started', interrupted: 'interrupted',
+};
+const stopWordOf = reason => STOP_WORDS_PAGE[String(reason ?? '').split(':')[0].trim()] ?? 'stopped';
 
 // Sends one computer run as a chat turn: the task is the message and the settings go with it. It never goes through the composer, whose
-// submit would stop a running reply or send the text to the council, and it takes no pictures.
+// submit would stop a running reply or send the text to the council, and it takes no pictures. The panel refuses to start while a reply
+// runs (it keeps its form open); this check is the same rule for every other caller.
 // settings is what the panel built: { scope, target, allow?, steps, minutes, confirmEvery, unknownApps?, maxEdge, confirm, numberGuard, appNames }.
 async function sendComputer(task, model, settings = {}) {
   if (!S.activeProject) {
@@ -4601,76 +4558,6 @@ async function sendComputer(task, model, settings = {}) {
   if (!text) return toast('Say what the model should do.', 'bad');
   const { appNames, ...computer } = settings;
   return sendMessage(text, model, [], computer, Array.isArray(appNames) ? appNames : []);
-}
-
-// ---------- past runs ----------
-
-const STOP_WORDS_PAGE = {
-  done: 'finished', user: 'stopped by you', hotkey: 'stopped with the stop key', idle: 'left paused', limit: 'limit reached',
-  budget: 'spend cap reached', cancelled: 'stopped', error: 'failed', declined: 'not started', interrupted: 'interrupted',
-};
-const stopWordOf = reason => STOP_WORDS_PAGE[String(reason ?? '').split(':')[0].trim()] ?? 'stopped';
-
-// The kept runs: when, which model, which apps, how many actions, how it ended, and how much room the screenshots take. A run can be
-// deleted here; the server keeps runs for a time and a size (Settings) and a live run cannot be deleted.
-function openComputerRuns() {
-  return openDrawer('Computer runs', renderComputerRuns);
-}
-
-async function renderComputerRuns(body) {
-  const gen = drawerGen;
-  body.append(para('Loading…'));
-  let runs;
-  try {
-    runs = (await api('/api/computer/runs')).runs ?? [];
-  } catch (err) {
-    if (gen !== drawerGen) return;
-    body.replaceChildren(para(err.message));
-    return;
-  }
-  if (gen !== drawerGen) return;
-  body.replaceChildren(para('Screenshots, actions and card answers from computer runs, kept on this computer for a few days or until they pass a size limit. Nothing here is sent anywhere.'));
-  if (!runs.length) {
-    body.append(quietNote('No computer runs yet. Start one with /computer.'));
-    return;
-  }
-  const list = document.createElement('div');
-  list.className = 'log-list';
-  for (const r of runs) {
-    const row = document.createElement('div');
-    row.className = 'log-row';
-    const when = r.startedAt ? new Date(r.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
-    row.append(span('log-time', when), span('log-hop', modelName(r.model) || r.model || ''), span('log-chars', `${(r.apps ?? []).join(', ') || 'no app'} · ${r.actions} actions · ${r.frames} screenshots · ${sizeText(r.bytes ?? 0)}`));
-    row.append(span('pill', r.live ? 'running' : stopWordOf(r.stopReason)));
-    const del = button('ghost small', 'Delete');
-    del.disabled = r.live === true;
-    del.title = r.live ? 'This run is still going. Stop it first.' : 'Delete this run\'s screenshots and action list';
-    del.addEventListener('click', async () => {
-      const ok = await confirmBox({ title: 'Delete this run?', body: 'Its screenshots and action list are deleted from this computer. This cannot be undone.', action: 'Delete', tone: 'danger', focusCancel: true });
-      if (!ok) return;
-      try {
-        await api('/api/computer/runs/delete', { id: r.id });
-        refreshDrawer();
-      } catch (err) {
-        toast(err.message, 'bad');
-      }
-    });
-    row.append(del);
-    list.append(row);
-  }
-  body.append(list);
-  const all = button('ghost small', 'Delete all runs');
-  all.addEventListener('click', async () => {
-    const ok = await confirmBox({ title: 'Delete every computer run?', body: 'Every run\'s screenshots and action list are deleted from this computer, except a run that is still going. This cannot be undone.', action: 'Delete all', tone: 'danger', focusCancel: true });
-    if (!ok) return;
-    try {
-      await api('/api/computer/runs/delete-all', {});
-      refreshDrawer();
-    } catch (err) {
-      toast(err.message, 'bad');
-    }
-  });
-  body.append(all);
 }
 
 // ---------- the side pane (MuseUI.pane) ----------
@@ -5859,12 +5746,12 @@ async function runCommand(line) {
       }
       case 'settings':
         return openSettings();
-      // The Computer panel (UI-ARCH 10.5): /computer opens it with the task typed after it, and /computer runs lists the kept runs.
-      // It is not in COMMANDS yet: the palette list must match BUILT_IN_COMMANDS in lib/prompts.mjs (a saved prompt may not take a built-in
-      // name), and that file is edited with it. Until then /computer runs but the palette does not offer it.
+      // The Computer panel (UI-ARCH 10.5, public/ext-computer.js): /computer opens it with the task typed after it, and /computer runs lists
+      // the kept runs. The panel is a separate file, so the page says so when it did not load.
       case 'computer':
-        if (arg.toLowerCase() === 'runs') return openComputerRuns();
-        return openComputer(arg);
+        if (arg.toLowerCase() === 'runs') return window.MuseUI?.openComputerRuns ? window.MuseUI.openComputerRuns() : toast('The Computer runs panel did not load (public/ext-computer.js).', 'bad');
+        if (typeof window.MuseUI?.openComputer !== 'function') return toast('The Computer panel did not load (public/ext-computer.js).', 'bad');
+        return window.MuseUI.openComputer(arg);
       // ext-legal.js defines MuseUI.openLegal; the optional call keeps /legal quiet when that panel has not loaded.
       case 'legal':
         return window.MuseUI.openLegal?.();
@@ -5911,6 +5798,19 @@ async function runCommand(line) {
       case 'plan':
         if (!arg) return toast('Usage: /plan <task>', 'bad');
         return await sendMessage(`Make a step-by-step plan for the task below. Do not modify any files yet. List the files you would touch and the main risks.\n\nTask: ${arg}`);
+      // Build focus is the same switch as the Focus control and the Mode menu (ext-focus.js), which toasts its own result.
+      // The await keeps a refusal inside this try, so it reaches the toast below.
+      case 'focus': {
+        const word = arg.toLowerCase();
+        if (word && word !== 'on' && word !== 'off') return toast('Usage: /focus [on|off]', 'bad');
+        if (typeof window.MuseUI?.toggleFocus !== 'function') return toast('The Focus button did not load (public/ext-focus.js).', 'bad');
+        if (!S.activeProject) return toast('Choose a project first.', 'bad');
+        return await window.MuseUI.toggleFocus(word);
+      }
+      // The Rules panel (public/ext-rules.js) defines MuseUI.openRules.
+      case 'rules':
+        if (typeof window.MuseUI?.openRules !== 'function') return toast('The Rules panel did not load (public/ext-rules.js).', 'bad');
+        return window.MuseUI.openRules();
       case 'add':
         if (!arg) return toast('Usage: /add <folder path>', 'bad');
         return await addFolder(arg);
@@ -5923,6 +5823,8 @@ async function runCommand(line) {
       }
       case 'remove':
       case 'forget': {
+        // B-90: with no name, findProject('') finds nothing and the message would show empty quotes.
+        if (!arg) return toast('Usage: /remove <name>', 'bad');
         const p = findProject(arg);
         if (!p) return toast(`No project "${arg}".`, 'bad');
         return await removeProject(p);
@@ -5991,7 +5893,14 @@ el.form.addEventListener('submit', e => {
   commandHint();
   if (text.startsWith('/')) runCommand(text);
   else if (mode === 'council') askCouncil(text);
-  else sendMessage(text);
+  // B-105: the composer was cleared before the send. A send the spend cap refused gets its text back, as a refused relay send
+  // does (relayReply), unless the person has typed something new since.
+  else sendMessage(text).then(() => {
+    if (refusedBy === 'policy' && !el.input.value) {
+      el.input.value = text;
+      autosize();
+    }
+  });
 });
 
 // The names of the active project's saved prompts (ext-prompts.js keeps them), so Enter can send a typed /name that is one of
@@ -6363,10 +6272,12 @@ window.MuseUI = {
   settings: SETTINGS,
   // Opens the Settings page at a group or section and, with an id, at a row in it (a section reads the id as ctx.item).
   openSettings: openSettingsAt,
-  // Computer use: the panel (also /computer and the + menu), one computer run sent as a chat turn, and the list of past runs.
-  openComputer,
+  // Computer use. public/ext-computer.js sets openComputer (the panel, /computer and the + menu) and openComputerRuns (the runs list). sendComputer
+  // sends one run as a chat turn; computer.frameUrl reads a screenshot of a run, computer.busy says whether a reply runs, and computer.stopWord
+  // words the end of a run. openAddForm opens the add-a-folder form (the panel asks for a project first).
   sendComputer,
-  openComputerRuns,
+  computer: { frameUrl: frameDataUrl, busy: () => busyNow(), stopWord: stopWordOf },
+  openAddForm,
   // Overwritable. public/ext-notices.js assigns the real notice strip and risk here. A notice is information, so the stub draws
   // nothing; a risk is a question, so the stub asks with the caller's own text (confirmBox) rather than allowing the switch.
   notice: (id, { before, after } = {}) => null,
@@ -6386,9 +6297,11 @@ window.MuseUI = {
   get catalog() { return catalog; },
   get aliases() { return aliases; },
   get providers() { return providers; },
+  // The provider registry (read-only copies: id, name, mark), for every picker and badge a panel draws.
+  get providerRegistry() { return PROVIDER_REGISTRY.map(p => ({ ...p })); },
+  // The Coding agents group in Accounts: codingAgents.add({ id, order, card }) (see renderAccounts).
+  codingAgents: { add: addCodingAgent },
 };
 
-// The + menu item that opens the Computer panel (UI-ARCH 2: "Use the computer…"). The menu itself reads the plusMenu slot.
-window.MuseUI.slots.add('plusMenu', 'computer', { label: 'Use the computer…', icon: 'shield', run: () => openComputer() }, 30);
 
 boot();
