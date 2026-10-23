@@ -31,6 +31,8 @@
   const LOG_MB = { min: 50, max: 5000, usual: 200 };
   const BUSY = 'A reply is running in this project. Wait for it to end, or press Esc to stop it.';
   const NO_PROJECT = 'Add a project folder first.';
+  // Approve all answers this run's computer cards (amendment 5 of approve-all): the dialog says so, and offers the switch to ask again.
+  const APPROVE_LINE = "Approve all is on: this run's cards will be answered for you.";
 
   // ---------- small builders (text only through textContent) ----------
 
@@ -163,6 +165,8 @@
     if (!live()) return;
     body.replaceChildren();
     const project = MuseUI.state.projects?.find(p => p.id === projectId);
+    // Approve all answers this run's computer cards when it is on for the project and covers them (the project's switch, else the app's).
+    const approveAllOn = project?.approvals === 'all' && project?.approveAllCovers?.computer !== false;
     const hotkey = probe.hotkey?.label ?? 'Ctrl+Alt+Esc';
     const pastRuns = () => {
       const past = button('ghost small', 'Past runs');
@@ -220,6 +224,8 @@
       maxEdge: prefs?.maxEdge ?? 1280,
       numberGuard: prefs?.numberGuard !== false,
       confirm: Object.fromEntries(CONFIRMS.map(([id]) => [id, prefs?.confirm?.[id] !== false])),
+      // Ask me anyway this run: it is for this run only, so the remembered choices never set it.
+      askAnyway: false,
     };
     if (d.steps !== null) d.steps = clampInt(d.steps, STEPS);
     const remembered = new Set((prefs?.allowExes ?? []).map(e => String(e).toLowerCase()));
@@ -418,6 +424,13 @@
     moreBody.append(switchRow('Block card, bank and id numbers', 'Off: the model may type numbers it reads in your chat or on the screen. Use that for test cards in your own app, not real ones.', d.numberGuard, on => { d.numberGuard = on; paint(); }));
     form.append(more);
 
+    // 5b. Approve all answers this run's computer cards: the line says so, and the switch asks again for this run. Drawn only while Approve
+    // all is on and covers computer cards (the switch is not kept in the remembered choices, see remember below).
+    const approveBox = el('div', 'field cu-approve');
+    approveBox.hidden = !approveAllOn;
+    approveBox.append(para(APPROVE_LINE, 'field-note'), switchRow('Ask me anyway this run', 'Off: the cards are answered for you. On: this run asks you as it does without Approve all.', d.askAnyway, on => { d.askAnyway = on; paint(); }));
+    form.append(approveBox);
+
     // 6. The note box: what never happens, what always asks, how to stop.
     const rules = el('p', 'field-note cu-rules');
     form.append(rules);
@@ -461,7 +474,10 @@
       const otherWords = !display ? 'ask before other apps' : d.unknownApps === 'allow' ? 'any app, no asking' : d.unknownApps === 'refuse' ? 'other apps refused' : 'ask before other apps';
       moreSum.textContent = `Limits and checks: ${stepsText()} · ${d.minutes} minutes · ${otherWords}${d.confirmEvery ? ' · ask before every action' : ''}`;
       const asks = asked();
-      rules.textContent = `Never: typing passwords, codes${d.numberGuard ? ', card or bank details' : ''} (the model asks you to do those steps). ${asks.length ? `Always asks first: ${asks.join(', ')}${display && d.unknownApps === 'ask' ? ', and any app not in the list' : ''}. ` : ''}Auto-approve does not answer these cards; Approve all answers them only where Settings allow it. Moving the mouse pauses the run; press Resume to go on. Stop any time with Stop on the bar, or ${hotkey}.`;
+      // While Approve all covers this run's cards, the list says they are answered; the switch puts them back to asking.
+      const answered = approveAllOn && !d.askAnyway;
+      const askWords = `${asks.join(', ')}${display && d.unknownApps === 'ask' ? ', and any app not in the list' : ''}`;
+      rules.textContent = `Never: typing passwords, codes${d.numberGuard ? ', card or bank details' : ''} (the model asks you to do those steps). ${asks.length ? `${answered ? 'Approve all answers these for this run' : 'Always asks first'}: ${askWords}. ` : ''}Auto-approve does not answer these cards; Approve all answers them only where Settings allow it. Moving the mouse pauses the run; press Resume to go on. Stop any time with Stop on the bar, or ${hotkey}.`;
       if (d.steps === null || d.steps > STEPS.usual || d.minutes > MINUTES.usual) MuseUI.notice?.('computer-limits', { after: more });
       const reason = !d.task.trim() ? 'Type what the model should do.'
         : !d.choice ? 'Choose a window or a display.'
@@ -498,6 +514,8 @@
         maxEdge: d.maxEdge,
         confirm: { ...d.confirm },
         numberGuard: d.numberGuard,
+        // Read by lib/computer/policy.mjs: true answers this run's cards by hand, even while Approve all covers them (this run only).
+        askAnyway: approveAllOn && d.askAnyway,
         appNames: names,
       };
       const remember = {

@@ -36,13 +36,15 @@
   }
 
   // The messages that draw a reply turn, in order, with their place. This mirrors messageNodes as well: a reply made only of
-  // tool steps draws no turn, and council, build and advisor messages draw their own cards.
+  // tool steps draws no turn, and council, build and advisor messages draw their own cards. A reply that failed or was stopped, with no text and
+  // no steps, draws an error line or a quiet note instead of a reply turn (app.js, B-49).
   function repliesOf(messages) {
     const out = [];
     messages.forEach((m, index) => {
       if (m.role === 'user' || m.compact) return;
       if (m.kind === 'council' || m.kind === 'build' || m.kind === 'advisor') return;
       const hasText = String(m.content ?? '').trim() !== '';
+      if (!hasText && (m.error || m.aborted)) return;
       if (hasText || !(m.tools ?? []).length) out.push({ m, index });
     });
     return out;

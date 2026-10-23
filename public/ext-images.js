@@ -162,7 +162,7 @@
   }
 
   // The line for the selected model, shown while files are attached: whether it takes images, and whether a PDF goes as a document or as
-  // text. In Council mode the seats get the text only (the council takes no images yet).
+  // text. In Council mode the line says what the council sends: the pictures, to each seat whose model takes them (app.js refuses other files).
   function paintCaps() {
     const ref = refFor();
     const entry = caps?.models?.[ref];
@@ -173,7 +173,7 @@
       return;
     }
     let text = `${labelOf(ref)}: ${entry.image ? 'image ok' : 'images not supported'} · ${entry.pdf === 'native' ? 'PDF ok' : 'PDF as text'}`;
-    if (inCouncil()) text += '. Council seats get the text only.';
+    if (inCouncil()) text += '. Council: each seat gets the pictures its model takes. Text files and PDFs are not sent to a council, so remove them to send.';
     capsLineEl.textContent = text;
     if (entry.why) capsLineEl.title = entry.why;
     else capsLineEl.removeAttribute('title');

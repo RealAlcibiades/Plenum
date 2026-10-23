@@ -493,7 +493,7 @@ Muse Code read-only agents (amendment 24). pro-05 (turn snapshots) is present, s
 
 **Status.** Confirmed (code and tests against the mock endpoint and the stand-in CLIs).
 
-Amendment 21 note for the same item (until the Agents board lands): ROLE_META.cards stays false for the five roles, so limitsFor lets them start only read-only types that run no commands. The code is ready for the flip (seatContext hands such a role the caller's approve, mode and deny patterns; the Agents > Limits page reads the server's `cards` flag, lists read-only types first with "suggested" and shows the notice "A council seat that edits files or runs commands acts on your project while the council runs. Its cards appear on the Agents board; Ask first still applies.").
+Amendment 21 note for the same item: the Agents board has landed (item 61), so ROLE_META.cards is true for the five roles, and limitsFor lets them start the types they are given, including types that edit files or run commands. Their cards appear on the Agents board and in the chat under the seat's name. The Agents > Limits page reads the server's `cards` flag, lists read-only types first with "suggested" and shows the notice "A council seat that edits files or runs commands acts on your project while the council runs. Its cards appear on the Agents board; Ask first still applies."
 
 ## 45. Turn snapshots live in a private git repository that never reads the project's git settings
 
@@ -597,10 +597,107 @@ Amendment 21 note for the same item (until the Agents board lands): ROLE_META.ca
 
 **Status.** Decided as the default and confirmed by sealed tests (stab913g): a project with `.env`, `.env.example`, `id_ed25519`, `id_ed25519.pub` and `a.pem` snapshots the example file, the public key and the normal files only; a rewind after a turn that changed normal files and `.env` restores the normal files and leaves `.env` as it is. `lib/file-index.mjs` still has its own, shorter `SECRET_NAME` pattern for the `@` picker; it was not changed, so the two lists can differ until that file is pointed at the shared one. The per-file checkpoints (`lib/checkpoints.mjs`) still copy any file the agent changes, including a secret one, because a restore needs the copy.
 
+## 55. Agent types are one registry with app defaults and a per-project copy, and the defaults keep today's behaviour
+
+**Decision.** `lib/agents.mjs` holds the five built-in types (Researcher, Coder, Tester, Reviewer, Planner) and the limits per caller role and per model. The app's block lives in `state.json` under `agents`, and a project may keep a whole copy under `settings.agents`; a block that no longer validates falls back as a whole (`effectiveAgents`), never to a looser type. The defaults keep what Plenum did before, with one raise made by amendment 19: the chat may start Researcher, Coder, Tester and Reviewer, 8 at once and 32 per reply (a call beyond 8 at once waits for a place, and one beyond 32 in a reply is refused); /build runs 4 tasks at once and 8 in all; agents cannot start agents; Claude Code's own subagents stay available to the Claude CLI, behind a switch in Limits; and the other roles start nothing. A per-model override names the role it applies to ('every role' or one), so raising a model's numbers in the chat never opens a council seat on the same model by surprise. The Reviewer reads the files it reviews by default (amendment 23), and Reset on it restores the older version that cannot open files.
+
+**Reason.** Claude Code, Codex, Gemini CLI and Cursor each define subagents in a per-type file with a name, description, model and tool list, and cap concurrency and depth through settings (Claude Code: 20 concurrent and 3 levels by default; Gemini: no nesting; Cursor: one level). Plenum keeps the same shape in one place so the delegate tool, /build and the read-only roles cannot drift apart. A per-project whole copy, rather than per-field inheritance, keeps a project's types and limits consistent with each other.
+
+**Source.** Research of 2026-10-20: https://code.claude.com/docs/en/sub-agents, https://code.claude.com/docs/en/agent-sdk/subagents, https://learn.chatgpt.com/docs/agent-configuration/subagents, https://geminicli.com/docs/core/subagents/, https://cursor.com/docs/subagents. Code: `lib/agents.mjs` (`BUILT_IN`, `DEFAULT_LIMITS`, `effectiveAgents`, `limitsFor`, `resetTypeTo`), `lib/routes/agents.mjs`, `public/ext-agents-settings.js`, `normalizeProjectSettings` in `lib/projects.mjs`.
+
+**Status.** Confirmed (code and tests). One deviation is recorded in the code: amendment 20 asks for 'Read-only agents' as the default nesting, but the default stays 'Off' (`DEFAULT_LIMITS` in `lib/agents.mjs`), until the runner and roles tests that pin one level are updated.
+
+## 56. One drive registry for everything a model drives
+
+**Decision.** Computer use and the in-app browser share lib/drive.mjs: one drive per project, one computer drive per machine, and states running, paused and stopped, with the reason for a pause (you, your mouse or keyboard, the model's request, or a waiting card). Two controls, Pause (Resume while paused) and Stop, sit on one bar above the composer, on the title-bar pill and on the computer overlay. A global stop key, Ctrl+Alt+Esc (Control+Option+Esc on a Mac), is registered only while a drive is live; a valid `driveStopKey` in state.json replaces it. Time limits count only active driving time. A run left paused for the pause limit stops itself: 60 minutes by default (`driveIdleMinutes`, 5 minutes to 8 hours). A pause for a card ends only when the card is answered.
+
+**Reason.** The controls must be the same wherever a model acts outside the chat, so people learn them once and the code is tested once. A third, separate control for returning the mouse would do what Pause and moving the mouse already do, under a second name. The first design fixed the pause limit at 30 minutes; amendment 3 made it a setting with a 60-minute default.
+
+**Source.** Operator's takeover model (no screenshots during takeover), Claude Code's Esc abort, Copilot Studio's session controls (research of 2026-10-20); UI review of 2026-10-20. Code: lib/drive.mjs, lib/routes/drive.mjs, public/ext-drive.js, desktop/main.cjs, desktop/handlers/drive.cjs.
+
+**Status.** Built and tested. The global key on Linux is Tentative: a desktop may already own Ctrl+Alt+Esc, and the bar's and the overlay's Stop always work.
+
+## 57. Capture with Electron, inject with koffi on Windows and macOS and xdotool on X11; refuse Wayland and elevated windows
+
+**Decision.** Screenshots come from desktopCapturer in the main process. One-window mode crops a display capture to the window and greys other programs' windows over it on Windows and macOS, so the app's own menus and dialogs are visible and nothing else is; on Linux the capture is the window alone. Input is SendInput through koffi on Windows, CoreGraphics event posting through koffi on macOS, and xdotool on Linux X11. Wayland is refused with a message. An elevated window is refused per action. Store-app windows are reported by the app they host. No event taps, no uinput, no nut.js. The overlay windows are content-protected, so the operating system keeps them out of screenshots; on Linux they are hidden for each capture instead.
+
+**Reason.** koffi is MIT, prebuilt and N-API (no Electron rebuild); nut.js needs a subscription or a source build; robotjs is pre-1.0 and X11-only. Event taps froze input system-wide in Apple forum reports. uinput bypasses the compositor's focus rules, which is exactly the rule the allowlist needs. Under Wayland the frontmost window cannot be read, so the allowlist cannot be enforced. A window-only capture leaves out the popups the app opens, so the model would act on menus it cannot see.
+
+**Source.** Research of 2026-10-20 (Electron desktopCapturer docs; Microsoft SendInput; koffi README; Apple forum threads 844416 and 727984; xdotool README; libei docs); UI review of 2026-10-20. Code: desktop/computer/index.cjs, win.cjs, mac.cjs, linux.cjs, capture.cjs, overlay.cjs.
+
+**Status.** The Windows path is built and tested against the fake backend. The macOS and Linux paths are Tentative until run on those systems. The smoke test (`PLENUM_SMOKE=1 npm run computer:smoke`) has to be run once on the machine before a release.
+
+## 58. Computer use is per task and default-deny; Start is the consent, and Approve all answers its cards only where its switch covers them
+
+**Decision.** A computer run starts when the person presses Start in the Computer use dialog, or, for a run the model starts itself (a project switch, off by default), when the person answers that run's start card. A run is one chat message. It is either one window (the model sees that window with the menus and dialogs its app opens, and acts only in that app) or one display with an app list, or any app, and it has step, time and pacing limits. Cards show before any action in an app that is not allowed, before sending, buying, deleting, submitting forms, agreeing to terms and signing in (six switches, all on by default), and whenever a provider asks for a check. The model never types into a password, one-time-code, 2FA or CVV field: it hands the step over, and the person types the value in the **Type it for me** box. Card, bank and id numbers are blocked by a switch that is on by default. After any pause the model must look again before it acts. Auto-approve never answers a computer card. Approve all answers them while its switch `approveAllCovers.computer` is on (on by default, per project). Plan mode refuses computer use, and delegated coders, builds, council, relay, quick compare and pipelines never get it. Screenshots, actions and card answers are logged locally: 7 days and 200 MB by default.
+
+**Reason.** Anthropic, OpenAI and Google all require human confirmation for consequential and consent steps, and all say screen content is untrusted. Approve all exists to answer file and command cards whose floor is the deny list; a click on Send has no deny list, so the switches are its floor when Approve all answers them. Clicking Resume or Approve moves the mouse and brings Plenum to the front, so the rest-and-refocus rule is what keeps a run from clicking into Plenum. The first design kept computer cards outside every approve-for-me mode; amendment 5 covers them with a switch, on by default, so that turning Approve all on has the same effect on the computer and the browser.
+
+**Source.** Research of 2026-10-20 (Anthropic computer-use guidance; OpenAI computer tool page; Gemini computer-use page; Operator launch post; Copilot Studio deck); UI review of 2026-10-20; amendments 2 to 8 and 17 of the 0.6 wave. Code: lib/computer/policy.mjs, lib/computer/run.mjs, lib/computer/log.mjs, server.mjs (runTurn), lib/routes/computer.mjs, lib/tools.mjs (coveredByApproveAll).
+
+**Status.** Built and tested against the fake desktop backend and a mock model. A build session has not run it on a real screen.
+
+## 59. Which models can control the computer
+
+**Decision.** Claude (Opus 5.5, Sonnet 5.5, Haiku 5.5 and Opus 5; Fable 5.1 listed as untested) drives through Claude's computer toolset on the API key route only, with the exact request shape. OpenAI drives through the Responses API computer tool, and Gemini through the Gemini API computer_use tool; both show their provider's safety checks as cards marked as theirs. Any other API model that takes pictures drives through the generic screenshot-and-act loop (lib/computer/generic.mjs, registered as DRIVERS.generic): the model is offered computer_* function tools that mirror the canonical actions, plus confirm_with_user and hand_over, and every action goes through the same run, so its cards, limits, log and step rows are the same. The start dialog marks those models "generic loop" and the chat notice says the model was not trained for computer use. The CLI agents reach the computer only through the local MCP bridge (item 51), with the same run, cards and Stop; Muse Code has no bridge. Text-only models are listed disabled, with the reason.
+
+**Reason.** The native tools are used where a provider built one, because the model was trained to use it. The generic loop was left out at first, because the other models had no provider-side safety layer and Plenum's adapters refused images for them. Amendment 1 adds it: every action still passes the same gate, so a model that takes pictures can be offered the loop, with a notice that it will misclick more often and a Stop that works at any moment. The keep-every-model rule covers council, relay, compare and pipelines, which do not get computer use at all.
+
+**Source.** platform.claude.com computer-use-tool page and the local claude-api reference (model-migration.md, Breaking change 4); https://developers.openai.com/api/docs/guides/tools-computer-use; https://ai.google.dev/gemini-api/docs/computer-use (read at build time); amendment 1 (generic loop). Code: lib/computer/support.mjs, claude.mjs, openai.mjs, gemini.mjs, generic.mjs, drivers.mjs, bridge.mjs.
+
+**Status.** Claude: confirmed against the reference, live-tested once a key is present. OpenAI and Gemini: the model ids and safety-check field names are Tentative until a key is present and the live pages are read again. The generic loop: Tentative for each model, and it uses only that model's own API key.
+
+## 60. Grok Build runs signed in through ACP; the xAI API gets tools only after a live check
+
+**Decision.** `grok agent stdio` is the transport, and Grok Build's permission requests become Plenum's approval cards, so Ask first works. `grok login` in a terminal is the sign-in. Every `XAI_` and `GROK_` variable is removed from its environment. The print transport (`grok -p`, selected with `MUSE_CONSOLE_GROK_TRANSPORT=print`) is the fallback: it sends `--always-approve` only in Approve all, never from a saved setting; `--yolo` is never sent; and `--sandbox` offers off, workspace and read-only only. For the xAI API the static tools flag stays false, and a stored live check (**Check tool calls** on the xAI card) turns tools on for Grok.
+
+**Reason.** xAI documents `grok login` (browser or `--device-auth`), `grok agent stdio` as an ACP server, `-p` with plain, json or streaming-json output, `--no-auto-update` and `--max-turns`, `--always-approve` (alias `--yolo`), `--allow` and `--deny`, and `--sandbox` modes with Landlock and Seatbelt and no Windows note. It says that in `-p` calls needing approval fail rather than prompt. The `--allow`/`--deny` rule grammar and the JSON field names are not in the official docs, so neither is used. xAI documents function calling on its Responses API while Plenum speaks chat completions, so the check is the only honest way to set the flag. Cursor is read the same way (item 52).
+
+**Source.** https://x.ai/news/grok-build-cli ; https://github.com/xai-org/grok-build ; https://docs.x.ai/build/cli/reference ; https://docs.x.ai/build/cli/headless-scripting ; https://docs.x.ai/build/features/permissions ; https://docs.x.ai/build/features/sandbox ; https://docs.x.ai/build/enterprise ; https://docs.x.ai/developers/tools/function-calling ; https://docs.x.ai/developers/tools/overview ; https://docs.x.ai/developers/models ; https://agentclientprotocol.com. Code: lib/grok.mjs, lib/cli-options/grok.mjs, lib/tool-verify.mjs, lib/routes/tool-verify.mjs, public/ext-tools-verify.js. The Approve all amendment for the print transports (cli-04 and grok-05). Item 49 for the tool test of other API models.
+
+**Status.** Tentative for the ACP message shapes, the `~/.grok` file names (the signed-in state is reported as unknown), the GROK_CODE_XAI_API_KEY name (a third-party name, stripped anyway) and headless billing. The live tool check needs a real xAI key; the test suite covers it with a mock fetch only.
+
+## 61. The Agents board is the Agents tab, and it reads the existing events channel
+
+**Decision.** The **Running now** list in the sidebar and the Agents tab (Ctrl+Shift+B, or **Show all**) show every run and every waiting approval card in every project. lib/activity.mjs keeps them in memory only. GET /api/activity returns the snapshot, and the events already sent on GET /api/events (item 25) keep it current. A card opened on the board is the chat's own card, answered through the same approval id, one at a time; there is no bulk approve. The board shares the existing channel, so it has no listener limit of its own: the channel takes any number of windows.
+
+**Reason.** The running list reported only the active project, and a card went only to the stream that started its run, so a card in a background project was easy to miss until its five-minute timeout denied it. Sharing the channel keeps one stream per window, and nothing about a run is written to disk.
+
+**Source.** lib/activity.mjs; server.mjs (GET /api/events and GET /api/activity, both behind refuseForeignOrigin); lib/events.mjs; public/ext-board.js and public/ext-agents.js; the shell's Ctrl+Shift+B handler in public/app.js, which works from the message box only (B-6). Item 25.
+
+**Status.** Built in wave 16 and tested with the activity, approval, e2e-events and page suites, at 1280 and 480 px. The waiting cards in the page check were injected events, not live approvals.
+
+## 62. Threads keep the project's id for Main, and one thread writes at a time
+
+**Decision.** Each thread's id is the key for its chat, sessions, Undo archive, checkpoints, snapshots and run slot. Main uses the project's own id, so nothing moves; new threads get `<project id>-t<6 hex>`. The state file gets stateVersion 2 after a dated copy is written, and the change is undone by removing the threads key. Until a thread has its own worktree, one thread per project is the writer and the others run read-only. Builds, restores, rewinds and project removal wait for every thread of the project.
+
+**Reason.** A user with several subscriptions could not run two agents on one codebase (server.mjs refused a second run per project with 409). Keeping Main on the project id makes the migration a one-line version bump that earlier versions still read. Two writers in one folder overwrite each other's uncommitted edits, so the second writer waits for worktrees (item 63).
+
+**Source.** server.mjs (running keyed by project; 409 refusals for a second run); lib/store.mjs (load spreads unknown keys); lib/sessions.mjs; lib/archive.mjs; lib/checkpoints.mjs (name rule); lib/threads.mjs (the migration and the dated copy).
+
+**Status.** Phase 1 (wave 4) confirmed by code and tests. Phase 2, split view (two threads side by side), is not built; Ctrl+Tab and Ctrl+Shift+Tab cycling is.
+
+## 63. Isolated copies live in a short folder outside Plenum's data and outside OneDrive
+
+**Decision.** A worktree thread's copy is made with one fixed `git worktree add -b plenum/<slug>-<hex>` into `%LOCALAPPDATA%\PlenumWT\<8 hex>` on Windows or `~/.plenum-wt/<8 hex>` elsewhere, with hooks and fsmonitor off. The guard treats the copy as that thread's project root, refuses writes into other threads' copies, and refuses adding a copy as a project. Keep commits and removes the folder; Discard keeps the branch by default; Merge needs a clean project folder on the base branch, a click-only card with the diff, and never forces or auto-resolves.
+
+**Reason.** `~/.muse-console` is off limits to every tool (README, lib/guard.mjs), so a copy there would be unreadable to its own agent. A short root keeps Windows paths under the length limits. Outside OneDrive, an agent's writes do not start a sync. `git worktree add` runs the post-checkout hook, so hooks are switched off.
+
+**Source.** git-worktree documentation: remove refuses an unclean worktree unless --force (https://git-scm.com/docs/git-worktree, read 2026-10-20); githooks documentation: post-checkout runs for git worktree add unless --no-checkout, and core.hooksPath moves the hooks folder (https://git-scm.com/docs/githooks, read 2026-10-20); lib/guard.mjs; item 18.
+
+**Status.** Confirmed against the git docs; the hook-marker tests must pass before release. Phase 1 (wave 5) and Phase 2, Merge into the base (wave 6), are built.
+
 ## Open items
 
+- Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).
+- Gemini CLI is being replaced by Antigravity CLI; the flags Plenum sends to the `gemini` executable were checked against 0.63 only.
 - The Muse Code install command for every system is not in the repository or the research. `lib/providers.mjs` shows a plain "not installed" sentence with no URL or command until the exact command is confirmed.
 - The electron-builder and Apple notarisation pages were not read this round (see Sources).
 - Runner architectures in item 6 need checking against GitHub's runner list.
 - Muse Code's `--disable-approval` and Gemini's deny rules under yolo need a signed-in run to confirm (item 36).
 - The counsel questions in the legal research are open: whether a local acceptance record is enough, the US$100 cap and the consumer carve-out, the venue, whether a user's own Claude Code subscription inside Plenum is covered by Anthropic's Commercial Terms, the LLC question, the PLENUM clearance in classes 9 and 42, the `muse` identifiers, the EU AI Act transparency wording, the Muse contributor-tier wording and the age gate (item 40). The placeholders stay until the owner supplies the names.
+- Computer use on macOS and Linux, the OpenAI and Gemini model ids and safety fields, and koffi's union layout on arm64 need a run on those systems (items 57 and 59).
+- The overlay's content protection is probed at run time; the result on each platform is recorded in the smoke output.
+- Grok Build's ACP message shapes, the `~/.grok` file names, the GROK_CODE_XAI_API_KEY name, headless billing and the live Check tool calls result need a signed-in run and a real xAI key (item 60).
+- Split view, with two threads side by side, is not built (item 62).
+- The isolated copies' hook-marker tests must pass on a real repository before release (item 63).

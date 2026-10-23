@@ -41,6 +41,8 @@
   const cliState = (c, signedInKey) => (!c?.installed ? NONE : c[signedInKey] ? IN : OUT);
   // Cursor's status comes from GET /api/accounts/cli (see withCli). It is null when that read failed, and its sign-in may be unknown.
   const cursorState = c => (!c ? UNKNOWN : !c.installed ? NONE : c.signedIn === true ? IN : c.signedIn === false ? OUT : UNKNOWN);
+  // Grok Build reads the same way: its status comes from GET /api/accounts/cli as accounts.grok (lib/grok.mjs grokStatus).
+  const grokState = g => (!g ? UNKNOWN : !g.installed ? NONE : g.signedIn === true ? IN : g.signedIn === false ? OUT : UNKNOWN);
 
   // Step 2, in order. Each row reads its state from GET /api/accounts (Cursor's from GET /api/accounts/cli) and signs in through its own route.
   const CLIS = [
@@ -54,12 +56,13 @@
     { id: 'gemini', name: 'Gemini CLI', account: 'Google account', mark: 'G', path: '/api/accounts/gemini/login', state: a => cliState(a?.gemini, 'signedIn'), missing: MISSING },
     { id: 'muse', name: 'Muse Code', account: 'Meta account', mark: 'M', path: '/api/accounts/muse/login', state: a => cliState(a?.muse, 'signedIn'), missing: MISSING },
     { id: 'cursor', name: 'Cursor', account: 'Cursor account', mark: 'U', path: '/api/accounts/cursor/login', state: a => cursorState(a?.cursor), missing: MISSING },
+    { id: 'grok', name: 'Grok Build', account: 'xAI account', mark: 'K', path: '/api/accounts/grok/login', state: a => grokState(a?.grok), missing: MISSING },
   ];
 
-  // GET /api/accounts/cli: the coding agents added after the first four (Cursor). A failed read is null, and its row says it is unknown.
+  // GET /api/accounts/cli: the coding agents added after the first four (Cursor and Grok Build). A failed read is null, and its row says it is unknown.
   const cliStatus = () => MuseUI.api('/api/accounts/cli').catch(() => null);
-  // The sign-ins the rows read: GET /api/accounts, with Cursor's status from GET /api/accounts/cli added as accounts.cursor.
-  const withCli = (accounts, cli) => ({ ...accounts, cursor: cli?.cursor ?? null });
+  // The sign-ins the rows read: GET /api/accounts, with Cursor's and Grok Build's status from GET /api/accounts/cli added as accounts.cursor and accounts.grok.
+  const withCli = (accounts, cli) => ({ ...accounts, cursor: cli?.cursor ?? null, grok: cli?.grok ?? null });
 
   // Whether a key is saved for a provider: Anthropic's through the Claude route, the others through GET /api/keys.
   function keyConfigured(s, id) {
@@ -207,7 +210,7 @@
       make('li', '', 'Nothing is sent anywhere else.'),
       make('li', '', 'The license agreement and privacy notice are under Legal in Settings.'),
     );
-    const lead = make('p', 'setup-lead', 'Plenum is a local console for working with Claude, Codex, Gemini, Muse Code, Cursor and per-token API models in your own project folders.');
+    const lead = make('p', 'setup-lead', 'Plenum is a local console for working with Claude, Codex, Gemini, Muse Code, Cursor, Grok Build and per-token API models in your own project folders.');
     // Opens the Legal section. The wizard is the drawer's content, so the Legal page takes its place; Setup in the menu brings it back.
     const terms = make('button', 'ghost small', 'Read the terms');
     terms.type = 'button';

@@ -1,0 +1,12 @@
+/* ext-tools-verify: the tool check row under the xAI key card (ext-tools-verify.js). Only the shared colour tokens are used. */
+.ext-apikeys .tools-verify {
+  display: grid; gap: 8px; margin-top: 2px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ext-apikeys .tools-verify [hidden] { display: none !important; }
+.ext-apikeys .tools-verify p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); }
+.ext-apikeys .tools-verify .tools-verify-note { color: var(--muted); }
+.ext-apikeys .tools-verify .tools-verify-result { color: var(--muted); }
+.ext-apikeys .tools-verify .tools-verify-result.ok { color: var(--ok); }
+.ext-apikeys .tools-verify .tools-verify-result.bad { color: var(--bad); }
+.ext-apikeys .tools-verify .tools-verify-actions { margin: 0; }

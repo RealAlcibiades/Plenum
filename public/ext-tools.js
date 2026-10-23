@@ -6,11 +6,11 @@
   'use strict';
 
   // The order the CLIs appear in, and the name used when the server sends no label.
-  // Claude Code, Codex, Gemini CLI, Muse Code, Cursor (UI-ARCH section 5: six CLIs; Grok Build joins after Cursor).
-  const CLI_ORDER = ['claude', 'codex', 'gemini', 'muse', 'cursor'];
-  const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini', muse: 'Muse Code', cursor: 'Cursor' };
+  // Claude Code, Codex, Gemini CLI, Muse Code, Cursor, then Grok Build (UI-ARCH section 5: six CLIs, Grok Build after Cursor).
+  const CLI_ORDER = ['claude', 'codex', 'gemini', 'muse', 'cursor', 'grok'];
+  const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini', muse: 'Muse Code', cursor: 'Cursor', grok: 'Grok Build' };
   // The letter on each card's mark, the same letters the Accounts group uses.
-  const MARKS = { claude: 'C', codex: 'X', gemini: 'G', muse: 'M', cursor: 'U' };
+  const MARKS = { claude: 'C', codex: 'X', gemini: 'G', muse: 'M', cursor: 'U', grok: 'K' };
   // Limits from the wave contract. The server checks them too; checking here says why at once.
   const LIST_MAX_ITEMS = 20;
   const LIST_MAX_CHARS = 120;

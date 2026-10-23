@@ -3,8 +3,8 @@
   "effective": "[EFFECTIVE DATE]",
   "contact": "[CONTACT EMAIL]",
   "sha256": {
-    "EULA.md": "b6bdce4c3c136e6c223802fbe3a60dcc82c125f863aec9bbee94078dc0d7e3d4",
-    "PRIVACY.md": "db4197bc8e44c9fe5f40e5473cfd1ba3a3119c37e60ef1b16b8b3d291a892419"
+    "EULA.md": "ff5ab1cc8a090a79534eb9736462396bbc83afd9358973152a66b9d402085007",
+    "PRIVACY.md": "5696eae726ee5e8c038f8f31bf51c4b43d74da1197386a01ea9bc35457d5b74f"
   },
   "changes": {
     "1": [
@@ -25,6 +25,7 @@
       "It also lists the check output kept on replies (the last 8,000 characters) and the tool-test records, and says what the check output and the @ mentions send to a model.",
       "Cursor is now described as a tool Plenum runs. It signs in through Cursor's own sign-in, and Plenum does not use a Cursor API key.",
       "Both documents now describe the local bridge through which Claude Code, Codex, Gemini CLI and Cursor can use Plenum's browser, computer use and agents, the check that runs after each turn, the tool test, and where the screenshots of a computer-use run go. The License Agreement says what Plenum's password-field check does and does not cover.",
+      "Grok Build is now described as a tool Plenum runs, with its own sign-in and no xAI key, and the Privacy Notice lists the threads of a project, the dated copy of the state file made before threads, and the isolated copies (git worktrees) kept outside the project.",
       "Plenum still collects nothing and sends nothing to us."
     ]
   }

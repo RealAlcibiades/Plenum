@@ -40,6 +40,8 @@
   --gemini: light-dark(#0c7d91, #6fd6e6);
   /* Cursor: a graphite slate. It is apart from every provider's colour, and from amber, red and green, which mean attention, failure and passed. */
   --cursor: light-dark(#4b5b6e, #b4c3d6);
+  /* Grok Build: a rose, apart from every provider colour and from amber (attention), red (failure) and green (passed). */
+  --grok: light-dark(#b5366f, #ff8fbe);
 
   --code-bg: light-dark(#f1f1f8, #08080d);
   --scrim: light-dark(rgba(40, 38, 70, 0.28), rgba(4, 4, 10, 0.55));
@@ -368,6 +370,7 @@ kbd {
 [data-p="advisor"] { --p: var(--advisor); }
 [data-p="gemini"] { --p: var(--gemini); }
 [data-p="cursor"] { --p: var(--cursor); }
+[data-p="grok"] { --p: var(--grok); }
 /* The API model providers use the same colours as their key cards in ext-accounts-api.css. */
 [data-p="xai"] { --p: var(--text-2); }
 [data-p="openai"] { --p: var(--codex); }
@@ -1024,6 +1027,9 @@ html[data-legal='pending'] #app { display: none; }
 .logo-sm.p-cursor { --p: var(--cursor); }
 /* The setup wizard's badges (ext-setup.css) set a muted colour; this rule names Cursor's, so the wizard keeps it. */
 .setup .logo-sm.p-cursor { --p: var(--cursor); }
+.logo-sm.p-grok { --p: var(--grok); }
+/* The same for Grok Build's badge in the setup wizard (ext-setup.css sets a muted colour there). */
+.setup .logo-sm.p-grok { --p: var(--grok); }
 .card-head .ct { font-weight: 650; font-size: 14.5px; }
 .card-head .cs { color: var(--muted); font-size: 12px; }
 .pill {

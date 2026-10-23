@@ -74,6 +74,7 @@ Open **Accounts** in the sidebar (or click any status item at the bottom of the 
 - **Muse Code:** **Sign in to Muse Code** opens a terminal running `muse login`. Approve the code in your browser, then press **Refresh**. `META_API_KEY`, if set on the computer, is passed to Muse Code. Muse Code is installed with its own installer; Plenum gives no install command for it.
 - **Codex:** **Sign in to Codex** opens a terminal running `codex login`.
 - **Gemini:** **Sign in to Gemini CLI** opens the Gemini CLI's own sign-in, which uses a Google account.
+- **Grok Build:** **Sign in to Grok Build** opens a terminal running `grok login` (SuperGrok or X Premium Plus). Install it with `irm https://x.ai/cli/install.ps1 | iex` (Windows PowerShell) or `curl -fsSL https://x.ai/cli/install.sh | bash` (macOS, Linux). In Ask first, Grok Build asks Plenum before it edits or runs a command, and it joins every multi-model role. Plenum cannot see whether it is signed in until it runs.
 
 The buttons read "Sign in to" followed by the product's name, never "Sign in with", so no button copies a provider's own sign-in label. Product names appear in plain text only, with no logos.
 
@@ -179,7 +180,7 @@ Open **Accounts**, find **Model providers (per token)**, and paste the key for a
 
 ### Tools for API models
 
-OpenAI, DeepSeek, Mistral and Google AI can use the project tools. Grok and OpenRouter models answer in text only until a model passes Plenum's tool test. Open **Accounts**, find **Tools for API models**, and press **Test tools** next to the model. The test runs Plenum's own file tools (list, read, write and edit, nothing else) in a temporary folder that is deleted afterwards, never your project. It checks an exact edit, an exact new file, and that a path in a credential folder is refused and not tried again. It sends about 15,000 tokens through that model's key; this is not counted in any project's spend. A model that passes shows **Passed on <date>**. Turn on **Allow tools** to give it the project tools; Ask first, the deny list, plan mode and the off-limits folders apply as for any model, and it can then be picked as a /build coder. The result belongs to that exact model id: if the provider later answers under a different model name, tools turn off for it and the row says **Out of date** until it is tested again. Results are kept in the state file with their date; no key or file content is kept.
+OpenAI, DeepSeek, Mistral and Google AI can use the project tools. Grok by API key answers in text only until you press **Check tool calls** on the xAI card in **Accounts**. That sends one tiny request with your key, which xAI bills like any other request; if xAI completes the tool call, Grok gets the project tools (and the browser tools, when the pane's switch is on) like OpenAI. OpenRouter models answer in text only until a model passes Plenum's tool test: open **Accounts**, find **Tools for API models**, and press **Test tools** next to the model. The test runs Plenum's own file tools (list, read, write and edit, nothing else) in a temporary folder that is deleted afterwards, never your project. It checks an exact edit, an exact new file, and that a path in a credential folder is refused and not tried again. It sends about 15,000 tokens through that model's key; this is not counted in any project's spend. A model that passes shows **Passed on <date>**. Turn on **Allow tools** to give it the project tools; Ask first, the deny list, plan mode and the off-limits folders apply as for any model, and it can then be picked as a /build coder. The result belongs to that exact model id: if the provider later answers under a different model name, tools turn off for it and the row says **Out of date** until it is tested again. Results are kept in the state file with their date; no key or file content is kept.
 
 ## API finder
 
@@ -203,6 +204,20 @@ A relay passes a finished reply from one seat to another. Start one with **Relay
 
 The **Plan** checkbox in the **Mode** menu, or Ctrl+Shift+P, turns plan mode on or off for the project. It is saved with the project and applies from the next message. In plan mode the chat is read-only: Plenum answers and makes plans, but does not edit files, run commands or use tools, and each model runs in its read-only setting. Builds (`/build`) are refused while plan mode is on. A checkpoint restore, a rules save or an artifact save that you click is your own change, so plan mode allows it with the same checkpoint and confirmation it has outside plan mode. `/plan <task>` asks for a plan first, with no file edits.
 
+## Threads
+
+A project can have several chats at once, called threads, shown as tabs above the chat. The first is **Main**, which is the project's chat from before. **+ Thread** (or **Ctrl+T** in the desktop app) starts a new one with its own name, model, chat, queue, plan mode and CLI sessions; up to 8 can be open per project. Threads run at the same time: a reply in one does not block another, and each tab shows whether it is running, waiting for your approval, or has a reply you have not read. Only one thread at a time may change files in the project folder, the **writer** (Main by default); the others are read-only until you choose **Make this thread the writer**, or until they get an isolated copy (see [Isolated copies](#isolated-copies-git-worktrees)). Builds, checkpoint restores and rewinds wait until every thread of the project is idle. **Close thread** keeps its chat under **Closed threads** in the New thread panel, where it can be reopened or removed; up to 20 closed threads are kept.
+
+The switch **Several threads may write in this folder**, in the New thread panel under **This project**, is off by default. On, every thread writes in the project folder, the read-only rule and the writer go away for that project, and each turn keeps a snapshot for Rewind. Its notice says: "Two agents editing one folder can overwrite each other's uncommitted work. Use an isolated copy for the second thread, or commit first." Builds and restores still wait until every thread is idle.
+
+The first start of this version copies the state file to `state.json.pre-threads-<date>` before adding threads. Main keeps the project's chat where earlier versions read it, so an earlier version opened on the same state file still shows Main's chat (the other threads are kept but not shown).
+
+Split view, with two threads side by side, is not built yet. In the desktop app, Ctrl+Tab and Ctrl+Shift+Tab go to the next and the previous thread.
+
+## Isolated copies (git worktrees)
+
+In a git repository, the New thread panel offers **Work in an isolated copy (git worktree)**. The thread then works on its own branch, `plenum/<name>-<code>`, in a folder outside the project (`%LOCALAPPDATA%\PlenumWT` on Windows, `~/.plenum-wt` on macOS and Linux), so several threads can change the same repository without overwriting each other, and a OneDrive project is not synced while an agent writes. Every agent in that thread, Claude Code, Codex, Gemini CLI, Muse Code and the API models, works only in its copy. **Copy settings** can name a setup command such as `npm ci` (run through the deny list with a time limit) and untracked files such as `.env` to copy in; credential folders are never copied. The thread's header row above the chat shows the branch and how many files changed, with **Review diff**, **Keep branch** (commits the changes to the branch and removes the folder) and **Discard** (removes the folder; the branch is kept unless you tick **Also delete the branch**). **Merge into <base>** shows the whole diff on an approval card and merges without forcing; if files conflict, Plenum lists them, stops the merge and changes nothing. Plenum runs git with the repository's hooks and fsmonitor turned off. In a folder that is not a git repository, threads share the folder and one of them is the writer.
+
 ## Build focus
 
 Build focus is a per-project setting: the **Build focus** checkbox in the **Mode** menu, or `/focus [on|off]`, turns it on or off, and `/focus` by itself switches it. It is saved with the project and applies from the next message. With it on, every model in the project (Claude, Muse Code, Codex, Gemini and the API models) is told to get the code working and run only the checks that are strictly needed: one test file or one test name instead of the whole suite, no linters, type checks or production builds unless you ask for them in your message, no new tests or refactors you did not ask for, and a short line at the end naming the checks it skipped so you can run them. In a build, the planner adds no test-only tasks, the coders get the same instruction, and the reviewer still runs once but does not fail a build for missing tests. The build card and the plan show a **Build focus** pill while it is on; a build card that is redrawn from the chat after a reload does not show the pill.
@@ -210,6 +225,102 @@ Build focus is a per-project setting: the **Build focus** checkbox in the **Mode
 It is an instruction, not a block: a model that decides a check is the only way to verify a change may still run it, and Ask first still shows the command on a card. Plan mode wins when both are on.
 
 While a reply is running, Enter queues what you type, up to five messages. Each queued message starts when the run before it ends, Stop included. Each queued message has **Edit** (moves it back into an empty message box) and **Remove**. Esc stops the run.
+
+## Model-driven runs: pause and stop
+
+When a model drives the screen or the in-app browser, a bar sits above the message box and a pill in the title bar shows the same run. The bar says what the model is doing and what state the run is in (running, paused, waiting for a card, or waiting for you to do a step). It has two controls, with the same names everywhere: **Pause**, which becomes **Resume** once the run is paused, and **Stop**. During a computer run an overlay bar on the screen has the same two controls.
+
+- **Pause** holds the model before its next action, and **Resume** lets it go on. A run also pauses when you move the mouse, when you type where Plenum can see your keys (see [Known limits](#known-limits)), and when the model asks you to do a step, such as entering a password. While an approval card of the run waits, the bar says the card is waiting: answer the card in the chat, or press Stop.
+- **Stop** ends the model's control at once and rejects every action it is still waiting to take. The model then writes a short report of what it did. Esc in the message box stops the reply as well.
+- **The stop key** is **Ctrl+Alt+Esc** (**Control+Option+Esc** on a Mac). It works from any app, but only while a run is driving something: Plenum registers it when a run starts and releases it when the run ends. On Linux a desktop may already use that key, so `driveStopKey` in the state file can name another key with at least two modifiers, such as `Ctrl+Shift+F12`.
+- **Time limits count only the time the model is driving.** The bar turns amber when 5 actions or 60 seconds are left. A run left paused for the pause limit ends by itself. The limit is 60 minutes by default, and **Settings › Safety › Computer use** sets it from 5 minutes to 8 hours.
+
+The in-app browser uses the same bar and controls.
+
+## Computer use
+
+Computer use lets a model see the screen and act with the mouse and keyboard, in the apps you allow, for one task you give it. It runs only in the desktop app. One run belongs to one chat message, and every action it takes passes the same checks, cards, limits and run log.
+
+### Starting a run
+
+Type **/computer** (with the task after it, if you like), press the **Computer…** button in the composer, or choose **Use the computer…** from the **+** menu. The dialog opens with the choices you last made for this project. It has:
+
+- **Task.** Say what the model should do, as you would to a person.
+- **What the model sees.** One window, or a whole display. A window run sees that window with the menus and dialogs its app opens, and acts only in that app. A display run sees every window on the display.
+- **Apps the model may use.** For a display run, pick up to 32 of the open windows. Password managers are never offered. **Any app, no asking** lets the model act in any app except the never-allowed ones.
+- **Model.** Models that cannot use the computer are listed disabled, with the reason.
+- **Limits and checks.** Closed by default; its summary shows the values in use. See Limits and pacing and the switches below.
+- **Start**, **Cancel** and **Past runs**.
+
+**Start is the consent.** The run begins as soon as you press Start, and the model sees what you chose at once. No start card asks again. A run that the model starts itself is different: with the project's switch **The model may start computer use itself** on (off by default, in Project settings), it shows a start card first, and Approve all answers that card only where it covers computer cards. The model can start one run per message, and only when no run is going.
+
+The chat shows a Computer use line under the message with the apps the model may use. Each step appears in the chat as it happens, with the model's notes between steps, and a finished run keeps its summary.
+
+### What never happens
+
+These hold in every mode, and no switch changes them.
+
+- The model never types into a password, one-time-code, 2FA or CVV field. On Windows Plenum asks UI Automation whether the focused field is one, and refuses to type when it cannot tell (for example in a program that hides its fields from Windows). The model then clicks the field once more or hands the step over. When it hands over, the chat shows a **Your turn** card: type the value into its box and press **Type it for me**. Plenum types it into the program the run was using and presses nothing else. The value is not kept, is not written to the transcript or the run log, and is not sent to any model.
+- It never acts in a password manager, a credential or consent dialog, or a window that runs as administrator (an elevated window). Plenum's own windows are never a target.
+- After any pause, it takes a fresh screenshot before its next action.
+- Plan mode refuses computer use. Delegated coders, /build, council, relay, quick compare and pipelines never get it.
+
+Card, bank and id numbers are blocked by default by the **Block card, bank and id numbers** switch under Limits and checks. Switch it off and the model may type numbers that it reads in your chat or on the screen, and the run log notes that the guard was off for that run. Everything it types goes to the model's provider. Use that only for test cards in your own app.
+
+**Always asks first**, unless Approve all covers it. These switches are under Limits and checks, and all are on by default:
+
+- Sending messages or email
+- Buying or paying
+- Deleting or discarding
+- Submitting forms
+- Agreeing to terms
+- Signing in
+
+A switch that is off leaves that item out of the instructions the model gets for the run. A question the model still raises is asked. In a window run, an action that lands in another app asks **Allow <App> for this run?**, and Approve adds that app for the run. In a display run, an app that is not on the list asks first, unless the choice for other apps is **Any app, no asking** (or **Refuse**, which never lets the model act there). **Ask before every action**, off by default, adds a card before each click, key press and typing step.
+
+### Approval modes
+
+The three approval modes treat these cards differently:
+
+- **Ask first** shows every card above.
+- **Auto-approve** does not answer any computer card. The cards still show.
+- **Approve all** answers them for you while the project's switch **Approve all also answers computer-use cards** is on. The switch is on by default and is in Project settings. Each answer is logged as approved by Approve all and shown as a line in the chat. The floor is not a card, so Approve all does not change it: passwords, codes, never-allowed apps, elevated windows and Stop stay as described above.
+
+### Limits and pacing
+
+- **Limits and checks** are set for each project and remembered. They are up to 200 actions (10 to 2,000, or **No limit on actions**), 30 minutes of activity (1 to 480; paused time does not count), and a screenshot long edge of 1280 px (1600, 2000 or 2576 px are also offered). A click, a key press, a typing step and a scroll are one action each. Long runs cost more and give the model more room to wander.
+- **Settings › Safety › Computer use** sets the values for every project: the pause limit (60 minutes; 5 minutes to 8 hours), the pause between two actions (300 ms; 100 to 2,000 ms), how many days run screenshots are kept (7; 1 to 90) and how many megabytes of them are kept (200; 50 to 5,000).
+- Each action waits for the pause since the last one. After a Resume, the mouse must rest for about a second before the model acts.
+
+### Pausing
+
+Moving the mouse pauses the run, and **Resume** goes on. Typing pauses it where Plenum can see the keyboard (see Known limits). Paused time is not counted in the minutes of activity, and after any pause the model looks again before it acts. After an approval card, Plenum waits for the mouse to rest and brings back the window that was in front. If that window is not in front again, the action is refused. A run left paused for the pause limit ends.
+
+### On screen
+
+While a model acts, the drive bar above the composer shows what it is doing, with Pause and Stop. The title-bar pill shows the run with Stop. An overlay bar on the screen shows the run's state and the stop key. An **amber frame** goes around exactly what the model sees: the window in a window run, or the edges of the display in a display run. The frame shows only while the model is acting, and the overlay bar is kept out of the screenshots. In a window run on Windows and macOS, parts of the window that another program covers show grey to the model.
+
+### Models
+
+- **Claude.** Opus 5.5, Sonnet 5.5, Haiku 5.5 and Opus 5 use Claude's computer tools through the Anthropic API, so an Anthropic API key must be saved. The key is needed even when chat runs through the Claude CLI; with no key, Claude Code reaches the computer through the bridge instead. Claude Fable 5.1 is listed as untested.
+- **OpenAI and Google AI.** Their computer-use tools run through the OpenAI and Gemini APIs, with that provider's key saved. A safety check the provider asks for appears as a card marked as OpenAI's or Google's. The switches under Limits and checks decide which checks are acknowledged without a card.
+- **Other API models that take pictures.** Plenum's generic screenshot-and-act loop runs them, and the dialog marks them **generic loop**. The notice in the chat says the model was not trained for computer use, so expect misclicks and retries.
+- **CLI agents.** Claude Code, Codex, Gemini CLI, Cursor and Grok Build reach the computer through the Plenum bridge while a run you started is live, through the same cards and Stop (see [CLI agents](#cli-agents)). Muse Code has no bridge.
+
+Every model goes through the same checks, cards, limits and run log. Text-only models are listed disabled, with the reason.
+
+### Platforms
+
+- **Windows** works out of the box. A window that runs as administrator cannot be controlled, and Plenum refuses each action on it.
+- **macOS** needs **Screen Recording** and **Accessibility** for Plenum, in System Settings › Privacy & Security. Grant both, then restart Plenum. The dialog's **Request permissions** button asks for them. Computer use has not been run on a Mac yet.
+- **Linux** works on X11 only, with `xdotool` installed. Wayland is refused: the screen cannot be captured there, and the keyboard and mouse cannot be driven. It has not been run on a real Linux desktop yet.
+- **Plain Node** (`npm start` and `node server.mjs`) has no computer use. It needs the desktop app.
+
+### Run log
+
+Each run is kept in the state folder, under `computer/runs`. It holds every screenshot the model was given, the actions it asked for, the card answers and the pauses. Typed text is clipped to 60 characters in the log, and the text typed into the **Type it for me** box is never written there. The files are not encrypted, and the Privacy Notice lists them. Runs are kept for 7 days and up to 200 MB by default; the oldest go first, and a run that is still going is never removed.
+
+**Past runs** in the dialog, or `/computer runs`, lists the runs, newest first. Open one to see its steps and screenshots. **Delete this run** removes it, and **Delete all runs** removes every run that has ended. A run still going cannot be deleted; stop it first.
 
 ## Working in the chat
 
@@ -223,7 +334,7 @@ While a reply is running, Enter queues what you type, up to five messages. Each 
 
 ## Settings
 
-**Settings** in the sidebar, or `/settings`, opens a drawer with one card per section:
+**Settings** in the sidebar, Ctrl+Comma or `/settings` opens one page over the chat. It keeps the title bar, so the drive pill and Stop stay visible. A list on the left, with a search box, holds the groups **This project**, **Rules**, **Accounts**, **API finder**, **Roles**, **Agents**, **Safety**, **General**, **Updates** and **Legal**, and each group's sections stack on the right. The sections this README describes are:
 
 - **Appearance:** the same choice as the **Theme** button (system, dark or light).
 - **Desktop:** the four switches described in [Finished alerts and keep-awake](#finished-alerts-and-keep-awake). They take effect in the desktop app only, and the section says so when the page is not running there.
@@ -238,7 +349,7 @@ The side pane is the column to the right of the chat. Panels put their tabs into
 
 ## Keyboard shortcuts
 
-Press **Ctrl+/** (**Cmd+/** on a Mac) for the full list. The main ones: **Enter** sends (or queues during a run), **Shift+Enter** adds a line, **Esc** closes a list and then stops the run, **/** focuses the message box, **Up** in an empty box recalls your last message, **Ctrl+K** switches project, **Ctrl+Shift+P** turns plan mode on or off, **Ctrl+Shift+C** turns council mode on or off, **Ctrl+Shift+A** opens Accounts, and **Ctrl+Enter** starts a quick compare or a pipeline. Shortcuts with letters do nothing while you type in a text field, except Ctrl+K. The approval modes (Ask first, Auto-approve and Approve all) have no shortcut on purpose.
+Press **Ctrl+/** (**Cmd+/** on a Mac) for the full list. The main ones: **Enter** sends (or queues during a run), **Shift+Enter** adds a line, **Esc** closes a list and then stops the run, **/** focuses the message box, **Up** in an empty box recalls your last message, **Ctrl+K** switches project, **Ctrl+Shift+P** turns plan mode on or off, **Ctrl+Shift+C** turns council mode on or off, **Ctrl+Shift+A** opens Accounts, **Ctrl+Shift+B** opens the Agents tab, and **Ctrl+Enter** starts a quick compare or a pipeline. Ctrl+K and Ctrl+/ work even in a text field. Ctrl+Shift letters work from the message box but not from other text fields. The approval modes (Ask first, Auto-approve and Approve all) have no shortcut on purpose. **Ctrl+Alt+Esc** (**Control+Option+Esc** on a Mac) stops a computer or browser run from any app while a run is driving something; see [Model-driven runs: pause and stop](#model-driven-runs-pause-and-stop).
 
 ## Checkpoints
 
@@ -264,7 +375,7 @@ Each reply records the tokens its provider reported. Dollar figures come from `l
 
 ### Spend limits
 
-The spend chip in the project header opens **Spend limit**, where a project can have a warning amount and a cap in dollars for models billed through an API key. The total keeps counting across `/clear`, `/compact`, Edit and Undo, from the date shown, until you press **Reset spend**. Crossing the warning shows one notice. At the cap, messages, `/review` and `/compact` that would bill an API key are refused with a plain message, and the automatic advisor review is skipped with a notice. The Claude, Codex, Gemini and Muse Code CLIs on your plans are never refused. Council, quick compare, pipeline, relay and build runs are not counted, because their cost is not worked out on the server.
+The spend chip in the project header opens **Spend limit**, where a project can have a warning amount and a cap in dollars for models billed through an API key. The total keeps counting across `/clear`, `/compact`, Edit and Undo, from the date shown, until you press **Reset spend**. Crossing the warning shows one notice. At the cap, messages, `/review` and `/compact` that would bill an API key are refused with a plain message, and the automatic advisor review is skipped with a notice. The Claude, Codex, Gemini and Muse Code CLIs on your plans are never refused. Agents on API-key models count toward the cap, `/build` tasks included: an agent that would bill an API key is refused at the cap like a reply, and its cost adds to the running total (see [Agents](#agents)). Council, quick compare, pipeline and relay replies themselves are not counted yet, because their cost is not worked out on the server.
 
 ## History search and export
 
@@ -295,7 +406,7 @@ In the desktop app, Plenum shows a "Plenum finished" notification when a run in 
 
 ## Project settings and tools
 
-Each project folder can have its own model, effort, approvals, relay settings, plan mode, deny patterns and tool options. Open **Project settings** with the gear beside the project name. Each setting follows the app default until you change it, and **Use app default** goes back to it. The **Tools** section covers Claude Code, Codex, Gemini and Muse Code. For example, it sets Claude Code's permission mode and tool lists, Codex's sandbox (read only, or project folder only), and Muse Code's approval mode and sandbox network. Council seats and the moderator are not given the project's tools; a CLI seat runs in its own read-only setting.
+Each project folder can have its own model, effort, approvals, relay settings, plan mode, deny patterns, tool options and agent types and limits. Open **Project settings** with the gear beside the project name. Each setting follows the app default until you change it, and **Use app default** goes back to it. The **Tools** section covers Claude Code, Codex, Gemini and Muse Code. For example, it sets Claude Code's permission mode and tool lists, Codex's sandbox (read only, or project folder only), and Muse Code's approval mode and sandbox network. Council seats and the moderator are not given the project's tools unless you allow read-only agents for them in **Agents > Limits** (see [Agents](#agents)); a CLI seat runs in its own read-only setting. The **Agents** section gives the project its own copy of the agent types and limits, or uses the app's.
 
 Under the deny patterns, **Test a command** says whether a built-in rule or one of the project's patterns would block a command you type. It only checks; nothing runs.
 
@@ -317,23 +428,23 @@ The **Sessions** choice in **Settings** is either Native or Transcript (saved as
 
 On Windows, `npm run dist:portable` builds one portable `.exe` in `release/` that runs without an installer. To keep the window in the tray, turn on **Keep in tray on close** under **Settings** › **Desktop** (or set `"trayOnClose": true` in the state file: `%USERPROFILE%\.muse-console\state.json` on Windows, or `~/.muse-console/state.json` on macOS and Linux). Closing the window then hides Plenum to the tray and the server keeps running. Click the tray icon to show the window again, or choose **Quit** from the tray menu to stop everything.
 
-## Computer use
-
-Computer use lets a model see the screen and act with the mouse and keyboard. Start it from the **Computer** panel: the start dialog says what the run sees, which apps it may act in, its limits and what asks you first, and **Start** is the consent. A run shows a bar with **Stop**, and Stop or Ctrl+Alt+Esc ends it at any moment. The model never types a password, one-time code, 2FA or CVV. Plenum checks the focused field before it types. On Windows it asks UI Automation and refuses to type into a password field and wherever it cannot tell (a program that hides its fields from Windows, a browser that has not built its accessibility tree yet, nothing focused); the model is told to click the field once more and retry, then to hand the step over, and you type it. On macOS it refuses a field whose role is `AXSecureTextField`, and while the system's secure-input flag is on. On Linux it uses AT-SPI, for the programs that expose their fields to it. Where macOS or Linux cannot tell, the rule rests on the model following its instructions.
-
-The models that drive the computer are the Claude models Opus 5.5, Sonnet 5.5, Haiku 5.5 and Opus 5 through the Anthropic API, with Claude's own computer tools; OpenAI and Google AI models with a computer-use tool, through their own drivers, with the key saved; and any other API model that takes pictures, through Plenum's generic screenshot-and-act loop. The start dialog marks that loop **generic loop**, and its notice says the model was not trained for computer use, so expect misclicks and retries. Claude Fable 5.1 is listed as untested. CLI agents reach the computer through the bridge below. Every action goes through the same checks and cards, is written to the run log, and counts against the run's limits.
-
 ## CLI agents
 
-Claude Code, Codex, Gemini CLI and Cursor run as their own command-line programs with their own sign-ins; Plenum never gives them a key.
+Claude Code, Codex, Gemini CLI, Cursor and Grok Build run as their own command-line programs with their own sign-ins; Plenum never gives them a key.
 
-Claude Code, Codex, Gemini CLI and Cursor can use the Plenum browser pane, a computer-use run you started and Plenum's agents. Plenum starts a small local MCP server for the CLI for each chat message (never for read-only seats, council seats or Plan mode); each call goes through the same cards, site list, limits and Stop as in Plenum's own chat. Plenum passes the CLI only the address of this app on your computer and a one-time token, never a key or a sign-in. Muse Code does not get the bridge.
+Claude Code, Codex, Gemini CLI, Cursor and Grok Build can use the Plenum browser pane, a computer-use run you started and Plenum's agents. Plenum starts a small local MCP server for the CLI for each chat message (never for read-only seats, council seats or Plan mode); each call goes through the same cards, site list, limits and Stop as in Plenum's own chat. Plenum passes the CLI only the address of this app on your computer and a one-time token, never a key or a sign-in. Muse Code does not get the bridge.
 
 Cursor runs through the Cursor CLI (`agent`, or `cursor-agent`), signed in with your Cursor account through Cursor's own sign-in. Plenum does not use a Cursor API key: it removes `CURSOR_API_KEY` and every other `CURSOR_` setting from the program's environment. Its default transport is ACP, so Ask first works: its edits and commands come to Plenum as approval cards. `MUSE_CONSOLE_CURSOR_TRANSPORT=print` uses Cursor's print mode instead, which cannot ask: in Ask first Cursor only proposes its edits in its reply, and in Auto-approve or Approve all it runs with its own prompts off (`--force`), so Plenum's deny list and credential floor do not reach those steps, and a notice says so. A read-only Cursor run (a council seat, a compare column, plan mode) runs in an empty folder and refuses every request.
 
+Grok Build runs through its own CLI (`grok`, installed with x.ai's installer), signed in with your SuperGrok or X Premium Plus account through `grok login` in Accounts. Plenum removes every `XAI_` and `GROK_` setting from the program's environment, so no API key reaches it. Its default transport is ACP (`grok agent stdio`), so Ask first works: its edits and commands come to Plenum as approval cards. `MUSE_CONSOLE_GROK_TRANSPORT=print` uses `grok -p` instead, which cannot ask, so an action that needs approval fails. In Approve all, that transport runs with Grok Build's prompts off (`--always-approve`); Plenum cannot see or stop those steps, and a notice says so. A read-only Grok Build run (a council seat, a relay hop, a compare or pipeline step, plan mode) runs in an empty folder and refuses every request.
+
 ## Agents
 
+An agent is a model that does one task for another model and reports back. Open **Settings**, then **Agents** (or type `/agents`), to see the agent types and the limits. Five built-in types come with Plenum: **Researcher** (reads the project and reports what it finds; never edits), **Coder** (makes one change inside the folders it is given and reports what it changed; this is the coder that the delegate tool and /build have always used), **Tester** (runs the checks the task names, such as one test file, a lint or a build, and reports pass or fail with the failing output; it does not edit), **Reviewer** (reviews the change it is given, opens the files it needs and gives a verdict; it does not edit; /build's review step uses it) and **Planner** (splits a goal into build tasks; /build uses it alone). You can add your own, most quickly with **Copy** on an existing type. Each type sets its model (any provider, or the same model as the one that asked), effort, a tool-step limit, a time limit, an idle limit, its access to the project files (none, read, or read and edit), whether it may run commands or use the web, which folders it may write in, and what it reports back. Built-in types keep their name, kind and reply layout. **Reset** on a built-in type restores its shipped settings; on the Reviewer it restores the older version that cannot open files. **Limits** say, per caller (the chat model, a build, each council seat, the moderator, relay hops, quick compare columns and pipeline steps), which types it may start, how many at once, how many per reply, build or run, and whether to ask before each start. A per-model override gives one model its own numbers, in every role or in one. Below them, **Every run** says whether agents may start agents (off by default, read-only agents only, or any type they may start) and the most agents in one run. The council seats, the moderator, relay hops, quick compare columns and pipeline steps start nothing until you give them types. Once you do, their cards show on the Agents board and in the chat under the seat's name, and the types they may be given can edit files or run commands; the add menu lists the read-only types first, marked suggested. The settings are app-wide, and a project can keep its own copy with **Give this project its own agent settings** in **Project settings**. The defaults are: the chat may start Researcher, Coder, Tester and Reviewer, 8 at once and 32 per reply; /build may start Coder, Researcher and Tester, 4 at once and 8 per build; agents cannot start agents; the other roles start nothing. A call beyond the number at once waits for a place, and a call beyond the number per reply is refused.
+
 Limits are enforced while an agent runs: it is stopped at its tool-step limit, its time limit or its idle limit, and the model that asked is told why. Every agent follows the approval mode (Ask first shows its cards, named after the type and the task), plan mode (no agent runs), the blocked commands, checkpoints and the project spend cap (an agent on an API-key model is refused at the cap, and its cost counts toward the running total). Through the Claude CLI, the chat can start only agent types on Claude models, because they run as Claude Code subagents; Claude Code's own subagents count against the Chat row and can be turned off in Limits.
+
+**Running agents** are listed in the **Agents** tab of the side pane, which `/agents running` and Ctrl+Shift+B open. Its button shows how many agents are waiting for you (in amber), or else how many are running. The tab has three parts. **Waiting for you** holds the approval cards, one open at a time. **Running** is a tree, with each agent under the agent that started it, showing its type, its title, its model, its elapsed time, its steps and its state (waiting for a free slot, waiting for your approval, running, or running inside Claude Code). Each agent has **Stop**, and the tab has **Stop all** for the project. **Finished** lists the last 30 agents with how each one ended, such as stopped at its time limit, stopped by you or failed. An agent that runs inside Claude Code has no Stop, because Plenum cannot stop it; Esc stops the whole reply. The list is the table the limits count, so what it shows is what the limits count. `/agents stop` stops every running agent in the active project. The sidebar's **Running now** list shows every run in every project, with the approval cards that wait pinned at the top as **Waiting for you**; **Show all (Ctrl+Shift+B)** opens this tab. In `/build`, each task row shows its agent type and model, its elapsed time while it runs and its steps once it is done, and the plan panel lets you change each task's agent, model and effort before it runs.
 
 ## Commands
 
@@ -348,9 +459,11 @@ Limits are enforced while an agent runs: it is stopped at its tool-step limit, i
 | `/review` | Advisor reviews the last answer plus the working-tree diff |
 | `/council <question>`, `/council off` | Ask every council seat, then a moderator sums up. `off` returns to Chat |
 | `/build` | Turn the last council recommendation into tasks, then run them. Each task runs as an agent type (Coder by default). |
+| `/agents [running\|stop]` | Agent types and limits; `running` shows the agents at work, `stop` ends them all |
 | `/relay` | Pass a finished reply from one seat to another, once or as a route |
 | `/approvals [ask\|auto\|all]` | Show or set the approval mode. `all` asks you to confirm |
 | `/focus [on\|off]` | Build focus on or off for this project. With no word it switches |
+| `/computer [task\|runs]` | Open the Computer use dialog, with the text after it as the task; `runs` lists the past computer runs |
 | `/rules` | Open the Rules panel: AGENTS.md, CLAUDE.md, GEMINI.md and the global rules |
 | `/legal` | Open the Legal page: the License Agreement, Privacy Notice, third-party notices and safety notices |
 | `/effort [low\|medium\|high\|xhigh\|max]` | Show or set how hard the main model thinks. The **Effort** menu under the message box does the same. Claude, Muse Code and Codex all take it |
@@ -391,11 +504,17 @@ Limits are enforced while an agent runs: it is stopped at its tool-step limit, i
 - Passing the tool test shows that a model calls Plenum's tools correctly in a small sealed folder. It does not show that the model behaves safely; approvals, the deny list and plan mode are what protect a project.
 - The deny list covers run_command and the Claude CLI, not commands that Codex, Gemini or Muse Code run on their own. Turn snapshots cover files any agent writes, but not files over 5 MB, ignored files, or folders over 20,000 files.
 - Cursor's print transport cannot ask before it writes, and a long prompt is limited by the command line (about 7,000 characters through a .cmd shim on Windows): the newest message is kept, and a message too long to send is refused with a plain error.
+- Grok Build and Cursor are read through the Agent Client Protocol (ACP), which is new in both. Their print transports are the fallback and cannot ask for approval. Headless Grok Build billing (subscription or API credits, when both exist) is not documented by xAI.
 - Plenum reads a PDF's text only, not its pictures or layout. Gemini CLI image support rests on its @file syntax in non-interactive mode.
+- Password fields. Windows asks UI Automation and refuses to type where it cannot tell. macOS and Linux check the programs that show their fields to the system (the accessibility API on macOS, AT-SPI on Linux), and those two checks have not been run on those systems yet. Where a check cannot tell, the model's own rule is the protection, so do a password step yourself: press Pause, type it, then Resume, or let the model hand the step over and use **Type it for me**.
+- Screenshots of a whole display include every window on it, allowed or not. Choose one window when the task allows it. In one-window mode on Windows and macOS, parts of the window covered by another program show grey to the model.
+- On Linux, one-window mode shows the window alone, so menus and dialogs that open as separate windows may not be visible to the model.
+- Pausing when you type works on Windows. The macOS check has not been run on a Mac, and Linux cannot see the keyboard. Moving the mouse pauses on all three.
+- Fable 5.1 is untested for the computer toolset.
 
 ## Tests
 
-The test scripts live outside this folder. They cover the security gate, projects and settings, streaming, file mentions, the Claude request shape and tool loop against a mock endpoint, path containment, approvals, the approve-all floor, the rules files and panel, build focus, the prompt wiring, the update outbox (including apply with backup), and the Muse and Codex process handling.
+The test scripts live outside this folder. They cover the security gate, projects and settings, streaming, file mentions, the Claude request shape and tool loop against a mock endpoint, path containment, approvals, the approve-all floor, the rules files and panel, build focus, the prompt wiring, the agent types and limits, the agent runner, read-only role delegation, the update outbox (including apply with backup), the Muse and Codex process handling, computer use (policy, run controller, log, the adapters for Claude, OpenAI and Gemini and the generic loop against fixtures, and the desktop backend's fake and geometry), and the smoke test. `npm run computer:smoke` (with PLENUM_SMOKE=1) checks capture and input against a throwaway window of its own.
 
 ## Extending Plenum
 

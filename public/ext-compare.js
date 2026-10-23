@@ -12,7 +12,7 @@
   // Seat letters, in the order the models were picked. The server gives each seat the same letter.
   const SEAT_IDS = ['a', 'b', 'c', 'd'];
   // The providers a seat can use: the council's list (lib/council.mjs). The server applies the same rules again.
-  const SEAT_PROVIDERS = ['muse', 'anthropic', 'codex', 'gemini', 'cursor', 'xai', 'openai', 'deepseek', 'mistral', 'googleai'];
+  const SEAT_PROVIDERS = ['muse', 'anthropic', 'codex', 'gemini', 'cursor', 'grok', 'xai', 'openai', 'deepseek', 'mistral', 'googleai'];
   // The group names come from the provider registry (app.js PROVIDER_REGISTRY), so a new provider is named in one place.
   const GROUP_NAMES = Object.fromEntries(MuseUI.providerRegistry.map(p => [p.id, p.name]));
   const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -25,6 +25,8 @@
   let chosen = [];
   let draft = '';
   let effort = null;
+  // Whether the pictures in the composer go with the prompt. null until the person has chosen; then they do when there are any.
+  let withImages = null;
   // The compare in progress, or the last one: { project, prompt, seats, active, kept, error }.
   let run = null;
   // A message about the controls (for example "Write a prompt first."), shown until the next change.
@@ -93,7 +95,7 @@
       const models = MuseUI.catalog.filter(c => c.provider === provider);
       if (!models.length) continue;
       const group = make('div', 'cmp-group');
-      group.append(make('span', 'cmp-group-name', GROUP_NAMES[provider]));
+      group.append(make('span', 'cmp-group-name', GROUP_NAMES[provider] ?? provider));
       const chips = make('div', 'cmp-chips');
       for (const c of models) {
         const ref = refOf(c);
@@ -123,6 +125,11 @@
   }
 
   // ---------- the prompt and the controls ----------
+
+  // The pictures waiting in the composer (public/ext-images.js), each { name, mime, data, size }. A PDF or a text file is not sent here.
+  function composerPictures() {
+    return (window.MuseImages?.list() ?? []).filter(file => file.kind === 'image');
+  }
 
   function askCard() {
     const card = make('section', 'card cmp-card');
@@ -160,9 +167,17 @@
     const actions = make('div', 'cmp-actions');
     actions.append(effortField, view.compare, view.stop, make('span', 'cmp-hint', HINT));
 
+    // The pictures in the composer go with the prompt to every column whose model takes them; the others get a line saying so.
+    view.images = document.createElement('input');
+    view.images.type = 'checkbox';
+    view.images.addEventListener('change', () => { withImages = view.images.checked; paint(); });
+    view.imagesLabel = make('label', 'cmp-images');
+    view.imagesLabel.append(view.images, make('span', null, 'Include the attached images'));
+    view.imagesCount = make('span', 'cmp-hint', '');
+
     view.status = make('p', 'cmp-status');
     view.status.setAttribute('role', 'status');
-    card.append(view.prompt, actions, view.status);
+    card.append(view.prompt, view.imagesLabel, view.imagesCount, actions, view.status);
     return card;
   }
 
@@ -176,6 +191,13 @@
       box.disabled = busy || (!on && picked >= MAX_SEATS);
     }
     view.count.textContent = `${picked} picked. Choose ${MIN_SEATS} to ${MAX_SEATS}.`;
+    // Checked when the composer holds pictures, unless the person has unchecked it.
+    const pictures = composerPictures();
+    view.images.checked = pictures.length > 0 && withImages !== false;
+    view.images.disabled = busy || !pictures.length;
+    view.imagesCount.textContent = pictures.length
+      ? `${pictures.length} picture${pictures.length === 1 ? '' : 's'} attached in the composer.`
+      : 'Attach pictures in the composer to send them with the prompt.';
     view.prompt.readOnly = busy;
     view.effort.disabled = busy;
     view.compare.disabled = busy || !MuseUI.state.activeProject;
@@ -286,10 +308,13 @@
     else if (chosen.length < MIN_SEATS) flash = { text: `Pick at least ${MIN_SEATS} models.`, bad: true };
     if (flash) return paint();
 
+    // The pictures go with the prompt when the box is checked. Only their names and sizes are kept for the chat (Keep).
+    const pictures = withImages !== false ? composerPictures() : [];
     const current = {
       project,
       prompt,
       seats: chosen.map((ref, i) => ({ id: SEAT_IDS[i], ref, label: labelFor(ref), status: 'waiting', text: '', error: '' })),
+      images: pictures.map(({ name, size }) => ({ name, size })),
       active: true,
       kept: false,
       error: '',
@@ -301,7 +326,13 @@
     try {
       const res = await MuseUI.request('/api/compare', {
         method: 'POST',
-        body: { project, prompt, seats: chosen, effort },
+        body: {
+          project,
+          prompt,
+          seats: chosen,
+          effort,
+          ...(pictures.length ? { images: pictures.map(({ name, mime, data }) => ({ name, mime, data })) } : {}),
+        },
         signal: controller.signal,
       });
       if (!res.ok) {
@@ -392,7 +423,7 @@
     flash = null;
     paint();
     try {
-      await MuseUI.api('/api/compare/keep', { project: current.project, prompt: current.prompt, seat: seat.ref, text: seat.text });
+      await MuseUI.api('/api/compare/keep', { project: current.project, prompt: current.prompt, seat: seat.ref, text: seat.text, images: current.images ?? [] });
       MuseUI.toast(`Kept the ${seat.label} reply. It is in the chat.`);
       run = null;
       draft = '';

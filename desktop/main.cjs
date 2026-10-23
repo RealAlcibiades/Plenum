@@ -253,6 +253,10 @@ function startServer() {
   child.stdout.pipe(logStream, { end: false });
   child.stderr.pipe(logStream, { end: false });
   child.on('message', message => {
+    if (message?.type === 'shutdown-done') {
+      shutdownDone?.();
+      return;
+    }
     onServerMessage(child, message).catch(() => writeLog('a message from the server could not be handled'));
   });
   child.on('exit', code => {
@@ -296,6 +300,29 @@ function tell(child, message) {
 async function onServerMessage(child, message) {
   if (child !== server || !message || typeof message !== 'object' || typeof message.type !== 'string') return;
   await handleMessage(handlers, message, desktopShell, { post: reply => tell(child, reply), log: writeLog });
+}
+
+// A clean stop first (B-29): the server stops its runs, stores their replies and saves the state, then answers shutdown-done (server.mjs).
+// Resolves when it answered, or after SHUTDOWN_WAIT_MS when it did not; stopServer below then ends the process either way.
+const SHUTDOWN_WAIT_MS = 4000;
+let shutdownDone = null;
+function askServerToStop() {
+  const child = server;
+  if (!child) return Promise.resolve();
+  return new Promise(resolve => {
+    const timer = setTimeout(finish, SHUTDOWN_WAIT_MS);
+    function finish() {
+      clearTimeout(timer);
+      shutdownDone = null;
+      resolve();
+    }
+    shutdownDone = finish;
+    try {
+      child.postMessage({ type: 'shutdown' });
+    } catch {
+      finish();
+    }
+  });
 }
 
 function stopServer() {
@@ -633,8 +660,16 @@ async function main() {
 }
 
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => {
+// The first quit waits for the server's clean stop (askServerToStop), then quits again; the second pass ends the process as before.
+let stopAsked = false;
+app.on('before-quit', event => {
   quitting = true;
+  if (server && !stopAsked && typeof event?.preventDefault === 'function') {
+    stopAsked = true;
+    event.preventDefault();
+    askServerToStop().finally(() => app.quit());
+    return;
+  }
   stopServer();
   clearInterval(pollTimer);
   pollTimer = null;

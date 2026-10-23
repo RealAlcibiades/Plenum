@@ -39,6 +39,8 @@
     if (m.kind === 'advisor') return 'advisor';
     if (m.kind === 'council' || m.kind === 'build') return null;
     const hasText = String(m.content ?? '').trim() !== '';
+    // A failed or stopped reply with no text draws an error line or a quiet note, not an assistant turn (app.js, B-49).
+    if (!hasText && (m.error || m.aborted)) return null;
     return hasText || !(m.tools ?? []).length ? 'assistant' : null;
   }
 

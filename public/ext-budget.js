@@ -10,7 +10,7 @@
   if (!MuseUI) return;
 
   const TITLE = 'Spend limit';
-  const NOTE = 'Counts chat replies, reviews and /compact summaries from API-key models, estimated from published prices. A reply whose price or token count is not known adds nothing, so the cap cannot count it. Council, quick compare, pipeline, relay and build runs are not counted yet. Subscription CLIs (Claude Code, Codex, Gemini CLI, Muse Code) bill to your plan and are never capped.';
+  const NOTE = 'Counts chat replies, reviews and /compact summaries from API-key models, estimated from published prices. A reply whose price or token count is not known adds nothing, so the cap cannot count it. Agents on API-key models count too, /build tasks included. Council, quick compare, pipeline and relay replies themselves are not counted yet. Subscription CLIs (Claude Code, Codex, Gemini CLI, Muse Code) bill to your plan and are never capped.';
 
   const chip = document.createElement('button');
   chip.type = 'button';

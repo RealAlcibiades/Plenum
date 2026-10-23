@@ -51,7 +51,7 @@ Plenum includes open-source software, such as Electron and Chromium. Each compon
 
 ## 6. AI providers and other third-party services
 
-**Plenum is a tool for using services that other companies run.** It does not provide, host or train any AI model. Depending on what you set up, it runs command-line tools such as Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), Cursor CLI (Cursor) and Muse Code (Meta), and it sends requests to the APIs of providers such as Anthropic, xAI, OpenAI, DeepSeek, Mistral AI, Google and OpenRouter ("Third-Party Services").
+**Plenum is a tool for using services that other companies run.** It does not provide, host or train any AI model. Depending on what you set up, it runs command-line tools such as Claude Code (Anthropic), Codex (OpenAI), Gemini CLI (Google), Cursor CLI (Cursor), Grok Build (xAI) and Muse Code (Meta), and it sends requests to the APIs of providers such as Anthropic, xAI, OpenAI, DeepSeek, Mistral AI, Google and OpenRouter ("Third-Party Services").
 
 You are responsible for:
 

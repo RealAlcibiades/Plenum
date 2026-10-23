@@ -94,6 +94,8 @@ const PROVIDER_REGISTRY = Object.freeze([
   { id: 'codex', name: 'Codex', mark: 'X' },
   { id: 'gemini', name: 'Gemini', mark: 'G' },
   { id: 'cursor', name: 'Cursor', mark: 'U' },
+  // Grok Build is the CLI (grok:default); the xai row below is the API. Its own row here puts it in every model picker and role.
+  { id: 'grok', name: 'Grok Build', mark: 'K' },
   { id: 'xai', name: 'Grok', mark: 'X' },
   { id: 'openai', name: 'OpenAI', mark: 'O' },
   { id: 'deepseek', name: 'DeepSeek', mark: 'D' },
@@ -131,6 +133,7 @@ const CODERS = [
   { ref: 'gemini:gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { ref: 'codex:default', label: 'Codex' },
   { ref: 'cursor:default', label: 'Cursor' },
+  { ref: 'grok:default', label: 'Grok Build' },
   { ref: 'muse:muse-spark-1.2', label: 'Muse Spark 1.2' },
 ];
 const DEFAULT_CODER = CODERS[0].ref;
@@ -166,6 +169,7 @@ const COMMANDS = [
   { name: 'ask', args: '<model> <message>', desc: 'Ask one model without switching' },
   { name: 'council', args: '<question> | off', desc: 'Ask every seat, then a moderator sums up. /council off returns to Chat' },
   { name: 'build', args: '', desc: 'Turn the last council recommendation into tasks, then run them' },
+  { name: 'agents', args: '[running|stop]', desc: 'Agent types and limits. running shows the agents at work; stop ends them all' },
   { name: 'relay', args: '', desc: 'Pass a finished reply from one seat to another, once or as a route' },
   { name: 'rules', args: '', desc: 'Edit the project rules files (AGENTS.md, CLAUDE.md, GEMINI.md) and your global rules' },
   { name: 'add', args: '<folder>', desc: 'Add a project folder' },
@@ -200,6 +204,8 @@ const TOOL_NAMES = {
   edit_file: 'Edit file', run_command: 'Run command', propose_update: 'Propose update',
   Read: 'Read file', Glob: 'Find files', Grep: 'Search', Write: 'Write file', Edit: 'Edit file', NotebookEdit: 'Edit notebook',
   Bash: 'Run command', PowerShell: 'Run command', WebFetch: 'Fetch page', WebSearch: 'Search the web',
+  // An agent step: the delegate tool (lib/tools/40-delegate.mjs) and Claude Code's Agent tool both start one, and both are named Agent.
+  delegate: 'Agent', Agent: 'Agent',
   // The steps of a computer run (lib/computer/run.mjs names them computer.<action>), and the two tools it adds.
   'computer.click': 'Click', 'computer.right_click': 'Right-click', 'computer.middle_click': 'Middle-click', 'computer.double_click': 'Double-click',
   'computer.triple_click': 'Triple-click', 'computer.drag': 'Drag', 'computer.move': 'Move pointer', 'computer.scroll': 'Scroll',
@@ -212,6 +218,7 @@ const TOOL_ICONS = {
   edit_file: 'pencil', run_command: 'terminal', propose_update: 'update',
   Read: 'file', Glob: 'folder', Grep: 'search', Write: 'file-plus', Edit: 'pencil', NotebookEdit: 'pencil',
   Bash: 'terminal', PowerShell: 'terminal', WebFetch: 'layers', WebSearch: 'search',
+  delegate: 'layers', Agent: 'layers',
   'computer.click': 'pointer', 'computer.right_click': 'pointer', 'computer.middle_click': 'pointer', 'computer.double_click': 'pointer', 'computer.triple_click': 'pointer',
   'computer.drag': 'pointer', 'computer.move': 'pointer', 'computer.scroll': 'pointer', 'computer.mouse_down': 'pointer', 'computer.mouse_up': 'pointer',
   'computer.type': 'keyboard', 'computer.key': 'keyboard', 'computer.hold': 'keyboard', 'computer.screenshot': 'monitor', 'computer.zoom': 'monitor',
@@ -223,7 +230,7 @@ const THEMES = { system: 'System', dark: 'Dark', light: 'Light' };
 const THEME_COLORS = { dark: '#0a0a11', light: '#f6f6fb' };
 const systemIsLight = matchMedia('(prefers-color-scheme: light)');
 
-let S = { projects: [], activeProject: null, messages: [], model: 'muse:muse-spark-1.2', advisor: null, advisorAuto: false, approvals: 'ask', running: false };
+let S = { projects: [], activeProject: null, activeThread: null, threads: [], closedThreads: [], messages: [], model: 'muse:muse-spark-1.2', advisor: null, advisorAuto: false, approvals: 'ask', running: false };
 let catalog = [];
 let aliases = {};
 let providers = null;
@@ -233,10 +240,49 @@ let notes = [];
 let lastSent = null;
 // Why the last run was refused before it started: 'policy' (the spend cap) or 'other'; null when it was not refused (B-105).
 let refusedBy = null;
-// The run this page has in flight for each project, keyed by project id (B-8). Stop, Esc and a finished run touch only their own
-// project's controller, so an idle project never stops another project's reply.
+// ---------- threads (pro-01) ----------
+// A thread's id is its scope id (lib/scope.mjs): the project's own id for the first chat, Main, and `${project id}-t${6 hex}` for any
+// other thread. Everything that belongs to one chat is keyed by it here: the run this page has in flight, the box that run draws into, the
+// messages queued behind it, its notes and its relay route. Two threads of one project can therefore run at once, and a run only ever
+// draws into its own thread's box, never into whatever chat is on screen.
+const activeScope = () => S.activeThread || S.activeProject;
+// The project and thread every request about the chat on screen carries. Panels that send only a project still work: the server
+// takes the project's active thread then.
+const scopeBody = () => ({ project: S.activeProject, ...(S.activeThread ? { thread: S.activeThread } : {}) });
+const scopeInProject = (scope, projectId) => typeof scope === 'string' && typeof projectId === 'string' && (scope === projectId || scope.startsWith(`${projectId}-t`));
+const threadInfo = (scope = activeScope()) => (S.threads ?? []).find(t => t.id === scope) ?? null;
+// The model the thread on screen uses: its own (a thread other than Main is given one when it is made), else the app's.
+const threadModelRef = () => threadInfo()?.model || S.model;
+// The notes (errors and short lines drawn after the transcript) of threads that are not on screen; `notes` itself belongs to the one that is.
+const threadNotes = new Map();
+function noteTo(scope, text) {
+  if (!scope || scope === activeScope()) {
+    notes.push(text);
+    return;
+  }
+  const list = threadNotes.get(scope) ?? [];
+  list.push(text);
+  threadNotes.set(scope, list);
+}
+// Functions that want to run after the shell or the chat has been drawn again (the thread tabs repaint through this).
+const renderHooks = new Set();
+function callRenderHooks() {
+  for (const fn of renderHooks) {
+    try {
+      fn();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+}
+
+// The run this page has in flight for each thread, keyed by scope id (B-8). Stop, Esc and a finished run touch only their own
+// thread's controller, so an idle thread never stops another thread's reply.
 const runs = new Map();
-const activeRun = () => runs.get(S.activeProject) ?? null;
+const activeRun = () => runs.get(activeScope()) ?? null;
+// The relay route each thread runs (the hop counter above the composer): scope id -> { limit, hop, paused }.
+const routeRuns = new Map();
+const routeOf = (scope = activeScope()) => routeRuns.get(scope) ?? null;
 let updates = [];
 // The overlay of applied updates, as GET /api/updates reports it ({ active, generations, rollback }), and the automatic rollback this
 // window still shows in the Updates panel after it told the server it had seen it.
@@ -252,14 +298,13 @@ let drawerRender = null;
 // drawer can be opened again while an older answer is still on its way.
 let drawerGen = 0;
 let mode = 'chat';        // what Send does: 'chat' asks the main model, 'council' asks every seat
-let routeRun = null;      // the auto relay that is running: { limit, hop, paused }
 let routeDraft = null;    // the route panel's choices, kept while it is open
 let accountsFocus = '';   // a card the Accounts drawer scrolls to when it opens
 let boardPills = [];      // the seat pills on the board, updated in place
-let followUps = [];       // messages typed during a run, oldest first: [{ project, text }], at most MAX_QUEUED (see queueFollowUp)
+let followUps = [];       // messages typed during a run, oldest first: [{ project, scope, text, images }], at most MAX_QUEUED per thread (see queueFollowUp)
 let queueLine = null;     // the line above the composer that counts queued follow-ups; built when first needed
 let queueDrawn = [];      // the follow-ups the rows in the queue line show, so a redraw that changes nothing keeps focus on a button
-let liveRunId = '';       // the id of the run this window started (from the first event of its own stream)
+const ownRunIds = new Set(); // the ids of the runs this window started (from the first event of each stream), newest last, at most 60
 let foreign = null;       // a chat, review or relay run started in another window that this window is drawing: { runId, ready, queue, onEvent }
 const foreignDone = new Set(); // ids of foreign runs that have ended here, so a late event does not draw them again
 const noted = new Set();  // ids of other runs this window has already said one line about
@@ -577,24 +622,25 @@ function stream() {
   return streamEl;
 }
 
-// The box a project's live run draws into (B-9). It sits in the transcript only while its project is on screen. renderChat puts it
+// The box a thread's live run draws into (B-9). It sits in the transcript only while its thread is on screen. renderChat puts it
 // back after every redraw, so a settings change, or a switch away and back, never wipes a reply, approval card or tool line that is
-// still arriving (B-10). The box is dropped when its run ends, and then the saved transcript shows the reply.
+// still arriving (B-10). The box is dropped when its run ends, and then the saved transcript shows the reply. A run holds its own box, so
+// what it draws goes there even when another thread (or another project) is on screen.
 const runBoxes = new Map();
-function runBox(project = S.activeProject) {
-  let box = runBoxes.get(project);
+function runBox(scope = activeScope()) {
+  let box = runBoxes.get(scope);
   if (!box) {
     box = document.createElement('div');
     box.className = 'run-box';
-    runBoxes.set(project, box);
+    runBoxes.set(scope, box);
   }
-  if (project === S.activeProject && streamEl && !box.isConnected) streamEl.append(box);
+  if (scope === activeScope() && streamEl && !box.isConnected) streamEl.append(box);
   return box;
 }
 
-function dropRunBox(project) {
-  const box = runBoxes.get(project);
-  runBoxes.delete(project);
+function dropRunBox(scope) {
+  const box = runBoxes.get(scope);
+  runBoxes.delete(scope);
   box?.remove();
 }
 
@@ -704,7 +750,10 @@ const APPROVAL_KEY_DELAY = 400; // milliseconds after the card takes focus befor
 // The last line of a full change that the server cut at 2,000,000 characters (editPlanDetail in lib/tools.mjs writes the same text).
 const FULL_CUT_NOTE = '\n…cut at 2,000,000 characters, the rest is not shown';
 
-function approvalEl(ev, { reason: askReason = true } = {}) {
+// source is 'board' for a card the Agents board shows (ext-agents.js): its answer says so, and the chat card in another window reads it.
+// A card that only a click answers (ev.clickOnly, a checkpoint restore) takes the same keys as a blocked command: Deny is the
+// focused primary button, Y does nothing, and N denies.
+function approvalEl(ev, { reason: askReason = true, source = '' } = {}) {
   const card = document.createElement('div');
   card.className = 'approval fresh';
   card.setAttribute('role', 'alertdialog');
@@ -723,10 +772,12 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
     pre.textContent = ev.detail;
     card.append(pre);
   }
-  // A built-in rule blocked this command (defaultDeny): Deny becomes the primary, focused button and Approve steps back.
-  const denyFirst = ev.defaultDeny === true;
-  // The line above the buttons says why Deny is the default.
-  if (denyFirst) card.append(span('approval-note', 'A built-in rule blocked this command. Deny is the default.'));
+  // A built-in rule blocked this command (defaultDeny), or only a click may answer it (clickOnly): Deny becomes the primary, focused
+  // button and Approve steps back. ext-shortcuts.js reads the data-deny-first mark.
+  const denyFirst = ev.defaultDeny === true || ev.clickOnly === true;
+  if (denyFirst) card.dataset.denyFirst = '1';
+  // The line above the buttons says why Deny is the default. A click-only card says nothing extra: its own hint names the keys.
+  if (ev.defaultDeny === true) card.append(span('approval-note', 'A built-in rule blocked this command. Deny is the default.'));
   // Why the user said no. It goes to the model with a denial and is never read when the action is approved.
   const why = document.createElement('input');
   why.type = 'text';
@@ -799,7 +850,10 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
     no.disabled = true;
     why.disabled = true;
     try {
-      await api('/api/approve', allow ? { approvalId: ev.approvalId, allow: true } : { approvalId: ev.approvalId, allow: false, reason: why.value.trim().slice(0, 300) });
+      // The same body as always. A card the Agents board shows also says so (from), which the server passes to the chat card.
+      const body = allow ? { approvalId: ev.approvalId, allow: true } : { approvalId: ev.approvalId, allow: false, reason: why.value.trim().slice(0, 300) };
+      if (source === 'board') body.from = 'board';
+      await api('/api/approve', body);
     } catch (err) {
       toast(err.message, 'bad');
     }
@@ -865,7 +919,8 @@ function approvalEl(ev, { reason: askReason = true } = {}) {
   paint();
   if (!answered) {
     tick = setInterval(() => {
-      if (card.isConnected) paint();
+      // A card in the box of a thread that is not on screen is not in the document, but it still counts down.
+      if (card.isConnected || card.closest('.run-box')) paint();
       else clearInterval(tick);
     }, 1000);
   }
@@ -948,7 +1003,8 @@ function messageNodes(m) {
       row.append(chip);
       t.body.append(row);
     }
-    return [t.article];
+    // A question Plenum closed before its reply was saved (B-29): said under it, so it is not taken for a reply still on its way.
+    return m.interrupted ? [t.article, quietNote('Interrupted: no reply was saved.')] : [t.article];
   }
   if (m.kind === 'advisor') {
     const t = makeTurn('advisor', { label: `Advisor · ${modelName(m.model)}`, provider: 'advisor', when: m.ts });
@@ -980,14 +1036,23 @@ function messageNodes(m) {
   } else {
     nodes.push(...toolRows);
   }
-  if ((m.content ?? '').trim() || !nodes.length) {
+  const text = (m.content ?? '').trim();
+  // A reply that failed or was stopped is stored too (B-49). Its text, if any, is drawn as usual. The error is drawn the way a live one is
+  // (errorEl, so Retry and Copy error attach), and a stop is a quiet note under the text, or alone when there is none: never an empty bubble.
+  // ext-turns.js (repliesOf) and ext-history.js (turnKind) mirror this: a reply with no text, no steps and an error or a stop draws no turn.
+  if (text || (!nodes.length && !m.error && !m.aborted && !m.interrupted)) {
     const t = makeTurn('assistant', { label: modelName(m.model) || 'Assistant', provider: providerOf(m.model), when: m.ts });
     t.body.innerHTML = md(m.content ?? '');
     if (m.relay) t.article.insertBefore(relayLine(m.relay.fromLabel ?? seatLabelById(m.relay.from)), t.body);
     const seat = seatOfReply(m);
-    if (seat && (m.content ?? '').trim()) t.article.append(replyActions(m, seat));
+    if (seat && text) t.article.append(replyActions(m, seat));
     nodes.push(t.article);
   }
+  if (m.error) nodes.push(errorEl(String(m.error)));
+  // A time-limit note already says "Stopped after ...", and an error says what went wrong; the plain note is for a stop by the person.
+  if (m.aborted === true && !m.error && !/^Stopped\b/.test(text)) nodes.push(quietNote('Stopped.'));
+  // A reply that Plenum closed while it was being written (a kill or a crash, B-29): the text it had is kept, and this says so.
+  if (m.interrupted === true && !m.error) nodes.push(quietNote('Interrupted before the reply finished.'));
   return nodes;
 }
 
@@ -1027,7 +1092,8 @@ function replyActions(m, seat) {
     const item = e.target.closest('button[data-target]');
     if (!item) return;
     closeRelayMenus();
-    relayReply(seat.id, item.dataset.target === 'all' ? ['all'] : [item.dataset.target]);
+    // m.ts names the reply that was clicked: the server relays that exact reply, not the seat's newest council answer (B-12).
+    relayReply(seat.id, item.dataset.target === 'all' ? ['all'] : [item.dataset.target], m.ts);
   });
   const insertBtn = button('ghost small', 'Insert into composer');
   insertBtn.title = 'Put this reply in the composer to edit. It never overwrites text you have typed';
@@ -1105,6 +1171,7 @@ function renderAll() {
   renderBadge();
   renderBoard();
   renderMusic();
+  callRenderHooks();
 }
 
 // Everything renderAll draws except the transcript, so a reply that is streaming into it is never wiped by a settings change.
@@ -1116,14 +1183,18 @@ function renderShell() {
   renderBadge();
   renderBoard();
   renderMusic();
+  callRenderHooks();
 }
 
 function renderTop() {
   const p = S.projects.find(x => x.id === S.activeProject);
-  el.projName.textContent = p ? p.name : 'No project';
+  // "Project · Thread" once the project has several threads (UI-ARCH 3 and 8); a project with only Main shows just its name.
+  const thread = (S.threads ?? []).length > 1 ? threadInfo() : null;
+  const title = p ? (thread ? `${p.name} · ${thread.name}` : p.name) : 'No project';
+  el.projName.textContent = title;
   el.projPath.textContent = p ? p.path : '';
   el.projPath.title = p ? p.path : '';
-  document.title = p ? `${p.name} · Plenum` : 'Plenum';
+  document.title = p ? `${title} · Plenum` : 'Plenum';
   if (!el.model.options.length && catalog.length) {
     fillModels(el.model, false);
     fillModels(el.advisor, true);
@@ -1131,7 +1202,9 @@ function renderTop() {
   if (!el.effort.options.length) {
     el.effort.replaceChildren(...menuHead(), ...effortOptions());
   }
-  el.model.value = S.model;
+  // The selector shows the model of the thread on screen (Main: the app's model).
+  ensureOption(el.model, threadModelRef());
+  el.model.value = threadModelRef();
   el.advisor.value = S.advisor ?? 'off';
   el.auto.checked = !!S.advisorAuto;
   el.effort.value = S.effort ?? 'high';
@@ -1212,9 +1285,13 @@ function renderProjects() {
     forget.title = 'Forget this project (files are kept)';
     forget.setAttribute('aria-label', `Forget ${p.name}`);
     forget.addEventListener('click', e => { e.stopPropagation(); removeProject(p); });
-    row.append(tile, span('pn', p.name), span('pp', parentHint(p.path)), forget);
-    // The status dot: breathing while this project runs in this window (or the server reports it running on screen).
-    if (runs.has(p.id) || (active && S.running)) {
+    row.append(tile, span('pn', p.name), span('pp', parentHint(p.path)));
+    // "3 threads" when the project has several (UI-ARCH 2).
+    const shown = S.projectThreads?.[p.id];
+    if (shown?.count > 1) row.append(span('pt', `${shown.count} threads`));
+    row.append(forget);
+    // The status dot: breathing while any thread of this project runs (in this window, or as the server reports it).
+    if ([...runs.keys()].some(scope => scopeInProject(scope, p.id)) || shown?.busy === true || (active && S.running)) {
       const dot = span('pi-dot', '');
       dot.dataset.tone = 'running';
       dot.setAttribute('aria-hidden', 'true');
@@ -1236,10 +1313,14 @@ function renderChat() {
   streamEl.className = 'stream';
   if (!S.activeProject) streamEl.append(welcomeNoProject());
   else if (!S.messages.length && !notes.length) streamEl.append(welcomeProject(S.projects.find(p => p.id === S.activeProject)));
+  // The live run of this thread, if it has one, goes back under the saved messages (B-9, B-10).
+  const live = S.activeProject ? runBoxes.get(activeScope()) : null;
   // A build belongs to the council card just above it, so its plan, run and review sit together.
   let host = null;
   for (const m of S.messages) {
     if (m.kind === 'build' && m.role === 'user') continue;
+    // A reply still being written is drawn by its live run box, not by its draft row in the transcript (B-29).
+    if (m.draft === true && live) continue;
     if (m.kind === 'build' && m.role === 'assistant' && host) {
       host.querySelector('.council-slot')?.append(buildEl(buildFromSaved(m)));
       continue;
@@ -1250,8 +1331,6 @@ function renderChat() {
   }
   // A 'Notice: ' line is a refusal the person can act on (the spend cap), drawn as a Plenum line, not as an error (B-105).
   for (const n of notes) streamEl.append(n.startsWith('Error: ') ? errorEl(n.slice(7)) : systemTurn(n.startsWith('Notice: ') ? n.slice(8) : n));
-  // The live run of this project, if it has one, goes back under the saved messages (B-9, B-10).
-  const live = S.activeProject ? runBoxes.get(S.activeProject) : null;
   if (live) streamEl.append(live);
   el.chat.replaceChildren(streamEl);
   el.chat.scrollTop = el.chat.scrollHeight;
@@ -1298,6 +1377,8 @@ function setBusy(busy) {
   renderStatus();
   // The project's status dot follows its run (renderProjects reads the runs map).
   renderProjects();
+  // The thread tabs show whether a thread runs, so a run that starts or ends repaints them at once, not when the server's state arrives.
+  callRenderHooks();
 }
 
 function idleHint() {
@@ -1429,20 +1510,44 @@ function readSSE(res, onEvent) {
   })();
 }
 
-// One streamed run at a time per project. The chat, a council, a build and a relay all share it.
+// Remembers the id of a run this window started, so the events channel does not draw it a second time. Every own event is announced as
+// 'muse:stream' (see runStream), and the first one of a run carries its id.
+function rememberOwnRun(id) {
+  ownRunIds.delete(id);
+  ownRunIds.add(id);
+  while (ownRunIds.size > 60) ownRunIds.delete(ownRunIds.values().next().value);
+}
+window.addEventListener('muse:stream', e => {
+  if (e.detail && typeof e.detail.runId === 'string') rememberOwnRun(e.detail.runId);
+});
+
+// Reads the state again and redraws everything around the chat, but not the chat itself: used when a run ends in a thread that is not
+// on screen, so the chat that is on screen does not jump or lose its place.
+async function refreshQuiet() {
+  try {
+    // The chat on screen is drawn again only when the state says another project or thread is on screen now.
+    adoptState(await api('/api/state'));
+  } catch {
+    // The next change tries again.
+  }
+}
+
+// One streamed run at a time per thread. The chat, a council, a build and a relay all share it. Threads run side by side: each run is
+// keyed by its scope id, draws into its own box and ends on its own.
 // Resolves to false when the request never got going (so the caller can keep what the user typed).
 async function runStream(url, body, onEvent, { tick } = {}) {
-  // The run belongs to the project on screen when it starts. Its controller and its box are keyed by that project (B-8, B-9).
-  const project = S.activeProject;
+  // The run belongs to the thread it is sent for (body.thread), else the one on screen. Its controller and its box are keyed by that
+  // thread's scope id (B-8, B-9), so it keeps drawing into its own box when another thread or project is shown.
+  const scope = typeof body?.thread === 'string' && body.thread ? body.thread : activeScope();
   const ctl = new AbortController();
-  runs.set(project, ctl);
-  const box = runBox(project);
-  setBusy(true);
+  runs.set(scope, ctl);
+  const box = runBox(scope);
+  setBusy(busyNow());
   const began = Date.now();
   const clock = setInterval(() => {
     const time = clockText(Math.floor((Date.now() - began) / 1000));
     tick?.(Math.floor((Date.now() - began) / 1000), time);
-    const state = el.statusbar.querySelector('.run-state');
+    const state = scope === activeScope() ? el.statusbar.querySelector('.run-state') : null;
     if (state) state.lastChild.textContent = `Working… ${time}`;
   }, 1000);
   let ok = true;
@@ -1451,7 +1556,7 @@ async function runStream(url, body, onEvent, { tick } = {}) {
   let reported = false;
   // Set when the run failed (a refused send, a dropped stream or an error event), so its text stays in lastSent for Retry (B-5).
   let failed = false;
-  liveRunId = '';
+  let liveRunId = '';
   refusedBy = null;
   // Every event of the stream carries the run's id. The first one tells which run is ours, so the events channel (which carries
   // every run) does not draw it a second time. Each event is also announced to the page's panels as 'muse:stream'.
@@ -1480,24 +1585,27 @@ async function runStream(url, body, onEvent, { tick } = {}) {
     ok = false;
     if (err.name !== 'AbortError' && err.policy === true) {
       // B-105: the spend cap refused the send. A notice, not a failure, so there is no Retry; the text goes back to the composer.
-      notes.push(`Notice: ${err.message}`);
+      noteTo(scope, `Notice: ${err.message}`);
       box.append(systemTurn(err.message));
     } else if (err.name !== 'AbortError') {
       failed = true;
-      notes.push(`Error: ${err.message}`);
+      noteTo(scope, `Error: ${err.message}`);
       box.append(errorEl(err.message));
     }
   } finally {
     clearInterval(clock);
-    if (runs.get(project) === ctl) runs.delete(project);
+    if (runs.get(scope) === ctl) runs.delete(scope);
     // B-5: a run that finished without failing lets its send's text go, so Retry never offers an old message. A failed one keeps it.
-    if (!failed && lastSent?.project === project) lastSent = null;
-    dropRunBox(project);
-    routeRun = null;
+    if (!failed && lastSent?.scope === scope) lastSent = null;
+    dropRunBox(scope);
+    routeRuns.delete(scope);
     renderRouteBar();
-    // Only this project's run has ended. Another project's Stop stays as it is (B-8).
-    setBusy(Boolean(activeRun()));
-    await refresh();
+    // Only this thread's run has ended. Another thread's Stop stays as it is (B-8).
+    setBusy(busyNow());
+    // The thread on screen is redrawn from the saved chat (only it scrolls); a run that ended in a thread that is not shown leaves the
+    // chat on screen alone and refreshes the rest (the tabs, the sidebar, the numbers).
+    if (scope === activeScope()) await refresh();
+    else await refreshQuiet();
     setBusy(busyNow());
     await loadUpdates();
     // The run is over, however it ended (Stop included): the next queued message, if there is one, starts now.
@@ -1509,15 +1617,20 @@ async function runStream(url, body, onEvent, { tick } = {}) {
 // A chat turn, a relay send or a relay route. Each seat has a lane of its own, so the parallel
 // replies of a broadcast stay apart; a chain's hops arrive one after another in the same way.
 function streamTurn(url, body) {
-  const renderer = turnRenderer();
+  // The run draws into the box of the thread it is sent for (body.thread), else the one on screen.
+  const renderer = turnRenderer(typeof body?.thread === 'string' && body.thread ? body.thread : activeScope());
   return runStream(url, body, renderer.onEvent, { tick: renderer.tick });
 }
 
 // Draws the events of a chat turn, a review or a relay into the transcript: the turns, the tool lines and the approval cards.
 // It serves a run of this window (streamTurn) and a run started in another window (foreignFeed). Returns { onEvent, tick }.
-function turnRenderer(project = S.activeProject) {
-  // The box of this run's project, so its events never paint into another project's transcript (B-9).
-  const box = runBox(project);
+function turnRenderer(scope = activeScope()) {
+  // The box of this run's thread, so its events never paint into another thread's transcript, or another project's (B-9).
+  const box = runBox(scope);
+  // Only the chat on screen scrolls: a run in a hidden thread draws into its box and leaves the page where it is.
+  const bottom = () => {
+    if (scope === activeScope()) stickBottom();
+  };
   const tools = new Map();
   const lanes = new Map();
   // The model's note between computer actions (the current line), and the card that offers to type a step for the person.
@@ -1550,7 +1663,7 @@ function turnRenderer(project = S.activeProject) {
     requestAnimationFrame(() => {
       turn.queued = false;
       turn.body.innerHTML = md(turn.text);
-      stickBottom();
+      bottom();
     });
   };
   // One line for the hop in progress; it is kept as a record once the hop is done.
@@ -1561,7 +1674,7 @@ function turnRenderer(project = S.activeProject) {
       box.append(stepNote);
     }
     stepNote.textContent = text;
-    stickBottom();
+    bottom();
   };
   const onEvent = ev => {
     const ln = lane(ev.seat);
@@ -1585,7 +1698,7 @@ function turnRenderer(project = S.activeProject) {
           box.append(thought);
         }
         thought.textContent += String(ev.text ?? '');
-        stickBottom();
+        bottom();
         break;
       }
       case 'approval-closed': {
@@ -1605,7 +1718,7 @@ function turnRenderer(project = S.activeProject) {
         d.classList.add('fresh');
         tools.set(ev.id, d);
         box.append(d);
-        stickBottom();
+        bottom();
         break;
       }
       case 'tool_result': {
@@ -1618,16 +1731,19 @@ function turnRenderer(project = S.activeProject) {
         ln.current = null;
         box.append(approvalEl(ev));
         cue('approval');
-        stickBottom();
+        // A card in a thread that is not on screen turns that thread's tab amber (public/ext-threads.js); the card stays in the run's box and
+        // is on the Agents board, and it is answered either way.
+        if (scope !== activeScope()) window.dispatchEvent(new CustomEvent('plenum:thread-waiting', { detail: { scope } }));
+        bottom();
         break;
       case 'error':
         if (ln.current && !ln.current.text) ln.current.article.remove();
         ln.current = null;
         // Kept in the notes so the end-of-turn refresh does not wipe it.
-        notes.push(`Error: ${ev.message}`);
+        noteTo(scope, `Error: ${ev.message}`);
         box.append(errorEl(ev.message));
         cue('error');
-        stickBottom();
+        bottom();
         break;
       case 'notice':
         // The Plenum bridge reached a CLI agent (lib/providers.mjs sends this once per launch): the strip above the composer says it, and the
@@ -1641,7 +1757,7 @@ function turnRenderer(project = S.activeProject) {
         box.append(systemTurn(ev.text));
         // The server sends the Approve all notice once per thread per launch, and the end-of-run refresh would drop it, so it is kept
         // in the notes (drawn after the transcript, and cleared when the next message is sent).
-        if (ev.kind === 'approve-all') notes.push(ev.text);
+        if (ev.kind === 'approve-all') noteTo(scope, ev.text);
         // amend-22: a Codex or Gemini coder that cannot ask shows the cli-no-ask strip above the composer (the notices module draws it).
         if (ev.kind === 'cli-no-ask') window.MuseUI?.notice?.('cli-no-ask', { before: el.form });
         stickBottom();
@@ -1651,18 +1767,18 @@ function turnRenderer(project = S.activeProject) {
         break;
       case 'relay-start':
         if (ev.kind === 'route') {
-          routeRun = { limit: ev.hops ?? null, hop: 0, paused: false };
+          routeRuns.set(scope, { limit: ev.hops ?? null, hop: 0, paused: false });
           renderRouteBar();
         }
         break;
       case 'hop-countdown':
-        if (routeRun) routeRun.hop = ev.hop;
+        if (routeOf(scope)) routeOf(scope).hop = ev.hop;
         renderRouteBar();
         step(`Hop ${ev.hop}: ${ev.from.label} → ${ev.to.label} in ${ev.seconds}…`);
         break;
       case 'hop-start':
         hopFrom = ev.from.label;
-        if (routeRun) routeRun.hop = ev.hop;
+        if (routeOf(scope)) routeOf(scope).hop = ev.hop;
         renderRouteBar();
         step(`Hop ${ev.hop}: ${ev.from.label} → ${ev.to.label}`);
         break;
@@ -1670,22 +1786,22 @@ function turnRenderer(project = S.activeProject) {
         step(`Hop ${ev.hop} ${ev.ok ? 'done' : 'failed'}: ${ev.from.label} → ${ev.to.label}`);
         stepNote = null;
         if (!ev.ok) {
-          notes.push(`Error: ${ev.error || 'A hop failed.'}`);
+          noteTo(scope, `Error: ${ev.error || 'A hop failed.'}`);
           box.append(errorEl(ev.error || 'A hop failed.'));
         }
         break;
       case 'relay-paused':
-        if (routeRun) routeRun.paused = true;
+        if (routeOf(scope)) routeOf(scope).paused = true;
         renderRouteBar();
         break;
       case 'relay-resumed':
-        if (routeRun) routeRun.paused = false;
+        if (routeOf(scope)) routeOf(scope).paused = false;
         renderRouteBar();
         break;
       case 'relay-done':
         step(`Relay finished: ${ev.hops} ${ev.hops === 1 ? 'hop' : 'hops'}, ${STOP_TEXT[ev.stopped] ?? ev.stopped}.`);
         stepNote = null;
-        routeRun = null;
+        routeRuns.delete(scope);
         renderRouteBar();
         break;
       default:
@@ -1711,27 +1827,37 @@ const pickedImages = () => window.MuseImages?.list() ?? [];
 // The reason a model cannot take the images in list, in the server's words, or '' when it can (or when there are none). The list
 // is the composer's files, or the files a queued message was queued with (B-94). public/ext-images.js takes(model, files) checks it.
 const imageRefusal = (list, model) => (list.length && window.MuseImages && !window.MuseImages.takes(model, list) ? window.MuseImages.REFUSAL : '');
+// A council question takes pictures, which each seat gets when its model takes them (pro-07 step 2). The pictures in the composer are
+// the ones it sends; any other file there (a text file or a PDF) is not sent with a council question, so it is refused here.
+const councilPictures = () => pickedImages().filter(file => file.kind === 'image');
+const councilRefusal = () => (pickedImages().some(file => file.kind !== 'image') ? 'A council question takes pictures only. Remove the other files, or switch to Chat to send them.' : '');
 
 // computer (optional) is the settings of a computer run that this message starts (see sendComputer); appNames are its apps, for the chip.
-async function sendMessage(text, model, images, computer, appNames) {
+// scope (optional) is the thread the message goes to: the thread on screen, or (for a queued message) another thread of the project.
+async function sendMessage(text, model, images, computer, appNames, scope = activeScope()) {
   refusedBy = null;
   if (text.length > 14_000_000) return toast('That message is too long to send (over 14 million characters). Split it up or attach the file with @path.', 'bad');
   if (!S.activeProject) {
     openAddForm();
     return toast('Add a project folder first.', 'bad');
   }
-  if (S.running && !activeRun()) return toast('This project is already running. Use /cancel first.', 'bad');
+  const here = scope === activeScope();
+  if (here && S.running && !activeRun()) return toast('This project is already running. Use /cancel first.', 'bad');
   const sent = images ?? pickedImages();
   const refusal = imageRefusal(sent, model);
   if (refusal) return toast(refusal, 'bad');
   if (!images) window.MuseImages?.clear();
-  notes = [];
-  S.messages.push({ role: 'user', kind: 'chat', content: text, ts: Date.now(), ...(sent.length ? { images: sent.map(({ name, size }) => ({ name, size })) } : {}), ...(computer ? { computer: { task: true, apps: appNames ?? [] } } : {}) });
-  renderChat();
-  stream().lastElementChild?.classList.add('fresh');
+  if (here) {
+    notes = [];
+    S.messages.push({ role: 'user', kind: 'chat', content: text, ts: Date.now(), ...(sent.length ? { images: sent.map(({ name, size }) => ({ name, size })) } : {}), ...(computer ? { computer: { task: true, apps: appNames ?? [] } } : {}) });
+    renderChat();
+    stream().lastElementChild?.classList.add('fresh');
+  } else {
+    threadNotes.delete(scope);
+  }
   // B-5: the text is kept until the run is known to have gone through, so Retry can put back what the server refused.
-  lastSent = { text, images: sent, project: S.activeProject };
-  await streamTurn('/api/chat', { project: S.activeProject, message: text, model, ...(sent.length ? { images: sent.map(({ name, mime, data }) => ({ name, mime, data })) } : {}), ...(computer ? { computer } : {}) });
+  lastSent = { text, images: sent, project: S.activeProject, scope };
+  await streamTurn('/api/chat', { project: S.activeProject, thread: scope, message: text, model, ...(sent.length ? { images: sent.map(({ name, mime, data }) => ({ name, mime, data })) } : {}), ...(computer ? { computer } : {}) });
 }
 
 // ---------- queued follow-ups ----------
@@ -1740,6 +1866,9 @@ async function sendMessage(text, model, images, computer, appNames) {
 // only. It is not sent to the server and not saved, so a reload of the page loses it. When the run ends, the oldest message
 // goes out as a normal chat message (sendMessage), so it has its own stream, its own approval cards and every rule a typed
 // message has. Stop ends the run and leaves the queue as it is, and the next message then starts.
+// The messages queued for the thread on screen (the queue line shows these; the others wait for their own thread).
+const queueItems = () => followUps.filter(f => f.scope === activeScope());
+
 function queueFollowUp() {
   const text = el.input.value.trim();
   if (!text || !S.activeProject) return;
@@ -1747,14 +1876,14 @@ function queueFollowUp() {
   if (mode === 'council') return toast('A council question cannot be queued. Wait for this run to end, or press Esc to stop it.', 'bad');
   if (text.length > 14_000_000) return toast('That message is too long to send (over 14 million characters). Split it up or attach the file with @path.', 'bad');
   // The text stays in the box when the queue is full.
-  if (followUps.length >= MAX_QUEUED) {
-    return toast(`${MAX_QUEUED} messages are already waiting in this project. Wait for one to start, or clear the queue.`, 'bad');
+  if (queueItems().length >= MAX_QUEUED) {
+    return toast(`${MAX_QUEUED} messages are already waiting in this thread. Wait for one to start, or clear the queue.`, 'bad');
   }
   // Images in the composer wait with the message, so they go out with it and not with a later one.
   const images = pickedImages();
   const refusal = imageRefusal(images);
   if (refusal) return toast(refusal, 'bad');
-  followUps.push({ project: S.activeProject, text, images });
+  followUps.push({ project: S.activeProject, scope: activeScope(), text, images });
   window.MuseImages?.clear();
   el.input.value = '';
   autosize();
@@ -1764,35 +1893,49 @@ function queueFollowUp() {
 }
 
 function clearQueue() {
-  const cleared = followUps.length;
-  followUps = [];
+  const cleared = queueItems().length;
+  followUps = followUps.filter(f => f.scope !== activeScope());
   syncQueue();
   toast(cleared ? `Dropped ${cleared} queued ${cleared === 1 ? 'message' : 'messages'}` : 'The queue was already empty');
 }
 
-// A queued message belongs to the project it was typed in. If another project is on screen when the queue is looked at (the
-// person switched, or forgot the project), those messages are dropped, so none of them lands in the wrong chat.
+// A queued message belongs to the thread it was typed in. A message of another project, or of a thread that has been closed or removed,
+// is dropped when the queue is looked at (the person switched, or forgot the project), so none of them lands in the wrong chat. The
+// messages of the other threads of the project on screen wait for their own thread.
 function dropOtherProjects() {
-  const kept = followUps.filter(f => f.project === S.activeProject);
+  const known = new Set((S.threads ?? []).map(t => t.id));
+  const kept = followUps.filter(f => f.project === S.activeProject && (!known.size || known.has(f.scope)));
   const dropped = followUps.length - kept.length;
   if (!dropped) return;
   followUps = kept;
-  toast(`Dropped ${dropped} queued ${dropped === 1 ? 'message' : 'messages'} because the project changed`, 'bad');
+  toast(`Dropped ${dropped} queued ${dropped === 1 ? 'message' : 'messages'} because the project or thread changed`, 'bad');
 }
 
-// Sends the oldest queued message in the ordinary way. It waits while a run is going (a stopped run can still be winding down
-// on the server, and watchRun then calls this again).
+// True while a thread cannot take a new message: this window holds a run for it, or the server says it runs.
+function scopeBusy(scope) {
+  if (runs.has(scope)) return true;
+  if (scope === activeScope() && S.running) return true;
+  return threadInfo(scope)?.running === true;
+}
+
+// Sends the oldest queued message whose thread is idle, in the ordinary way, and then the next one for another idle thread. A message
+// queued in Thread 2 therefore starts when Thread 2 is idle even while Main is busy. A thread that is still busy keeps its messages
+// waiting (a stopped run can still be winding down on the server, and watchRun then calls this again).
 async function drainQueue() {
   dropOtherProjects();
-  if (!followUps.length || busyNow()) return;
-  const next = followUps[0];
-  // The queued files are checked before the message leaves the queue. When the model cannot take them, the message stays at the
-  // head with the reason, and Edit or Remove deal with it (B-94).
-  const refusal = imageRefusal(next.images ?? [], undefined);
-  if (refusal) return toast(refusal, 'bad');
-  followUps.shift();
-  syncQueue();
-  await sendMessage(next.text, undefined, next.images);
+  for (let guard = 0; guard < 12; guard += 1) {
+    const next = followUps.find(f => !scopeBusy(f.scope));
+    if (!next) return;
+    // The queued files are checked before the message leaves the queue. When the model cannot take them, the message stays at the
+    // head with the reason, and Edit or Remove deal with it (B-94).
+    const refusal = imageRefusal(next.images ?? [], undefined);
+    if (refusal) return toast(refusal, 'bad');
+    followUps.splice(followUps.indexOf(next), 1);
+    syncQueue();
+    // Not awaited: the run takes as long as it takes, and the next idle thread starts meanwhile. sendMessage marks its thread busy
+    // before it first waits, so the loop does not send a second message to the same thread.
+    sendMessage(next.text, undefined, next.images, undefined, undefined, next.scope).catch(err => toast(err.message, 'bad'));
+  }
 }
 
 // Called when a run has ended and the state has been read again, however the run ended (finished, failed or stopped). It waits
@@ -1862,27 +2005,27 @@ function queueRow(item, i) {
 }
 
 // Rebuilds the rows only when the queue itself has changed, so a redraw during a run does not take focus off a button.
-function paintQueueRows(list) {
-  const same = followUps.length === queueDrawn.length && followUps.every((item, i) => item === queueDrawn[i]);
+function paintQueueRows(list, items = followUps) {
+  const same = items.length === queueDrawn.length && items.every((item, i) => item === queueDrawn[i]);
   if (same) return;
-  queueDrawn = [...followUps];
-  list.replaceChildren(...followUps.map(queueRow));
+  queueDrawn = [...items];
+  list.replaceChildren(...items.map(queueRow));
 }
 
 // Keeps the queued line, the Send/Stop look of the button and the state timer in step with S. renderStatus calls it on every
 // redraw. A run this page holds no stream for has no abort handle here, so the button stops it through the server.
 function syncQueue() {
   dropOtherProjects();
-  const queued = followUps.length;
+  const queued = queueItems().length;
   if (queued > 0 || queueLine) {
     queueLine ??= buildQueueLine();
     queueLine.hidden = queued === 0;
     if (queued > 0) {
       queueLine.firstElementChild.textContent = queued === 1
-        ? '1 message queued. It starts when the current run ends.'
+        ? '1 message queued. It starts when the current run in this thread ends.'
         : `${queued} messages queued. They start one at a time, in order.`;
     }
-    paintQueueRows(queueLine.querySelector('.queue-list'));
+    paintQueueRows(queueLine.querySelector('.queue-list'), queueItems());
   }
   const stop = busyNow();
   el.send.classList.toggle('stop', stop);
@@ -1915,30 +2058,31 @@ async function compact() {
   if (!S.activeProject) return toast('Add a project folder first.', 'bad');
   if (S.running || activeRun()) return toast('This project is already running. Use /cancel first.', 'bad');
   if (S.messages.filter(m => m.kind === 'chat').length < 2) return toast('There is not enough conversation to compact yet.');
-  const project = S.activeProject;
+  const scope = activeScope();
   const ctl = new AbortController();
-  runs.set(project, ctl);
-  setBusy(true);
-  const t = makeTurn('assistant', { label: modelName(S.model), provider: providerOf(S.model) });
+  runs.set(scope, ctl);
+  setBusy(busyNow());
+  const t = makeTurn('assistant', { label: modelName(threadModelRef()), provider: providerOf(threadModelRef()) });
   t.article.classList.add('fresh');
   t.body.innerHTML = THINKING.replace('Thinking', 'Summarising the conversation');
-  runBox(project).append(t.article);
+  runBox(scope).append(t.article);
   el.chat.scrollTop = el.chat.scrollHeight;
   try {
-    const res = await request('/api/compact', { method: 'POST', body: { project }, signal: ctl.signal });
+    const res = await request('/api/compact', { method: 'POST', body: { project: S.activeProject, thread: scope }, signal: ctl.signal });
     const data = await res.json().catch(() => ({}));
     if (tokenRefused(res)) showTokenCard();
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     S = data;
-    notes = [];
+    if (scope === activeScope()) notes = [];
     toast(`Compacted ${data.compacted} messages into a summary`);
   } catch (err) {
     toast(err.name === 'AbortError' ? 'Compacting was cancelled. The chat is unchanged.' : err.message, 'bad');
   } finally {
-    if (runs.get(project) === ctl) runs.delete(project);
-    dropRunBox(project);
-    setBusy(Boolean(activeRun()));
-    await refresh();
+    if (runs.get(scope) === ctl) runs.delete(scope);
+    dropRunBox(scope);
+    setBusy(busyNow());
+    if (scope === activeScope()) await refresh();
+    else await refreshQuiet();
     setBusy(busyNow());
     scheduleDrain();
   }
@@ -1949,7 +2093,7 @@ async function review() {
   if (!S.advisor) return toast('The advisor is off. Try /advisor sonnet.', 'bad');
   // A review is a new run, so a message from an earlier failed send is no longer what Retry should offer (B-5).
   lastSent = null;
-  await streamTurn('/api/review', { project: S.activeProject });
+  await streamTurn('/api/review', scopeBody());
 }
 
 // ---------- council: one renderer for the saved transcript and the live card ----------
@@ -2017,25 +2161,32 @@ function councilFromSaved(m) {
       // An empty text is a round that gave no answer (it failed, see below), so it is not shown as done (B-15).
       if (typeof text === 'string' && text) rounds[r] = { text, state: 'done', ...seatMeta(text) };
     }
-    if (s.error) {
+    // ok<n> false is a round that failed (server.mjs seat-done, B-13, B-52): it is marked failed, and its error is the seat's.
+    const failedRounds = Object.keys(s).map(k => /^ok(\d+)$/.exec(k)).filter(Boolean).filter(x => s[x[0]] === false).map(x => Number(x[1]));
+    for (const r of failedRounds) rounds[r] = { text: rounds[r]?.text ?? '', state: 'failed', error: s.error || 'This seat failed.' };
+    // A save with no ok<n> keys (from before they were kept) puts the seat's error on the last round it saved (B-15).
+    if (s.error && !failedRounds.length) {
       // A failed seat never runs a later round, so the error belongs to the last round it saved (B-15).
       const r = ran.length ? ran[ran.length - 1] : 1;
       rounds[r] = { ...(rounds[r] ?? {}), text: rounds[r]?.text ?? '', state: 'failed', error: s.error };
     }
     return { id: s.id, label: s.label, ref: s.ref ?? '', role: s.role, effort: s.effort, rounds };
   });
+  // The rounds the run was set to run, as the server saved them at council-start (B-31, B-52). A save without them counts the rounds
+  // a seat saved or failed, so a council stopped after round 2 of 3 shows 2 in that case.
+  const counted = seats.flatMap(s => Object.keys(s.rounds).map(Number));
   return {
     question: c.question ?? '',
-    // The count comes from what was saved: a council stopped after round 2 of 3 shows 2, a full three-round run shows 3 (B-31).
-    rounds: Math.max(1, ...seats.flatMap(s => Object.keys(s.rounds).map(Number))),
+    rounds: Number.isInteger(c.rounds) && c.rounds > 0 ? c.rounds : Math.max(1, ...counted),
     seats,
     mod: null,
     modText: '',
     modState: c.result ? 'done' : 'waiting',
     result: c.result ?? null,
-    stopped: !c.result,
+    // A council that ended with an error is not a stop: the error is shown in its place (B-52).
+    stopped: !c.result && !c.error,
     done: true,
-    error: '',
+    error: c.error ?? '',
     clock: '',
     open: {},
   };
@@ -2043,6 +2194,7 @@ function councilFromSaved(m) {
 
 // Turns the council's events into the card's data; each change asks for a redraw.
 function councilHandler(cd, paint) {
+  const scope = activeScope();
   const seat = id => cd.seats.find(s => s.id === id);
   return ev => {
     switch (ev.type) {
@@ -2090,11 +2242,11 @@ function councilHandler(cd, paint) {
         break;
       case 'error':
         cd.error = ev.message;
-        notes.push(`Error: ${ev.message}`);
+        noteTo(scope, `Error: ${ev.message}`);
         cue('error');
         break;
       case 'done':
-        if (ev.timedOut) notes.push('The council ran out of time and was stopped.');
+        if (ev.timedOut) noteTo(scope, 'The council ran out of time and was stopped.');
         break;
       default:
         break;
@@ -2312,7 +2464,7 @@ async function openPlan(cd, slot, btn) {
   slot.append(wait);
   btn.disabled = true;
   try {
-    const [data] = await Promise.all([api('/api/plan', { project: S.activeProject, goal: cd.question, recommendation }), loadAgentsInfo()]);
+    const [data] = await Promise.all([api('/api/plan', { ...scopeBody(), goal: cd.question, recommendation }), loadAgentsInfo()]);
     if (data.error) throw new Error(data.error);
     const tasks = (data.tasks ?? []).map(normalizeTask);
     if (!tasks.length) throw new Error('The planner returned no tasks. Try again, or ask the council a narrower question.');
@@ -2610,7 +2762,7 @@ async function runBuild(cd, slot, tasks) {
   if (!agentsInfo) loadAgentsInfo().then(() => paint());
   notes = [];
   cue('start');
-  await runStream('/api/build', { project: S.activeProject, goal: cd.question, tasks: payload }, buildHandler(run, paint), {
+  await runStream('/api/build', { ...scopeBody(), goal: cd.question, tasks: payload }, buildHandler(run, paint), {
     tick: (secs, time) => {
       run.clock = time;
       const t = el.chat.querySelector('.build-timer');
@@ -2627,6 +2779,7 @@ function buildFocusOn(projectId) {
 }
 
 function buildHandler(run, paint) {
+  const scope = activeScope();
   const byId = id => run.tasks.find(t => t.id === id);
   const findStep = id => [...run.tasks.flatMap(t => t.steps), ...run.steps].find(s => s.id === id);
   return ev => {
@@ -2706,11 +2859,11 @@ function buildHandler(run, paint) {
         break;
       case 'error':
         run.error = ev.message;
-        notes.push(`Error: ${ev.message}`);
+        noteTo(scope, `Error: ${ev.message}`);
         cue('error');
         break;
       case 'done':
-        if (ev.timedOut) notes.push('The build ran out of time and was stopped.');
+        if (ev.timedOut) noteTo(scope, 'The build ran out of time and was stopped.');
         break;
       default:
         break;
@@ -2886,9 +3039,15 @@ async function askCouncil(question) {
   }
   if (busyNow()) return toast('This project is already running. Use /cancel first.', 'bad');
   if (!text) return toast('Type a question for the council. Example: /council Should we cache the price feed?', 'bad');
+  const refusal = councilRefusal();
+  if (refusal) return toast(refusal, 'bad');
   const config = S.council ?? DEFAULT_COUNCIL;
+  // The pictures in the composer go with this question (pro-07 step 2). The server checks them again, and each seat gets the ones its
+  // model takes. They leave the composer when the question is sent; the chat keeps only their names and sizes.
+  const pictures = councilPictures();
   notes = [];
-  S.messages.push({ role: 'user', kind: 'council', content: text, ts: Date.now() });
+  S.messages.push({ role: 'user', kind: 'council', content: text, ts: Date.now(), ...(pictures.length ? { images: pictures.map(({ name, size }) => ({ name, size })) } : {}) });
+  if (pictures.length) window.MuseImages?.clear();
   renderChat();
   const cd = liveCouncil(text, config);
   let live = councilEl(cd, true);
@@ -2907,7 +3066,7 @@ async function askCouncil(question) {
       stickBottom();
     });
   };
-  await runStream('/api/council', { project: S.activeProject, question: text, config }, councilHandler(cd, paint), {
+  await runStream('/api/council', { ...scopeBody(), question: text, config, ...(pictures.length ? { images: pictures.map(({ name, mime, data }) => ({ name, mime, data })) } : {}) }, councilHandler(cd, paint), {
     tick: (secs, time) => {
       cd.clock = time;
       const t = el.chat.querySelector('.council-timer');
@@ -3319,13 +3478,14 @@ async function startRoute(d) {
   };
   closeDrawer();
   notes = [];
-  routeRun = { limit: rs.hops ?? null, hop: 0, paused: false };
+  routeRuns.set(activeScope(), { limit: rs.hops ?? null, hop: 0, paused: false });
   renderRouteBar();
-  await streamTurn('/api/relay/route', { project: S.activeProject, sourceId: d.from, route });
+  await streamTurn('/api/relay/route', { ...scopeBody(), sourceId: d.from, route });
 }
 
-// One reply, sent on to one seat or to all the others.
-async function relayReply(sourceId, targets) {
+// One reply, sent on to one seat or to all the others. messageTs is the ts of the chat reply that was clicked; the server relays that
+// reply's text (server.mjs relaySource). Without it, the source is the seat's newest council answer or relayed reply.
+async function relayReply(sourceId, targets, messageTs = null) {
   if (!S.activeProject) return toast('Add a project folder first.', 'bad');
   if (busyNow()) return toast('This project is already running. Use /cancel first.', 'bad');
   const draft = el.input.value;
@@ -3335,7 +3495,7 @@ async function relayReply(sourceId, targets) {
     autosize();
   }
   notes = [];
-  const ok = await streamTurn('/api/relay/send', { project: S.activeProject, sourceId, targets, note });
+  const ok = await streamTurn('/api/relay/send', { ...scopeBody(), sourceId, targets, note, ...(messageTs !== null && messageTs !== undefined ? { messageTs } : {}) });
   if (!ok && note && !el.input.value) {
     el.input.value = draft;
     autosize();
@@ -3343,6 +3503,7 @@ async function relayReply(sourceId, targets) {
 }
 
 function renderRouteBar() {
+  const routeRun = routeOf();
   el.relayBar.hidden = !routeRun;
   if (!routeRun) return;
   const hop = routeRun.hop ? `Hop ${routeRun.hop}${routeRun.limit ? ` of ${routeRun.limit}` : ''}` : 'Starting';
@@ -3351,11 +3512,13 @@ function renderRouteBar() {
 }
 
 async function toggleRelayPause() {
+  const scope = activeScope();
+  const routeRun = routeOf(scope);
   if (!routeRun || !S.activeProject) return;
   const resume = routeRun.paused;
   try {
-    const data = await api(resume ? '/api/relay/resume' : '/api/relay/pause', { project: S.activeProject });
-    if (routeRun) routeRun.paused = Boolean(data.paused);
+    const data = await api(resume ? '/api/relay/resume' : '/api/relay/pause', scopeBody());
+    if (routeOf(scope)) routeOf(scope).paused = Boolean(data.paused);
   } catch (err) {
     toast(err.message, 'bad');
   }
@@ -3434,11 +3597,21 @@ async function refresh() {
 function applyState(next, { chat } = {}) {
   if (!next || typeof next !== 'object') return;
   const switched = next.activeProject !== undefined && next.activeProject !== S.activeProject;
+  // The thread on screen changed (a tab was chosen in another window, or the active thread was closed): the chat is read again.
+  const threadSwitched = !switched && next.activeThread !== undefined && next.activeThread !== S.activeThread;
+  const before = activeScope();
   S = { ...S, ...next, messages: S.messages };
-  if (switched) notes = [];
+  if (switched) {
+    notes = [];
+    threadNotes.clear();
+  } else if (threadSwitched) {
+    threadNotes.set(before, notes);
+    notes = threadNotes.get(activeScope()) ?? [];
+    threadNotes.delete(activeScope());
+  }
   renderShell();
   const changed = typeof next.messageCount === 'number' && (next.messageCount !== S.messages.length || (next.lastMessageTs ?? 0) !== (S.messages.at(-1)?.ts ?? 0));
-  if (chat !== false && !activeRun() && !foreign && (switched || changed)) refresh();
+  if (chat !== false && !activeRun() && !foreign && (switched || threadSwitched || changed)) refresh();
   if (!S.running && !activeRun()) scheduleDrain();
 }
 
@@ -3514,11 +3687,24 @@ events.on('hello', ev => {
 events.on('state', ev => applyState(ev.state));
 
 // An approval card answered in another window is replaced by one quiet line. A card this window answered itself is left alone.
+// A card the Agents board answered says so (ev.by is 'board'). Every copy of the card on the page is replaced, the board's own too.
 events.on('approval', ev => {
-  const card = document.querySelector(`[data-approval-id="${CSS.escape(String(ev.approvalId))}"]`);
-  if (!card || card.dataset.answeredHere) return;
-  const text = ev.action === 'expired' ? 'Timed out' : ev.action === 'stopped' ? 'Stopped' : ev.allow ? 'Approved in another window' : 'Denied in another window';
-  card.replaceWith(systemTurn(text));
+  const selector = `[data-approval-id="${CSS.escape(String(ev.approvalId))}"]`;
+  // A card in the box of a thread that is not on screen is not in the document, so those boxes are looked at too.
+  const cards = [...document.querySelectorAll(selector), ...[...runBoxes.values()].filter(box => !box.isConnected).flatMap(box => [...box.querySelectorAll(selector)])];
+  for (const card of cards) {
+    if (card.dataset.answeredHere) continue;
+    // A card on the Agents board (inside its pane, .ext-agl) says where it was answered in the chat's words.
+    const onBoard = Boolean(card.closest?.('.ext-agl'));
+    if (ev.by === 'board') {
+      card.replaceWith(span('note-quiet', 'Answered from the Agents board.'));
+    } else if (onBoard) {
+      card.replaceWith(span('note-quiet', ev.action === 'expired' ? 'Timed out' : ev.action === 'stopped' ? 'Stopped' : 'Answered in the chat.'));
+    } else {
+      const text = ev.action === 'expired' ? 'Timed out' : ev.action === 'stopped' ? 'Stopped' : ev.allow ? 'Approved in another window' : 'Denied in another window';
+      card.replaceWith(systemTurn(text));
+    }
+  }
 });
 
 // What a run started in another window looks like here. A chat turn, a review or a relay is drawn like a run of this window
@@ -3530,7 +3716,8 @@ const KIND_WORDS = { council: 'A council', build: 'A build', compare: 'A compari
 function foreignFeed(ev) {
   if (!foreign || foreign.runId !== ev.runId) {
     if (foreignDone.has(ev.runId)) return;
-    const run = { runId: ev.runId, kind: ev.kind, project: ev.project, ready: false, queue: [], ...turnRenderer(ev.project) };
+    const scope = ev.event?.thread ?? ev.project;
+    const run = { runId: ev.runId, kind: ev.kind, project: ev.project, scope, ready: false, queue: [], ...turnRenderer(scope) };
     foreign = run;
     refresh().then(() => {
       if (foreign !== run) return;
@@ -3547,7 +3734,7 @@ function foreignFeed(ev) {
   // is lost (the server sends one after it). A relay carries on after an error in one hop, so only its done ends it.
   if (ev.event.type === 'done' || (ev.event.type === 'error' && foreign.kind !== 'relay')) {
     foreignDone.add(foreign.runId);
-    dropRunBox(foreign.project);
+    dropRunBox(foreign.scope);
     foreign = null;
     refresh();
   }
@@ -3558,14 +3745,16 @@ function noteOtherRun(ev) {
   noted.add(ev.runId);
   // A panel of this window that started the run claims it from its first event; that arrives a moment after this one.
   setTimeout(() => {
-    if (claimed.has(ev.runId) || ev.project !== S.activeProject || activeRun()) return;
+    if (claimed.has(ev.runId) || ev.project !== S.activeProject || (ev.event?.thread ?? ev.project) !== activeScope() || activeRun()) return;
     runBox().append(systemTurn(`${KIND_WORDS[ev.kind] ?? 'A run'} is running in another window.`));
     stickBottom();
   }, 400);
 }
 
 events.on('run', ev => {
-  if (ev.project !== S.activeProject || ev.runId === liveRunId || claimed.has(ev.runId)) return;
+  // Only the run of the thread on screen is drawn here; a run of another thread is in that thread's box, or in another window.
+  if (ev.project !== S.activeProject || (ev.event?.thread ?? ev.project) !== activeScope()) return;
+  if (ownRunIds.has(ev.runId) || claimed.has(ev.runId)) return;
   if (activeRun()) return;
   if (DRAWN_KINDS.includes(ev.kind)) foreignFeed(ev);
   else noteOtherRun(ev);
@@ -3647,9 +3836,58 @@ function setAsideNotice(rb) {
 // still arriving stays on the page (B-10). Everything else is drawn from the new state without touching the chat.
 async function update(body) {
   const before = S.activeProject;
+  const beforeScope = activeScope();
   S = await api('/api/settings', body);
-  if (S.activeProject !== before) renderAll();
-  else renderShell();
+  if (S.activeProject !== before) {
+    threadNotes.clear();
+    renderAll();
+  } else if (activeScope() !== beforeScope) {
+    followThread(beforeScope);
+  } else {
+    renderShell();
+  }
+}
+
+// The thread on screen is another one now (S already says so): the notes of the one that was shown are kept for it, the notes of the one
+// that is shown come back, and the chat is drawn again.
+function followThread(before) {
+  threadNotes.set(before, notes);
+  notes = threadNotes.get(activeScope()) ?? [];
+  threadNotes.delete(activeScope());
+  renderAll();
+}
+
+// Takes a state the server sent back after a change to the threads (or any change that may have moved the active thread) as the page's
+// state. When the thread on screen is another one now, its saved notes come back and the chat is drawn again; otherwise only the shell is.
+function adoptState(next) {
+  const before = activeScope();
+  const projectBefore = S.activeProject;
+  S = next;
+  if (S.activeProject !== projectBefore) {
+    notes = [];
+    threadNotes.clear();
+    renderAll();
+    return;
+  }
+  if (activeScope() !== before) {
+    followThread(before);
+    return;
+  }
+  renderShell();
+}
+
+// Shows another thread of the project on screen. The run of the thread that was shown goes on in its own box.
+async function switchThread(id) {
+  if (!S.activeProject || typeof id !== 'string' || id === activeScope()) return;
+  adoptState(await api('/api/threads/activate', { project: S.activeProject, thread: id }));
+}
+
+// Sets the model of the thread on screen: Main follows the app's model (the model selector, as before); any other thread has its own.
+async function setThreadModel(ref) {
+  const thread = threadInfo();
+  if (!thread || thread.main) return update({ model: ref });
+  adoptState(await api('/api/threads/update', { project: S.activeProject, thread: thread.id, model: ref }));
+  return undefined;
 }
 
 // B-93: these three report a refusal themselves. Their callers (the sidebar, the row and key handlers, and the slash commands)
@@ -5691,9 +5929,9 @@ async function runCommand(line) {
         return renderChat();
       }
       case 'model':
-        if (!arg) return toast(`Model: ${modelName(S.model)}. Switch with /model <name>.`);
-        await update({ model: arg });
-        return toast(`Model set to ${modelName(S.model)}`);
+        if (!arg) return toast(`Model: ${modelName(threadModelRef())}. Switch with /model <name>.`);
+        await setThreadModel(arg);
+        return toast(`Model set to ${modelName(threadModelRef())}`);
       case 'advisor': {
         const tokens = arg.split(/\s+/).filter(Boolean);
         if (!tokens.length) return toast(advisorLine());
@@ -5786,6 +6024,32 @@ async function runCommand(line) {
       }
       case 'build':
         return buildLast();
+      // /agents: the agent types and limits (Settings > Agents, or the project's own copy when it has one), the Agents pane tab
+      // (/agents running), or a stop of every agent in the active project. The panels are separate files, so each one says when it
+      // did not load. The project check reads the server's answer; if that read fails, the app's settings open.
+      case 'agents': {
+        const word = arg.toLowerCase();
+        if (!word) {
+          if (typeof window.MuseUI?.openAgents !== 'function') return toast('The Agents panel did not load (public/ext-agents-settings.js).', 'bad');
+          let own = false;
+          if (S.activeProject) {
+            try { own = Boolean((await api(`/api/agents?project=${encodeURIComponent(S.activeProject)}`))?.project?.customised); } catch { own = false; }
+          }
+          return window.MuseUI.openAgents(own ? 'project' : undefined);
+        }
+        if (word === 'running') {
+          if (typeof window.MuseUI?.openAgentsLive !== 'function') return toast('The Agents panel did not load (public/ext-agents.js).', 'bad');
+          return window.MuseUI.openAgentsLive();
+        }
+        if (word === 'stop') {
+          if (!S.activeProject) return toast('Choose a project first.', 'bad');
+          if (typeof window.MuseUI?.stopAgents !== 'function') return toast('The Agents panel did not load (public/ext-agents.js).', 'bad');
+          // stopAgents resolves to the number of agents it stopped (public/ext-agents.js).
+          const n = Number(await window.MuseUI.stopAgents()) || 0;
+          return toast(n ? `Stopped ${n} agent${n === 1 ? '' : 's'}.` : 'No agent was running.');
+        }
+        return toast('Usage: /agents [running|stop]', 'bad');
+      }
       case 'relay':
         return openDrawer('Relay route', renderRelayPanel);
       case 'review':
@@ -5834,7 +6098,8 @@ async function runCommand(line) {
         if (!S.activeProject) return toast('No project selected.', 'bad');
         // A short chat is cleared at once. A longer one is asked about first, so a mistyped /clear costs nothing.
         if (S.messages.filter(m => m.kind === 'chat').length >= 4 && !(await confirmBox({ title: 'Clear this chat?', body: 'Undo stays available above the composer until you send the next message.', action: 'Clear chat', tone: 'danger' }))) return;
-        S = await api('/api/clear', { project: S.activeProject });
+        // Only the thread on screen is cleared; the other threads of the project keep their chats.
+        S = await api('/api/clear', scopeBody());
         notes = [];
         renderAll();
         return toast('Chat cleared. Undo is above the composer.');
@@ -5859,8 +6124,9 @@ async function cancelRun() {
     return toast('Stopping…');
   }
   if (!S.activeProject) return toast('Nothing is running.');
-  const { cancelled } = await api('/api/cancel', { project: S.activeProject });
-  toast(cancelled ? 'Cancel sent.' : 'Nothing is running in this project.');
+  // Stop acts on the thread on screen only (the request names it).
+  const { cancelled } = await api('/api/cancel', scopeBody());
+  toast(cancelled ? 'Cancel sent.' : `Nothing is running in this ${(S.threads ?? []).length > 1 ? 'thread' : 'project'}.`);
 }
 
 // ---------- wiring ----------
@@ -5885,7 +6151,7 @@ el.form.addEventListener('submit', e => {
   }
   // The text and the images stay in the composer when they cannot be sent as they are.
   const images = pickedImages();
-  const held = text.startsWith('/') ? '' : mode === 'council' && images.length ? 'A council question cannot take images. Switch to Chat to send them.' : imageRefusal(images);
+  const held = text.startsWith('/') ? '' : mode === 'council' ? councilRefusal() : imageRefusal(images);
   if (held) return toast(held, 'bad');
   el.input.value = '';
   autosize();
@@ -6026,7 +6292,7 @@ el.addForm.addEventListener('submit', async e => {
 });
 
 const onSettingError = err => toast(err.message, 'bad');
-el.model.addEventListener('change', () => update({ model: el.model.value }).then(() => toast(`Model set to ${modelName(S.model)}`)).catch(onSettingError));
+el.model.addEventListener('change', () => setThreadModel(el.model.value).then(() => toast(`Model set to ${modelName(threadModelRef())}`)).catch(onSettingError));
 el.advisor.addEventListener('change', () => update({ advisor: el.advisor.value }).then(() => toast(advisorLine())).catch(onSettingError));
 el.auto.addEventListener('change', () => update({ advisorAuto: el.auto.checked }).catch(onSettingError));
 el.effort.addEventListener('change', () => update({ effort: el.effort.value }).then(() => toast(`Effort set to ${EFFORT_LABELS[S.effort]}`)).catch(onSettingError));
@@ -6293,6 +6559,25 @@ window.MuseUI = {
   approvalModes: APPROVAL_MODES,
   dialogOpen,
   el, span, button, para, icon, cardShell, modelName, stream: () => streamEl ?? el.chat,
+  // The approval card (see approvalEl): the Agents board builds its waiting cards with it, so the keys, the countdown and Show all are the chat's own.
+  approvalEl,
+  // Stops a run (POST /api/cancel), as the Stop button does. The Agents pane stops a run through this. Pass a project id to stop that
+  // project's run (the active thread's when it runs), or the scope id of a run (a thread's id) to stop exactly that one; a thread id as the
+  // second argument names the thread of the project.
+  stopRun: (projectId, thread) => (thread ? api('/api/cancel', { project: projectId, thread }) : api('/api/cancel', { project: projectId })),
+  // Threads (pro-01; public/ext-threads.js draws the tabs and adds to this object). A thread's id is its scope id.
+  threads: {
+    scope: activeScope,                       // the id of the thread on screen
+    body: scopeBody,                          // { project, thread } for a request about the chat on screen
+    info: threadInfo,                         // the page's record of a thread ({ id, name, model, main, writer, chatMode, running, waiting })
+    adopt: adoptState,                        // takes the state the server answered after a change to the threads, and redraws
+    switchTo: switchThread,                   // shows another thread of the project
+    isRunning: scope => scopeBusy(scope),     // whether a thread runs (this window's run, or the server's word)
+    runningScopes: () => [...runs.keys()],    // the scope ids this window holds a run for
+    queued: scope => followUps.filter(f => f.scope === scope).length,
+    dropQueued: scope => { followUps = followUps.filter(f => f.scope !== scope); syncQueue(); },
+    onRender: fn => { renderHooks.add(fn); return () => renderHooks.delete(fn); },  // called after every redraw of the shell or the chat
+  },
   get state() { return S; },
   get catalog() { return catalog; },
   get aliases() { return aliases; },

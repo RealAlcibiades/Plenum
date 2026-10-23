@@ -1,0 +1,159 @@
+/* Threads (pro-01): the tab row above the chat, the thread header row, the thread menu and the New thread panel.
+   Only the shared colour tokens from style.css are used, so both themes follow. Amber (--warn) means a thread waits for you, the accent
+   means a run or news, and a provider's own colour marks the model of a tab. */
+
+/* ---------- the tab row ---------- */
+
+.ext-threads {
+  flex: none; display: flex; align-items: center; gap: 4px; min-width: 0;
+  padding: 6px 16px 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
+  border-bottom: 1px solid var(--line);
+}
+.ext-threads[hidden] { display: none; }
+
+.ext-thread-tab {
+  position: relative; flex: none; display: inline-flex; align-items: center; max-width: 230px; min-width: 0;
+  border: 1px solid transparent; border-radius: 10px;
+  transition: background-color 0.14s, border-color 0.14s;
+}
+.ext-thread-tab:hover { background: color-mix(in srgb, var(--surface-2) 70%, transparent); }
+.ext-thread-tab[data-selected="true"] {
+  background: var(--surface-2); border-color: var(--line-2); box-shadow: inset 0 1px 0 var(--sheen);
+}
+
+.ext-thread-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+  padding: 6px 4px 6px 10px; background: transparent; border: 0; border-radius: 10px;
+  color: var(--muted); font-weight: 600; font-size: 13px; line-height: 1.3; cursor: pointer;
+}
+.ext-thread-tab[data-selected="true"] .ext-thread-btn { color: var(--text); }
+.ext-thread-btn:hover { color: var(--text); }
+.ext-thread-btn:focus-visible, .ext-thread-more:focus-visible, .ext-thread-new:focus-visible { outline-offset: -2px; }
+
+.ext-thread-label { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.ext-thread-label .sw {
+  flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--p, var(--muted));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--p, var(--muted)) 20%, transparent);
+}
+.ext-thread-name { min-width: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The status dot: running pulses in the accent, waiting is amber, unread is a solid accent dot with a ring. */
+.ext-thread-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.ext-thread-dot[data-state="running"] { animation: ext-thread-pulse 1.5s ease-in-out infinite; }
+.ext-thread-dot[data-state="waiting"] { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 24%, transparent); }
+.ext-thread-dot[data-state="unread"] { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent); }
+@keyframes ext-thread-pulse { 50% { opacity: 0.3; scale: 0.8; } }
+@media (prefers-reduced-motion: reduce) { .ext-thread-dot[data-state="running"] { animation: none; } }
+
+.ext-thread-ro { display: inline-flex; align-items: center; color: var(--muted); }
+.ext-thread-shield { width: 13px; height: 13px; }
+
+.ext-thread-more {
+  flex: none; width: 22px; height: 22px; margin-right: 4px; padding: 0; display: grid; place-items: center;
+  background: transparent; border: 0; border-radius: 7px; color: var(--muted); font-size: 15px; line-height: 1; font-weight: 700;
+  opacity: 0; transition: opacity 0.12s, background-color 0.12s, color 0.12s;
+}
+.ext-thread-tab:hover .ext-thread-more, .ext-thread-tab:focus-within .ext-thread-more, .ext-thread-tab[data-selected="true"] .ext-thread-more,
+.ext-thread-more[aria-expanded="true"] { opacity: 1; }
+.ext-thread-more:hover { background: var(--surface-3); color: var(--text); }
+
+.ext-thread-new {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: 2px; padding: 5px 10px;
+  background: transparent; border: 1px dashed var(--line-2); border-radius: 10px;
+  color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background-color 0.14s, color 0.14s, border-color 0.14s;
+}
+.ext-thread-new:hover:not(:disabled) { background: var(--surface-2); color: var(--text); border-style: solid; }
+.ext-thread-new:disabled { opacity: 0.5; cursor: default; }
+.ext-thread-new .ic { width: 14px; height: 14px; }
+
+.ext-thread-rename {
+  width: 150px; max-width: 100%; margin: 3px 4px 3px 6px; padding: 4px 8px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: 8px; font-weight: 600; font-size: 13px;
+}
+
+/* Narrow windows: the tabs fold into "Main" with a chevron that lists the threads (UI-ARCH 8). */
+.ext-thread-chev { width: 13px; height: 13px; rotate: 90deg; color: var(--muted); }
+.ext-thread-collapsed .ext-thread-btn { padding-right: 8px; }
+@media (max-width: 480px) {
+  .ext-threads { padding-inline: 12px; }
+  .ext-thread-new-text { display: none; }
+  .ext-thread-new { padding: 5px 8px; }
+}
+
+/* ---------- the thread header row ---------- */
+
+.ext-threads-header {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0;
+  padding: 7px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-2);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.ext-threads-header[hidden] { display: none; }
+.ext-thread-readonly { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.ext-thread-readonly[hidden] { display: none; }
+.ext-thread-readonly-text { min-width: 0; overflow-wrap: anywhere; }
+.ext-thread-header-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
+.ext-thread-header-extra:empty { display: none; }
+
+/* ---------- the thread menu ---------- */
+
+.ext-thread-menu {
+  position: fixed; z-index: 50; min-width: 180px; max-width: min(300px, 90vw); padding: 5px;
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow-2);
+}
+.ext-thread-menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px;
+  background: transparent; border: 0; border-radius: 8px; color: var(--text); font-size: 13px; text-align: left; cursor: pointer;
+}
+.ext-thread-menu-item:hover:not(:disabled), .ext-thread-menu-item:focus-visible { background: var(--surface-2); }
+.ext-thread-menu-item:disabled { color: var(--muted); cursor: default; }
+.ext-thread-menu-item[aria-checked="true"] { font-weight: 700; }
+.ext-thread-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-thread-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+/* ---------- the New thread panel ---------- */
+
+.ext-thread-intro, .ext-thread-note, .ext-thread-empty { margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.ext-thread-note.bad { color: var(--bad); }
+.ext-thread-form { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
+.ext-thread-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ext-thread-name-input, .ext-thread-model {
+  width: 100%; min-width: 0; padding: 9px 11px; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: 10px; font-size: 13.5px;
+}
+.ext-thread-name-input:focus, .ext-thread-model:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ext-thread-check { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.ext-thread-plan { accent-color: var(--accent); }
+.ext-thread-file { display: none; }
+.ext-thread-make-writer, .ext-thread-several { flex: none; }
+.ext-thread-check input:disabled + span { color: var(--muted); }
+.ext-thread-extras { display: flex; flex-direction: column; gap: 12px; }
+
+.ext-thread-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+.ext-thread-h { margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.ext-thread-switch { margin-bottom: 10px; }
+.ext-thread-warning {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; padding: 9px 12px;
+  border: 1px solid var(--line-2); border-left: 3px solid var(--warn); border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface)); font-size: 12.5px; line-height: 1.5; color: var(--text-2);
+}
+.ext-thread-warning[hidden] { display: none; }
+.ext-thread-warning-text { flex: 1 1 220px; min-width: 0; }
+
+.ext-thread-closed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ext-thread-closed-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 10px;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+}
+.ext-thread-closed-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; }
+.ext-thread-closed-when { flex: none; font-size: 12px; color: var(--muted); }
+.ext-thread-section .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ext-thread-export { text-decoration: none; display: inline-flex; align-items: center; }
+.ext-thread-section .ghost.danger { color: var(--bad); }
+
+/* ---------- the sidebar ---------- */
+
+/* "3 threads" under a project's path (app.js adds it when the project has several). */
+.proj-item .pt { grid-column: 2; font-size: 11px; line-height: 1.3; color: var(--muted); white-space: nowrap; }
+.app[data-strip] .proj-item .pt { display: none; }

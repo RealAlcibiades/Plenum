@@ -1,9 +1,15 @@
-// The Agents tab of the side pane (UI-ARCH sections 4 and 10). It lists the agents that run now in the project on screen as a tree by the
-// model that asked for them (a nested agent sits under its parent), with Stop for one and Stop all, and the last 30 finished agents of
-// this window with how each one ended. The list is read from GET /api/agents/live (lib/routes/agents-live.mjs) and kept current from the
-// events channel ('agent' events, lib/agent-run.mjs) and from this window's run stream ('muse:stream'). The pane button carries the
-// count: the agents waiting on you in amber, else the agents that have not ended, else the finished ones the tab has not shown yet.
-// Nothing is kept in the browser. Text from the server (titles, model names, errors) is set with textContent only.
+// The Agents tab of the side pane (UI-ARCH sections 4 and 10): the Agents board. Three sections:
+//   Waiting for you: every approval card waiting in any project, one open at a time (Open card), drawn with the chat's own card
+//                    (MuseUI.approvalEl, public/app.js) and answered from here.
+//   Running:         every run in progress, in every project, as Project · Thread, its model, its clock and its last step, with the
+//                    agents of the project on screen nested under its run. Each run has Stop (POST /api/cancel).
+//   Finished:        the last 30 runs (MuseUI.board, public/ext-board.js) and the last 30 finished agents of this window.
+// The runs and cards come from MuseUI.board (fed by GET /api/activity and the 'activity' events, lib/activity.mjs). Without that
+// store the tab shows the agents only, as it did before the board. The agents list is read from GET /api/agents/live
+// (lib/routes/agents-live.mjs) and kept current from the events channel ('agent' events, lib/agent-run.mjs) and from this window's
+// run stream ('muse:stream'). The pane button carries the count: the cards waiting on you in amber, else the runs in progress, else
+// the finished ones the tab has not shown yet. Nothing is kept in the browser. Text from the server (titles, names, models, errors,
+// approval summaries) is set with textContent only.
 (function () {
   const MuseUI = window.MuseUI;
   // app.js defines MuseUI before the extra panels load. Without the side pane there is nothing to attach to.
@@ -17,6 +23,9 @@
   const POLL_EVERY = 2;
   // A Stop whose agent has not ended after this long is shown as it was (the server keeps running it, if it cannot stop).
   const STOP_WAIT_MS = 15000;
+
+  // The words for how a run ended (lib/activity.mjs status values).
+  const RUN_WORDS = { done: 'Done', error: 'Error', stopped: 'Stopped', 'cut-off': 'Cut off', 'timed-out': 'Timed out' };
 
   // The words for how a finished agent ended (lib/agent-run.mjs stopped values).
   const STOP_WORDS = {
@@ -44,6 +53,13 @@
   let reqSeq = 0;
   let pollTick = 0;
   let refreshTimer = 0;
+  // The board: scope -> { state, meta, step } for the run rows on screen, patched in place like the agent rows.
+  let runRefs = new Map();
+  // The one approval card open on the board (its id), and the element built for it. The element is kept while the card waits, so the
+  // keys, the countdown and any reason typed into it survive a repaint.
+  let expanded = '';
+  let cardEl = null;
+  let cardId = '';
 
   const activeId = () => MuseUI.state.activeProject ?? null;
   const shown = () => Boolean(MuseUI.el?.pane) && !MuseUI.el.pane.hidden && MuseUI.pane.active() === TAB;
@@ -304,14 +320,28 @@
 
   // ---------- drawing ----------
 
-  // The pane's title bar button: amber for agents waiting on you, else the agents that have not ended, else the unseen finished ones.
+  // The board's store (public/ext-board.js) as a copy, or null while the board is not there. view() says whether it has been read.
+  function boardView() {
+    const b = MuseUI.board;
+    if (!b || typeof b.view !== 'function') return null;
+    try {
+      return b.view();
+    } catch {
+      return null;
+    }
+  }
+
+  // The pane's title bar button: amber for what waits on you (agents and board cards), else the runs in progress (the agents that have
+  // not ended when there is no board), else the unseen finished ones.
   function paintCount() {
     const live = [...rows.values()];
-    const waiting = live.filter(r => r.state === 'approval').length;
+    const board = boardView();
+    const waiting = live.filter(r => r.state === 'approval').length + (board ? board.approvals.length : 0);
     if (waiting) return MuseUI.pane.count(TAB, waiting, 'amber');
-    const n = live.length || (!loaded ? Number(MuseUI.state.agentsRunning) || 0 : 0);
+    const n = board ? board.runs.length : (live.length || (!loaded ? Number(MuseUI.state.agentsRunning) || 0 : 0));
     if (n) return MuseUI.pane.count(TAB, n, '');
-    if (unseen) return MuseUI.pane.count(TAB, unseen, '');
+    const unseenRuns = board ? board.recent.filter(r => !board.isSeen(r)).length : 0;
+    if (unseen || unseenRuns) return MuseUI.pane.count(TAB, unseen + unseenRuns, '');
     return MuseUI.pane.count(TAB, null);
   }
 
@@ -398,6 +428,9 @@
   function sections() {
     const out = [];
     const live = sortedRows();
+    const board = boardView();
+    // A card that was answered or ended is no longer open.
+    if (expanded && !(board?.approvals ?? []).some(c => c.approvalId === expanded)) expanded = '';
     const head = make('div', 'ext-agl-head');
     const count = make('span', 'ext-agl-count', countText(live));
     const all = make('button', 'ghost small ext-agl-stop-all', 'Stop all');
@@ -425,16 +458,29 @@
       out.push(wait);
     }
 
-    if (live.length) out.push(section('Running', treeRows(live)));
-
-    if (finished.length) {
-      const clear = make('button', 'ghost small ext-agl-clear', 'Clear');
-      clear.type = 'button';
-      clear.addEventListener('click', clearFinished);
-      out.push(section('Finished', finished.map(finishedRow), clear));
+    // The board's cards that wait, then the runs of every project with the agents of the project on screen under their run.
+    if (board && board.approvals.length) out.push(section(`Waiting for you (${board.approvals.length})`, board.approvals.map(waitingRow)));
+    if (board) {
+      if (board.runs.length || live.length) out.push(section('Running', runningNodes(board, live)));
+    } else if (live.length) {
+      out.push(section('Running', treeRows(live)));
     }
 
-    if (loaded && !loadError && !live.length && !finished.length) {
+    // The last 30 runs of the board, then the finished agents this window has seen (Clear empties the agents' part only).
+    const finishedNodes = board ? board.recent.map(runEndedRow) : [];
+    finishedNodes.push(...finished.map(finishedRow));
+    if (finishedNodes.length) {
+      let clear = null;
+      if (finished.length) {
+        clear = make('button', 'ghost small ext-agl-clear', 'Clear');
+        clear.type = 'button';
+        clear.addEventListener('click', clearFinished);
+      }
+      out.push(section('Finished', finishedNodes, clear));
+    }
+
+    const boardBusy = Boolean(board && (board.runs.length || board.approvals.length || board.recent.length));
+    if (loaded && !loadError && !live.length && !finished.length && !boardBusy) {
       const empty = make('div', 'ext-agl-empty');
       empty.append(make('p', 'ext-agl-text', 'No agents are running. A model starts one with its delegate tool, and /build starts one per task.'));
       const settings = make('button', 'ghost small', 'Agent settings');
@@ -446,15 +492,141 @@
     return out;
   }
 
+  // ---------- the board's rows (public/ext-board.js) ----------
+
+  const KEY_DELAY_MS = 400; // the card's keys count only this long after it takes the focus (approvalEl, public/app.js)
+  const clockOfDay = at => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const runClock = run => clock((run.endedAt ?? Date.now()) - (run.startedAt ?? Date.now()));
+  const stepLine = run => (run.step ? `Last step: ${run.step.name} ${run.step.summary}`.trim() : 'No step yet');
+  const runStateOf = (run, board) => ((board?.approvals ?? []).some(c => c.scope === run.scope) ? 'Waiting for you' : 'Running');
+  const runMetaText = (run, board) => [runStateOf(run, board), run.modelLabel, runClock(run)].filter(Boolean).join(' · ');
+  const titleOf = r => `${r.projectName || 'Project'} · ${r.threadName || 'Main'}`;
+
+  function openProjectButton(scope) {
+    const open = make('button', 'ghost small ext-board-open', 'Open project');
+    open.type = 'button';
+    open.addEventListener('click', () => MuseUI.board?.openScope?.(scope));
+    return open;
+  }
+
+  // A run in progress: Project · Thread, then its state, model and clock, its last step, and Open project and Stop.
+  function runRow(run, board) {
+    const row = make('div', 'ext-board-run');
+    const line = make('div', 'ext-board-run-line');
+    const stop = make('button', 'ghost small ext-board-stop', 'Stop');
+    stop.type = 'button';
+    stop.setAttribute('aria-label', `Stop the run in ${run.projectName || 'Project'}`);
+    stop.addEventListener('click', () => stopRun(run));
+    line.append(make('strong', 'ext-board-run-title', titleOf(run)), openProjectButton(run.scope), stop);
+    const meta = make('div', 'ext-board-run-meta', runMetaText(run, board));
+    const step = make('div', 'ext-board-run-step', stepLine(run));
+    row.append(line, meta, step);
+    runRefs.set(run.scope, { meta, step });
+    return row;
+  }
+
+  // The runs in progress of every project. The agents of the project on screen sit in a block under its first run.
+  function runningNodes(board, live) {
+    const out = [];
+    let nested = false;
+    const agents = () => {
+      const wrap = make('div', 'ext-board-agents');
+      wrap.append(...treeRows(live));
+      return wrap;
+    };
+    for (const run of board.runs) {
+      out.push(runRow(run, board));
+      if (!nested && live.length && run.projectId === project) {
+        nested = true;
+        out.push(agents());
+      }
+    }
+    if (!nested && live.length) out.push(agents());
+    return out;
+  }
+
+  // A finished run: Project · Thread, how it ended, its model and clock, and the error when it failed.
+  function runEndedRow(run) {
+    const row = make('div', 'ext-board-run is-ended');
+    const line = make('div', 'ext-board-run-line');
+    line.append(make('strong', 'ext-board-run-title', titleOf(run)), openProjectButton(run.scope));
+    row.append(line, make('div', 'ext-board-run-meta', [RUN_WORDS[run.status] ?? 'Done', run.modelLabel, runClock(run)].filter(Boolean).join(' · ')));
+    if (run.error) row.append(make('div', 'ext-board-run-error', run.error));
+    return row;
+  }
+
+  // A card waiting on the user: its project, thread, model and the summary. Open card expands it (one at a time).
+  function waitingRow(c) {
+    const isOpen = expanded === c.approvalId;
+    const row = make('div', isOpen ? 'ext-board-wait is-open' : 'ext-board-wait');
+    const line = make('div', 'ext-board-run-line');
+    line.append(make('span', 'pill warn', 'Waiting for you'), make('strong', 'ext-board-run-title', titleOf(c)));
+    const toggle = make('button', 'ghost small ext-board-open-card', isOpen ? 'Close card' : 'Open card');
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    toggle.addEventListener('click', () => toggleCard(c.approvalId));
+    row.append(line, make('div', 'ext-board-run-step', String(c.summary ?? '').slice(0, 160)), toggle);
+    if (isOpen) {
+      // The model is left out when the run has none (a card raised before its model was known), rather than shown as a stand-in word.
+      const ctx = make('div', 'ext-board-context', [titleOf(c), c.modelLabel].filter(Boolean).join(' · '));
+      ctx.append(make('div', 'ext-board-started', `Started ${clockOfDay(c.at ?? Date.now())}`));
+      row.append(ctx, cardFor(c));
+    }
+    return row;
+  }
+
+  // The approval card, built by the chat's own builder (MuseUI.approvalEl). Kept while the same card stays open.
+  function cardFor(c) {
+    if (cardEl && cardId === c.approvalId) return cardEl;
+    cardId = c.approvalId;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    cardEl = typeof MuseUI.approvalEl === 'function'
+      ? MuseUI.approvalEl({ ...c, shownAt: c.at, keysFrom: now + KEY_DELAY_MS }, { source: 'board' })
+      : make('div', 'ext-board-note', 'The approval card did not load (public/app.js).');
+    return cardEl;
+  }
+
+  // Opens or closes a card. The open card takes the focus once it is drawn, and its keys count after the usual short delay.
+  function toggleCard(id) {
+    expanded = expanded === id ? '' : id;
+    cardEl = null;
+    cardId = '';
+    paintSig = '';
+    changed();
+    const node = cardEl;
+    if (expanded && node && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => node.focus?.({ preventScroll: true }));
+  }
+
+  // Stops the run of a project after a confirmation. The model is stopped and its agents stop with it.
+  async function stopRun(run) {
+    const yes = await MuseUI.confirm({
+      title: 'Stop this run?',
+      body: `Stop the run in ${run.projectName || 'this project'}? The model that is running is stopped, and its agents stop with it. Files it has already changed stay as they are.`,
+      action: 'Stop run',
+      tone: 'danger',
+      focusCancel: true,
+    });
+    if (!yes) return;
+    try {
+      // A run of another thread names its scope, so Stop ends that thread's run and not Main's or the active thread's.
+      await MuseUI.stopRun(run.projectId ?? run.scope, run.projectId && run.scope && run.scope !== run.projectId ? run.scope : undefined);
+    } catch (err) {
+      MuseUI.toast(err?.message || 'The run could not be stopped.', 'bad');
+    }
+  }
+
   // The shape of the body: which rows there are, in what order and under whom, and the finished ones. The words that move while an
   // agent runs (its state, steps and clock) are patched in place by patchRows, so a step does not rebuild the list under a focused Stop.
   function signature() {
+    const board = boardView();
     return JSON.stringify([
       sortedRows().map(r => [r.id, r.parentId, r.title, r.label, r.kind, r.role, r.callerLabel, r.taskId, r.parentLabel, r.stoppable, r.seat]),
       finished.map(f => [f.id, f.ok, f.stopped, f.error, f.turns, f.elapsedMs, f.cost]),
       loaded,
       loadError,
       project,
+      // The board's shape: which runs, cards and ended runs there are, and which card is open. Their clocks and steps are patched in place.
+      board ? [board.runs.map(r => [r.scope, r.projectId, r.projectName, r.threadName]), board.approvals.map(c => [c.approvalId, c.projectName, c.threadName, c.summary]), board.recent.map(r => [r.scope, r.endedAt, r.status, r.error]), expanded] : null,
     ]);
   }
 
@@ -467,7 +639,20 @@
     }
     paintSig = sig;
     refs = new Map();
+    runRefs = new Map();
+    // Drawing the list again moves the open card out of the page and back, which drops the focus. A control inside the card (the
+    // reason box, Approve, Deny) gets the focus back, with its caret; the card itself never does, because its own Y and N would then
+    // answer what the person is typing. A card that arrives in another project must not take a key press away either.
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const inCard = Boolean(cardEl && active && active !== cardEl && cardEl.contains?.(active));
+    const caret = inCard && typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null;
     root.replaceChildren(...sections());
+    if (inCard && typeof active.focus === 'function') {
+      active.focus({ preventScroll: true });
+      if (caret) {
+        try { active.setSelectionRange(caret[0], caret[1], caret[2] ?? 'none'); } catch { /* a control without a caret keeps no selection */ }
+      }
+    }
     patchRows();
   }
 
@@ -482,6 +667,15 @@
       ref.word.className = r.state === 'approval' && !stopping.has(id) ? 'ext-agl-state warn' : 'ext-agl-state';
       ref.rest.textContent = restOf(r);
       fillStop(r, ref.stop);
+    }
+    if (runRefs.size) {
+      const board = boardView();
+      for (const [scope, ref] of runRefs) {
+        const run = (board?.runs ?? []).find(r => r.scope === scope);
+        if (!run) continue;
+        ref.meta.textContent = runMetaText(run, board);
+        ref.step.textContent = stepLine(run);
+      }
     }
   }
 
@@ -561,6 +755,9 @@
     onClose: () => {
       root = null;
       refs = new Map();
+      runRefs = new Map();
+      cardEl = null;
+      cardId = '';
       paintSig = '';
     },
   });
@@ -568,6 +765,8 @@
   // The stream and the channel. The state event carries the server's count for the project (publicState.agentsRunning); when it
   // differs from what this window holds, the list is read again.
   window.addEventListener('muse:stream', e => onStream(e.detail));
+  // The board's store changed (public/ext-board.js): runs, cards and finished runs are drawn again.
+  window.addEventListener('plenum:board', () => changed());
   window.addEventListener('plenum:event', e => {
     const ev = e.detail;
     if (!ev || typeof ev !== 'object') return;

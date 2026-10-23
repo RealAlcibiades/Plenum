@@ -1,0 +1,87 @@
+/* The Agents board: the Running now list in the sidebar (public/ext-board.js) and the run and card rows of the Agents pane (public/ext-agents.js).
+   Colours and type come from the shared tokens in style.css, so both themes follow. Nothing is set inline: the page writes classes and text only.
+   Rows are laid out for the pane's own width (380 px and up) and for the sidebar's 268 px: long names wrap or end in an ellipsis. */
+
+/* ---------- Running now (the sidebar) ---------- */
+
+/* The block takes at most 40% of the window and scrolls inside itself, so five rows never squeeze the project list (#projects) out of the sidebar. */
+.ext-board-side {
+  display: flex; flex-direction: column; flex: none; gap: 6px; min-width: 0;
+  max-height: 40vh; overflow: auto;
+  padding: 10px 10px 12px; border-top: 1px solid var(--line);
+}
+.ext-board-side[hidden] { display: none; }
+/* The head is a button that opens the Agents pane: it takes the button reset and keeps the look of the row it had as a div. */
+.ext-board-side-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; width: 100%;
+  padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.ext-board-side-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ext-board-side-head .badge[hidden] { display: none; }
+.ext-board-side-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ext-board-side-more { align-self: flex-start; }
+.ext-board-side-more[hidden] { display: none; }
+/* The icon strip (1100 to 1439 px with a pane open; data-strip on .app, style.css): only the Running now count shows, centred in the
+   56 px column (UI-ARCH section 8). The head still opens the Agents pane. The words of the badge are hidden, so the number alone fits. */
+.app[data-strip] .ext-board-side { padding: 8px 0 10px; align-items: stretch; }
+.app[data-strip] .ext-board-side .kicker,
+.app[data-strip] .ext-board-side-list,
+.app[data-strip] .ext-board-side-more { display: none; }
+.app[data-strip] .ext-board-side-head { justify-content: center; }
+.app[data-strip] .ext-board-side-head .badge { margin: 0; }
+.app[data-strip] .ext-board-count-word { display: none; }
+
+.ext-board-row {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0;
+  padding: 7px 9px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.ext-board-row:hover { background: var(--surface-2); }
+.ext-board-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ext-board-row.is-wait { border-color: var(--warn); }
+.ext-board-row-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ext-board-row-top .pill { flex: none; }
+.ext-board-pill.amber { color: var(--warn); }
+.ext-board-pill.red { color: var(--bad); }
+.ext-board-row-name {
+  min-width: 0; font-size: 12.5px; font-weight: 600; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ext-board-row-meta {
+  min-width: 0; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ext-board-dot {
+  flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ---------- the Agents pane: runs, cards and finished runs ---------- */
+
+.ext-board-run {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  padding: 9px 0; border-top: 1px solid var(--line);
+}
+.ext-board-run-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.ext-board-run-title {
+  flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere;
+}
+.ext-board-run-meta, .ext-board-run-step { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.ext-board-run-error { font-size: 12px; color: var(--bad); overflow-wrap: anywhere; }
+.ext-board-open, .ext-board-stop, .ext-board-open-card { flex: none; }
+.ext-board-stop:disabled { opacity: 0.5; cursor: default; }
+
+.ext-board-agents {
+  display: flex; flex-direction: column; min-width: 0;
+  margin-left: 16px; padding-left: 10px; border-left: 1px solid var(--line);
+}
+
+.ext-board-wait {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 10px 0; border-top: 1px solid var(--line);
+}
+.ext-board-wait.is-open { gap: 8px; }
+.ext-board-wait .ext-board-open-card { align-self: flex-start; }
+.ext-board-context { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.ext-board-started { font-size: 12px; color: var(--muted); }
+.ext-board-note { font-size: 12.5px; color: var(--bad); overflow-wrap: anywhere; }

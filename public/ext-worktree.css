@@ -1,0 +1,66 @@
+/* Isolated copies (pro-02). Colour and type come from the tokens in style.css, so everything here follows both themes. The bar sits in the
+   thread header row (ext-threads.css), under the thread tabs, and is only there for a thread that has a copy. */
+
+.ext-wt-bar { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; max-width: 100%; }
+.ext-wt-bar[hidden] { display: none; }
+.ext-wt-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
+
+.ext-wt-chip {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line)); border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); color: var(--text);
+  font: 12px/1.5 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ext-wt-chip::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+.ext-wt-text { min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
+.ext-wt-text.bad, .ext-wt-log-line.bad, .ext-wt-log summary.bad, .ext-wt-merge-status.bad, .ext-wt-status-line.bad { color: var(--bad); }
+.ext-wt-working::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; vertical-align: baseline;
+  background: var(--accent); animation: ext-wt-breathe 1.4s ease-in-out infinite;
+}
+@keyframes ext-wt-breathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ext-wt-working::before { animation: none; } }
+
+.ext-wt-bar .ghost.danger { color: var(--bad); }
+.ext-wt-bar button { flex: none; }
+.ext-wt-bar button:disabled { cursor: default; }
+
+/* The log of the last copy: the notices of the create stream, open when something went wrong. */
+.ext-wt-log { min-width: 0; font-size: 12px; color: var(--text-2); }
+.ext-wt-log summary { cursor: pointer; color: var(--muted); }
+.ext-wt-log-line { padding: 1px 0 1px 12px; overflow-wrap: anywhere; }
+.ext-wt-log-output {
+  margin: 4px 0 6px 12px; padding: 8px 10px; max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-2); color: var(--text-2); font: 11.5px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ext-wt-log > .ghost { margin: 4px 0 0 12px; }
+
+/* The New thread drawer and the Settings section. */
+.ext-wt-dialog { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ext-wt-dialog[hidden] { display: none; }
+.ext-wt-toggle { accent-color: var(--accent); }
+.ext-wt-details { margin: 2px 0 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.ext-wt-details > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.ext-wt-details[open] > summary { margin-bottom: 10px; }
+.ext-wt-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.ext-wt-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ext-wt-input {
+  width: 100%; min-width: 0; padding: 9px 11px; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: 10px; font-size: 13.5px;
+}
+.ext-wt-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ext-wt-number { max-width: 8em; }
+.ext-wt-files { font: 12.5px/1.45 var(--mono); resize: vertical; min-height: 5.5em; }
+.ext-wt-actions-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.ext-wt-status-line { min-width: 0; overflow-wrap: anywhere; }
+
+/* The Merge drawer. */
+.ext-wt-merge-status { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
+.ext-wt-merge-status:empty { display: none; }
+.ext-wt-cards { margin-top: 12px; min-width: 0; }
+
+@media (max-width: 520px) {
+  .ext-wt-row { justify-content: flex-start; }
+  .ext-wt-chip { white-space: normal; }
+}

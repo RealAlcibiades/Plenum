@@ -2,7 +2,8 @@
 // "Tools for API models" in Settings › Accounts (pro-08, wave 9; UI-ARCH section 5 places it under Accounts). Each model that is not
 // verified (xAI's catalog, an OpenRouter model, any model with a record) has a row: its status, the price estimate for one test, Test
 // tools (an inline confirm, then the steps as they come in, and Stop), Details, and the Allow tools switch. A pass turns the switch on
-// (amendment 28); the switch can also be turned on without a test, and then the Unverified notice shows. Every piece of text is set
+// (amendment 28); the switch can also be turned on without a test, and then the Unverified notice shows. A model with no record of its
+// own that is On because its provider's tool-call check passed says so instead of a test status, with no notice. Every piece of text is set
 // with textContent, and no style attribute or inline style is used. No key is handled here: the server reads the saved one.
 (function () {
   const MuseUI = window.MuseUI;
@@ -250,18 +251,21 @@
     paint(row);
   }
 
-  // Shows the row from its data: status, price line, the switch, the notice and the buttons.
+  // Shows the row from its data: status, price line, the switch, the notice and the buttons. The switch shows the grant the model really
+  // gets (data.allowed, from the server). A model with no record of its own that is On because the provider's check passed has no test
+  // status here, and no Unverified note: the check is what allows it.
   function paint(row) {
     const { data, state } = row;
     const record = data.record ?? null;
-    const status = statusOf(record);
+    const viaCheck = data.allowed === true && data.grantFrom === 'provider' && record === null;
+    const status = viaCheck ? { text: `Allowed by the ${data.providerLabel} tool-call check`, tone: 'ok' } : statusOf(record);
     row.pill.textContent = status.text;
     row.pill.className = status.tone ? `tt-pill ${status.tone}` : 'tt-pill';
     row.estimate.textContent = data.estimate?.text ?? '';
     row.switchInput.checked = data.allowed === true;
     row.switchInput.disabled = state.testing;
     const verified = record !== null && record.result === 'pass';
-    const unverified = data.allowed === true && !verified;
+    const unverified = data.allowed === true && !verified && data.grantFrom !== 'provider';
     if (!unverified) row.dismissed = false;
     row.notice.hidden = !unverified || row.dismissed;
     row.test.disabled = state.testing || !data.keySaved;
@@ -373,6 +377,7 @@
       const data = await MuseUI.api('/api/tool-test/allow', { ref: row.ref, allowed: on });
       row.data.record = data.record ?? null;
       row.data.allowed = data.allowed === true;
+      row.data.grantFrom = data.grantFrom ?? null;
     } catch (err) {
       row.data.allowed = !on;
       row.result.textContent = err.message;

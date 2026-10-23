@@ -39,7 +39,8 @@
     return MAC ? e.metaKey : e.ctrlKey;
   }
 
-  // True when the key was typed into a text field. The message box does not count, so the shortcuts work from it.
+  // True when the key was typed into a text field. The message box does not count, so the Ctrl+Shift letters work from it (B-6):
+  // from any other text field (a drawer's box, the reason on a card) they do nothing. Ctrl+Shift+B (ext-board.js) follows the same rule.
   function inTextField(e) {
     const t = e.target;
     if (!t || t === MuseUI.el.input) return false;
@@ -158,7 +159,9 @@
     const thead = document.createElement('thead');
     thead.append(headRow);
     const tbody = document.createElement('tbody');
-    for (const row of ROWS) {
+    // Other panels add their rows to window.MuseShortcutRows (an array of { keys, action }); they are read each time the sheet opens.
+    const extra = Array.isArray(window.MuseShortcutRows) ? window.MuseShortcutRows.filter(r => r && Array.isArray(r.keys) && typeof r.action === 'string') : [];
+    for (const row of [...ROWS, ...extra]) {
       const tr = document.createElement('tr');
       const keys = document.createElement('td');
       keys.className = 'ext-shortcuts-keys';
@@ -172,7 +175,7 @@
       tbody.append(tr);
     }
     table.append(thead, tbody);
-    body.append(table, note('The Ask first and Auto-approve setting has no shortcut. Change it with the mouse.'));
+    body.append(table, note('The Ask first and Auto-approve setting has no shortcut. Change it with the mouse.'), note(`${MOD}+Shift letters also work from the message box, but not from other text fields.`));
   }
 
   // ---------- the entry in the Commands drawer ----------
@@ -261,7 +264,8 @@
   function answerApproval(e, key) {
     const card = typeof e.target?.closest === 'function' ? e.target.closest('.approval') : null;
     if (!card || inTextField(e)) return false;
-    if (key === 'y' && card.querySelector('.approval-note')) return false;
+    // A card for a blocked command, or one only a click answers (data-deny-first, set by approvalEl), takes no Y.
+    if (key === 'y' && (card.dataset.denyFirst === '1' || card.querySelector('.approval-note'))) return false;
     const want = key === 'y' ? 'Approve' : 'Deny';
     const button = [...card.querySelectorAll('.approval-actions button')].find(b => b.textContent === want);
     if (!button || button.disabled) return false;
