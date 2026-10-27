@@ -1,0 +1,1364 @@
+/* The shell's screens and the shell DOM above the phone UI (mob-10, wave 106; MOBILE-UI 6, 9.1, 9, 13 and 16.3).
+   Colour only from the tokens copied from public/style.css (shell-tokens.css): no colour literal, no named colour, no
+   light-dark() here (S-08, scripts/build-mobile.mjs checks it). boot.js also links this file into the phone's UI page, so
+   every rule is scoped to the shell page (html[data-shell-page]), to a class the shell owns (sh-*), or to a shell id. */
+
+:root {
+  /* Safe areas (MOBILE-UI 4.1). The same expressions ext-phone.css uses, so the two agree. */
+  --sa-top: var(--dbg-sa-top, var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+  --sa-right: var(--dbg-sa-right, var(--safe-area-inset-right, env(safe-area-inset-right, 0px)));
+  --sa-bottom: var(--dbg-sa-bottom, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  --sa-left: var(--dbg-sa-left, var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+}
+
+html[data-shell-page] {
+  background: var(--bg);
+  color: var(--text);
+  color-scheme: light dark;
+}
+
+html[data-shell-page][data-theme="light"] { color-scheme: light; }
+html[data-shell-page][data-theme="dark"] { color-scheme: dark; }
+
+html[data-shell-page] body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 16px/1.5 var(--ui);
+  -webkit-text-size-adjust: 100%;
+}
+
+.sh-app,
+.sh-app *,
+#plenum-stop,
+#plenum-stop *,
+#plenum-conn-strip,
+#plenum-lock,
+#plenum-lock * {
+  box-sizing: border-box;
+}
+
+.sh-app [hidden],
+[data-screen][hidden],
+#plenum-stop[hidden],
+#plenum-conn-strip[hidden],
+#plenum-lock[hidden],
+#plenum-lock [hidden] {
+  display: none !important;
+}
+
+.sh-app {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The view takes what the strip stack leaves, so the screen's pinned actions stay on the screen (MOBILE-UI S-09). */
+#sh-view {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#sh-view > .sh-screen {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The demo, LAN and connection strips in one block at the top (main.js #plenum-strips). The block carries the notch inset. */
+.plenum-strips {
+  flex: none;
+  padding-top: var(--sa-top);
+  background: var(--surface-2);
+}
+
+.plenum-strips[hidden] {
+  display: none;
+}
+
+.sh-app[data-strips] > #sh-view > .sh-screen {
+  padding-top: 8px;
+}
+
+/* ---- the frame (MOBILE-UI 6): the top row, the title and body, the actions pinned to the bottom ---- */
+
+.sh-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-top: calc(var(--sa-top) + 8px);
+  padding-right: calc(var(--sa-right) + 16px);
+  padding-bottom: calc(var(--sa-bottom) + 16px);
+  padding-left: calc(var(--sa-left) + 16px);
+}
+
+
+.sh-top {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.sh-icon,
+.sh-icon-gap {
+  width: 44px;
+  height: 44px;
+  flex: none;
+}
+
+.sh-icon {
+  margin-left: -10px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font: 400 28px/1 var(--ui);
+  cursor: pointer;
+}
+
+.sh-title {
+  margin: 8px 0 16px;
+  font: 600 24px/1.2 var(--display);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.sh-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sh-main > p {
+  margin: 0;
+}
+
+.sh-note {
+  font: 400 16px/1.5 var(--ui);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.sh-help {
+  font: 400 13px/1.4 var(--ui);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.sh-kicker {
+  font: 600 12px/1.3 var(--ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sh-status {
+  font: 600 15px/1.35 var(--ui);
+  color: var(--ok);
+}
+
+.sh-msg {
+  font: 600 15px/1.35 var(--ui);
+  color: var(--bad);
+  overflow-wrap: anywhere;
+}
+
+.sh-msg:empty,
+.sh-scan-note:empty {
+  display: none;
+}
+
+.sh-center-text {
+  text-align: center;
+}
+
+.sh-sr {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The actions sit at the bottom and the primary button is last. With the floating Stop, the row keeps 72 px clear on the right. */
+.sh-actions {
+  margin-top: auto;
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+}
+
+.sh-has-stop .sh-actions {
+  padding-right: 72px;
+}
+
+.sh-center {
+  justify-content: center;
+}
+
+.sh-center .sh-main {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  flex: 0 1 auto;
+}
+
+.sh-center .sh-title {
+  margin: 12px 0 4px;
+  text-align: center;
+}
+
+.sh-mark {
+  display: block;
+  align-self: center;
+  border-radius: 16px;
+}
+
+/* ---- fields and links ---- */
+
+.sh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sh-label {
+  font: 600 15px/1.35 var(--ui);
+  color: var(--text);
+}
+
+.sh-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text);
+  font: 400 16px/1.4 var(--ui);
+}
+
+.sh-textarea {
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--mono);
+}
+
+.sh-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.sh-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 15px/1.35 var(--ui);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* ---- buttons (48 px, primary last) ---- */
+
+.sh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 15px/1.35 var(--ui);
+  text-align: center;
+  cursor: pointer;
+}
+
+.sh-btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: transparent;
+}
+
+.sh-btn-ghost {
+  background: transparent;
+}
+
+.sh-btn-danger {
+  background: transparent;
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.sh-btn-off,
+.sh-btn-primary.sh-btn-off {
+  color: var(--muted);
+  border-color: var(--line-2);
+  background: var(--surface-3);
+  cursor: default;
+}
+
+:is(.sh-btn, .sh-link, .sh-icon, .sh-input, .sh-key, .sh-viewfinder):focus-visible,
+#plenum-stop:focus-visible,
+#plenum-lock button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- lists: the how steps, the connecting steps, the failed carriers ---- */
+
+ol.sh-steps {
+  margin: 0;
+  padding: 0 0 0 22px;
+  display: grid;
+  gap: 12px;
+  font: 400 16px/1.5 var(--ui);
+  color: var(--text);
+}
+
+.sh-progress-list,
+.sh-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 14px;
+}
+
+.sh-step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.sh-step-mark {
+  font: 600 18px/1.3 var(--ui);
+  color: var(--muted);
+  text-align: center;
+}
+
+.sh-step-done .sh-step-mark {
+  color: var(--ok);
+}
+
+.sh-step-active .sh-step-mark {
+  color: var(--accent);
+}
+
+.sh-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 500 16px/1.4 var(--ui);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.sh-step-note {
+  font: 400 13px/1.4 var(--ui);
+  color: var(--muted);
+}
+
+.sh-line {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  font: 400 16px/1.5 var(--ui);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.sh-bullet {
+  width: 8px;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: var(--bad);
+}
+
+/* ---- the code (6.8): 40 px mono, one line; clamped at larger platform text sizes (MOBILE-UI 11.3) ---- */
+
+.sh-code {
+  margin: 8px 0 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: calc(40px * min(var(--tz, 1), 1.4) / var(--tz, 1));
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.sh-countdown {
+  margin: 8px 0 0;
+  font: 400 15px/1.35 var(--ui);
+  color: var(--text-2);
+}
+
+/* ---- the camera frame (6.4) ---- */
+
+.sh-viewfinder {
+  position: relative;
+  width: min(280px, 72vw);
+  aspect-ratio: 1 / 1;
+  margin: 8px auto 0;
+  border-radius: 16px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+}
+
+/* The browser's camera shows inside the frame (the native apps open the scanner plugin's own camera, so their video is hidden). */
+.sh-viewfinder { overflow: hidden; }
+
+.sh-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sh-video[hidden] { display: none; }
+
+.sh-corner {
+  position: absolute;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  border-color: var(--accent);
+  border-style: solid;
+  border-width: 0;
+}
+
+.sh-c1 { top: 12px; left: 12px; border-top-width: 3px; border-left-width: 3px; border-top-left-radius: 10px; }
+.sh-c2 { top: 12px; right: 12px; border-top-width: 3px; border-right-width: 3px; border-top-right-radius: 10px; }
+.sh-c3 { bottom: 12px; left: 12px; border-bottom-width: 3px; border-left-width: 3px; border-bottom-left-radius: 10px; }
+.sh-c4 { bottom: 12px; right: 12px; border-bottom-width: 3px; border-right-width: 3px; border-bottom-right-radius: 10px; }
+
+/* ---- the PIN pad (C22) and the dots ---- */
+
+.sh-dots {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.sh-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--line-2);
+}
+
+.sh-dot[data-on] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.sh-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 72px);
+  gap: 12px 16px;
+  justify-content: center;
+  margin: 8px auto 0;
+}
+
+.sh-key,
+.sh-key-gap {
+  width: 72px;
+  height: 56px;
+}
+
+.sh-key {
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 24px/1 var(--display);
+  cursor: pointer;
+}
+
+.sh-key-del {
+  font: 600 15px/1 var(--ui);
+}
+
+/* ---- the progress bar (6.10) ---- */
+
+.sh-progress {
+  width: 100%;
+  height: 8px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.sh-progress::-webkit-progress-bar {
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+
+.sh-progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.sh-progress::-moz-progress-bar {
+  background: var(--accent);
+}
+
+.sh-driving {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* ---- the Stop control (C1, 9.1). boot.js builds the same element in the phone's UI page. ---- */
+
+/* Floating, the Stop is 56 x 48 (C1) and shows its mark only; the word is the button's accessible name, and the state is announced in
+   the note. A shell page keeps the Stop here; in the phone's UI page the dock publishes where it goes (data-ph-stop, below). */
+#plenum-stop {
+  position: fixed;
+  right: calc(var(--sa-right) + 16px);
+  bottom: calc(var(--sa-bottom) + 16px);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 48px;
+  min-width: 56px;
+  min-height: 48px;
+  padding: 0;
+  border-radius: 14px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text-2);
+  box-shadow: var(--shadow-1);
+  font: 600 15px/1 var(--ui);
+  cursor: pointer;
+}
+
+#plenum-stop .plenum-stop-mark {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--bad);
+}
+
+#plenum-stop .plenum-stop-label,
+#plenum-stop .plenum-stop-note {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The phone's UI page: ext-phone.js publishes where the Stop goes (--ph-stop-* and data-ph-stop): the bar's dock cell, or a float
+   over the composer while the keyboard is open. The Stop takes that box, so it never covers the Review tab or Send. */
+html[data-surface="phone"][data-ph-stop] #plenum-stop {
+  left: var(--ph-stop-left);
+  top: var(--ph-stop-top);
+  right: auto;
+  bottom: auto;
+  width: var(--ph-stop-w);
+  height: var(--ph-stop-h);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  justify-content: center;
+}
+
+#plenum-stop[data-active] {
+  background: var(--bad);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+#plenum-stop[data-active] .plenum-stop-mark {
+  background: var(--accent-ink);
+}
+
+#plenum-stop[data-driving] {
+  box-shadow: 0 0 0 3px var(--warn), var(--shadow-1);
+}
+
+#plenum-stop[data-state="done"] {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+#plenum-stop[data-state="queued"] {
+  border-color: var(--warn);
+}
+
+#plenum-stop[data-state="failed"] {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+#plenum-stop[aria-busy="true"] {
+  opacity: 0.7;
+}
+
+/* ---- the Stop result (9.1): a toast for a notice, and the sheet when the computer could not be reached. Read by screen readers too. ---- */
+
+.plenum-toast {
+  position: fixed;
+  left: calc(var(--sa-left) + 16px);
+  right: calc(var(--sa-right) + 84px);
+  bottom: calc(var(--sa-bottom) + 16px);
+  z-index: 68;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+  font: 500 15px/1.4 var(--ui);
+}
+
+.plenum-toast[hidden],
+.plenum-stop-sheet[hidden] {
+  display: none;
+}
+
+.plenum-toast[data-tone="ok"] {
+  border-color: var(--ok);
+}
+
+.plenum-toast[data-tone="warn"] {
+  border-color: var(--warn);
+}
+
+.plenum-toast-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.plenum-toast-close {
+  flex: none;
+}
+
+.plenum-stop-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 75;
+  padding: 20px calc(var(--sa-right) + 16px) calc(var(--sa-bottom) + 20px) calc(var(--sa-left) + 16px);
+  border-radius: 18px 18px 0 0;
+  border-top: 1px solid var(--bad);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
+}
+
+.plenum-stop-sheet-title {
+  margin: 0 0 8px;
+  font: 650 18px/1.3 var(--ui);
+  color: var(--bad);
+}
+
+.plenum-stop-sheet-body {
+  margin: 0 0 16px;
+  color: var(--text-2);
+  font: 400 15px/1.5 var(--ui);
+}
+
+.plenum-stop-sheet-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* ---- the connection strip (9, C5): full width under the top edge, a 3 px edge in the state's tone ---- */
+
+#plenum-conn-strip {
+  position: relative;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 8px 16px 8px 14px;
+  border-left: 3px solid var(--muted);
+  background: var(--surface-3);
+  color: var(--text);
+  font: 500 14px/1.35 var(--ui);
+}
+
+#plenum-conn-strip[data-tone="warn"] {
+  border-left-color: var(--warn);
+}
+
+#plenum-conn-strip[data-tone="bad"] {
+  border-left-color: var(--bad);
+}
+
+#plenum-conn-strip .plenum-conn-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the lock overlay that boot.js draws over the phone's UI (6.13). The shell's lock screens are the lock-* screens. ---- */
+
+#plenum-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  justify-content: safe center;
+  overflow-y: auto;
+  gap: 16px;
+  padding: calc(var(--sa-top) + 16px) calc(var(--sa-right) + 16px) calc(var(--sa-bottom) + 16px) calc(var(--sa-left) + 16px);
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+
+#plenum-lock .plenum-lock-title {
+  margin: 0;
+  font: 600 24px/1.2 var(--display);
+}
+
+#plenum-lock .plenum-lock-line {
+  margin: 0;
+  color: var(--text-2);
+}
+
+#plenum-lock .plenum-lock-note {
+  margin: 0;
+  min-height: 1.35em;
+  color: var(--bad);
+  font: 400 15px/1.35 var(--ui);
+}
+
+#plenum-lock .plenum-lock-note:empty {
+  display: none;
+}
+
+#plenum-lock button {
+  min-height: 48px;
+  min-width: 200px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 600 15px/1.35 var(--ui);
+}
+
+#plenum-lock .plenum-lock-unlock-stop {
+  background: transparent;
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+/* The PIN pad on the overlay (C22). The dots, the count and the keys are the shell page's own (.sh-dots, .sh-dot, .sh-pad, .sh-key, .sh-sr);
+   '#plenum-lock button' would make each key 200 px wide, so the pad's buttons say their own size here. */
+#plenum-lock .plenum-lock-pad button {
+  min-width: 0;
+  min-height: 0;
+  width: 72px;
+  height: 56px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 24px/1 var(--display);
+}
+
+#plenum-lock .plenum-lock-pad .sh-key-del {
+  font: 600 15px/1 var(--ui);
+}
+
+#plenum-lock .plenum-lock-pad[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+@media (max-width: 359px) {
+  #plenum-lock .plenum-lock-pad button {
+    width: 64px;
+  }
+}
+
+/* ---- narrow phones and large text: nothing is wider than the screen, and rows wrap ---- */
+
+@media (max-width: 359px) {
+  .sh-title {
+    font-size: 22px;
+  }
+  .sh-pad {
+    grid-template-columns: repeat(3, 64px);
+  }
+  .sh-key,
+  .sh-key-gap {
+    width: 64px;
+  }
+}
+
+/* ---- part 2 screens (mob-10, wave 107; MOBILE-UI 6.11, 6.12, 6.17, 6.18, 10). Tokens only; every control 44 px or taller. ---- */
+
+.sh-app {
+  zoom: var(--text-scale, 1);
+}
+
+html[data-app-hidden] .sh-app {
+  visibility: hidden;
+}
+
+html[data-stop-side="left"] #plenum-stop {
+  left: calc(var(--sa-left) + 16px);
+  right: auto;
+}
+
+.sh-section {
+  margin: 20px 0 6px;
+  font: 600 12px/1.3 var(--ui);
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.sh-rows,
+.sh-switches,
+.sh-runs,
+.sh-cards,
+.sh-computers,
+.sh-ways,
+.sh-logs,
+.sh-about {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sh-rows {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.sh-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: 500 16px/1.35 var(--ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sh-row:last-child {
+  border-bottom: 0;
+}
+
+.sh-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sh-row-value {
+  color: var(--text-2);
+  font-size: 14px;
+  text-align: right;
+}
+
+.sh-row-chev {
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sh-switch-wrap {
+  margin-bottom: 8px;
+}
+
+.sh-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 16px/1.35 var(--ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sh-switch-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sh-switch-knob {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+}
+
+.sh-switch-knob::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+
+.sh-switch[aria-checked="true"] .sh-switch-knob {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.sh-switch[aria-checked="true"] .sh-switch-knob::after {
+  left: 21px;
+  background: var(--accent-ink);
+}
+
+.sh-switch[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: default;
+}
+
+.sh-switch[aria-disabled="true"] .sh-switch-knob {
+  opacity: 0.5;
+}
+
+.sh-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sh-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 15px/1.3 var(--ui);
+  cursor: pointer;
+}
+
+.sh-radio[aria-checked="true"] {
+  border-color: var(--accent);
+}
+
+.sh-radio-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  box-sizing: border-box;
+}
+
+.sh-radio[aria-checked="true"] .sh-radio-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.sh-range {
+  width: 100%;
+  min-height: 44px;
+  margin: 8px 0;
+}
+
+.sh-sample {
+  font-size: 16px;
+  color: var(--text-2);
+}
+
+.sh-computer {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  margin-bottom: 10px;
+}
+
+.sh-computer-main {
+  display: flex;
+  align-items: stretch;
+}
+
+.sh-computer-open {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 64px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 500 16px/1.3 var(--ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sh-computer-name {
+  font-weight: 600;
+}
+
+.sh-computer-status {
+  color: var(--ok);
+  font-size: 14px;
+}
+
+.sh-computer-meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sh-computer-more {
+  min-width: 48px;
+  min-height: 64px;
+  border: 0;
+  background: transparent;
+}
+
+.sh-rowmenu {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.sh-install-steps {
+  counter-reset: install;
+  margin: 12px 0;
+  padding-left: 0;
+}
+
+.sh-install-step {
+  min-height: 44px;
+  padding: 8px 0 8px 40px;
+  position: relative;
+  color: var(--text);
+  list-style: none;
+}
+
+.sh-install-step::before {
+  counter-increment: install;
+  content: counter(install);
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  text-align: center;
+  line-height: 26px;
+  color: var(--text-2);
+}
+
+.plenum-demo-strip,
+.plenum-lan-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px calc(var(--sa-right) + 16px) 6px calc(var(--sa-left) + 16px);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 500 14px/1.35 var(--ui);
+  border-bottom: 1px solid var(--line);
+}
+
+.plenum-demo-strip[hidden],
+.plenum-lan-strip[hidden] {
+  display: none;
+}
+
+.plenum-demo-exit,
+.plenum-lan-got {
+  min-height: 44px;
+  padding: 0 8px;
+  color: var(--accent);
+  font: 600 14px/1 var(--ui);
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+}
+
+.sh-msg.sh-warn {
+  color: var(--warn);
+}
+
+.sh-msg.sh-info {
+  color: var(--text-2);
+}
+
+.sh-status {
+  color: var(--ok);
+}
+
+.sh-logs {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.sh-log {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  font: 400 13px/1.4 var(--mono);
+  color: var(--text);
+  word-break: break-word;
+}
+
+.sh-log-time {
+  color: var(--muted);
+}
+
+.sh-log-warn .sh-log-text {
+  color: var(--warn);
+}
+
+.sh-log-bad .sh-log-text {
+  color: var(--bad);
+}
+
+.sh-hunk {
+  margin: 10px 0;
+}
+
+.sh-hunk-head {
+  font: 400 13px/1.4 var(--mono);
+  color: var(--muted);
+}
+
+.sh-diff {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font: 400 13px/1.45 var(--mono);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.sh-diff li {
+  display: flex;
+  gap: 8px;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.sh-diff-add {
+  background: var(--surface-2);
+  color: var(--ok);
+}
+
+.sh-diff-del {
+  background: var(--surface-2);
+  color: var(--bad);
+}
+
+.sh-diff-ctx {
+  color: var(--text-2);
+}
+
+.sh-frames {
+  display: grid;
+  gap: 12px;
+}
+
+.sh-frame {
+  margin: 0;
+}
+
+.sh-picture {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.sh-card {
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  background: var(--surface);
+  margin: 12px 0;
+}
+
+.sh-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sh-run {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 2px;
+}
+
+.sh-run-title {
+  font-weight: 600;
+}
+
+.sh-run-meta {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.sh-way {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sh-way-off .sh-way-title {
+  color: var(--muted);
+}
+
+.sh-way-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sh-way-title {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.sh-way-probe {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.sh-way-move {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.sh-move {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 18px/1 var(--ui);
+  cursor: pointer;
+}
+
+.sh-move[aria-disabled="true"] {
+  color: var(--muted);
+}
+
+.sh-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.sh-about li {
+  min-height: 44px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+
+.sh-notes {
+  margin: 0 0 8px;
+}
+
+/* A session screen keeps its last rows clear of the floating Stop (MOBILE-UI 9.1: bottom right, 16 px in). */
+.sh-has-stop .sh-main {
+  padding-bottom: 84px;
+}
+
+.sh-agents {
+  margin: 8px 0;
+  color: var(--text-2);
+}

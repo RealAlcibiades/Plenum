@@ -36,8 +36,9 @@ includes that organization.
 ---------------
 
 We give you a free, personal, non-exclusive, non-transferable, revocable licence to install and use
-Plenum on computers you own or control, for your own purposes or your organization's internal
-purposes, as long as you follow this agreement.
+Plenum on computers and phones you own or control (the Plenum phone apps and web app are part of
+Plenum), for your own purposes or your organization's internal purposes, as long as you follow this
+agreement.
 
 Plenum changes its own files only when you apply an update in its Updates panel or install a new
 version of Plenum (section 11), and you may change your own installed copy for your own use. A
@@ -169,6 +170,11 @@ You decide what it may do, and you are responsible for what you allow.
   screen. Do not point agents at systems, accounts or data you are not allowed to use.
 - You are responsible for following the terms of every website, app and service an agent uses for
   you.
+- A phone you pair with Plenum can start, approve and stop the same actions as the Plenum window on
+  that computer. Actions taken from a paired phone are your actions. Keep paired phones locked,
+  remove a lost or shared phone under Settings > Phones, and secure the accounts (your network, your
+  Tailscale or your own relay) that carry the connection. Those networks and services are not ours
+  and we give no warranty for them.
 
 9. Acceptable use
 -----------------
@@ -191,9 +197,10 @@ Do not use Plenum, or let an agent use it, to:
 
 Plenum runs on your computer and sends us nothing. It has no telemetry, analytics or crash
 reporting, no account with us, and no server of ours. The Privacy Notice describes what Plenum keeps
-on your computer and what it sends to the providers you choose. It is part of this agreement. If you
-use Plenum for an organization, or with other people's personal data, you are responsible for
-following the data-protection laws that apply to you.
+on your computer and what it sends to the providers you choose. The Privacy Notice also describes
+the phone link. It is part of this agreement. If you use Plenum for an organization, or with other
+people's personal data, you are responsible for following the data-protection laws that apply to
+you.
 
 11. Updates and changes
 -----------------------
@@ -206,6 +213,10 @@ is different: it only applies changes that a model proposed and that you reviewe
 apply. Those changes come from the model, not from us. When Plenum updates to a new version, the
 changes you applied from the Updates panel are set aside, so that the new version runs as we shipped
 it.
+
+The Plenum phone apps update through their app store or the release page, not through Plenum on your
+computer. A phone app and the computer may run different versions; Plenum shows which one needs
+updating.
 
 We may change, suspend or stop Plenum or any feature at any time, and some features may be marked as
 planned or experimental. We have no duty to support, fix or update Plenum.
@@ -297,7 +308,8 @@ actions already taken), 12, 13, 14, 15, 17, 18 and 19 continue to apply after it
 
 You will follow the export-control and sanctions laws that apply to you and to Plenum. You confirm
 that those laws do not bar you from receiving software. Plenum includes standard encryption from
-Electron and Chromium, which some countries regulate.
+Electron and Chromium, and the phone link uses X25519 key exchange and ChaCha20-Poly1305 encryption
+implemented in Plenum itself, which some countries regulate.
 
 18. Governing law and disputes
 ------------------------------

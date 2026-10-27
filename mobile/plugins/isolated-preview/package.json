@@ -1,0 +1,30 @@
+{
+  "name": "plenum-isolated-preview",
+  "version": "8.0.0",
+  "private": true,
+  "description": "Capacitor plugin for the Plenum Android app: shows an artifact's HTML in a separate WebView process with no Capacitor bridge, no file or network access and no storage.",
+  "license": "SEE LICENSE IN ../../../LICENSE.txt",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src/",
+    "android/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

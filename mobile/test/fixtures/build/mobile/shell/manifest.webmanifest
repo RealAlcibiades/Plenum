@@ -1,0 +1,9 @@
+{
+  "name": "Plenum fixture",
+  "short_name": "Plenum",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0a11",
+  "theme_color": "#5a48dd",
+  "icons": [{ "src": "icons/app.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

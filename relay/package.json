@@ -1,0 +1,22 @@
+{
+  "name": "plenum-relay",
+  "version": "1.0.0",
+  "description": "Plenum relay: a blind forwarder for end-to-end encrypted phone traffic, one Cloudflare Worker and one Durable Object. Deploy it to your own Cloudflare account.",
+  "private": true,
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE-RELAY.txt",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "dry-run": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0",
+    "wrangler": "4.148.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260730.1": true
+  }
+}

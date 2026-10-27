@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- The preview runs in its own process (":isolatedpreview"): it has no Capacitor bridge, no JavaScript interface,
+             no access to the app's memory and no task in the app switcher (excludeFromRecents). The window is secure
+             (FLAG_SECURE set by the activity), so the page cannot be captured. -->
+        <activity
+            android:name="com.realalcibiades.plenum.isolatedpreview.IsolatedPreviewActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:process=":isolatedpreview"
+            android:label="@string/isolated_preview_default_title"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|uiMode|density" />
+    </application>
+
+</manifest>

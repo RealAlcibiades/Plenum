@@ -1,0 +1,15 @@
+/* Fixture stylesheet. The :root block below is the one shell-tokens.css must copy, byte for byte. */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f6f6fb, #0a0a11);
+  --text: light-dark(#15151f, #edeef6);
+  --accent: light-dark(#5a48dd, #a9b2ff);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+}

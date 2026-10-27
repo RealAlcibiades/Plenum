@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "$TS_FAKE_NODE" "$(dirname "$0")/fake.mjs" "$@"

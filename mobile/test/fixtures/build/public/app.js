@@ -1,0 +1,1 @@
+window.fixtureApp = { ready: true };

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Strict policy: the page's own script and style files only, no network, no inline code, pictures from data: only (the QR code). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Add a phone</title>
+<link rel="stylesheet" href="phones-pair.css">
+</head>
+<body>
+<!-- The magenta square is the capture check (desktop/handlers/phones.cjs): a screen grab reads it at the window's top-left corner. -->
+<div class="marker" aria-hidden="true"></div>
+<main class="pair" id="pair" data-state="loading">
+  <header class="pair-head">
+    <h1 id="title">Add a phone</h1>
+    <p class="pair-sub" id="sub"></p>
+  </header>
+  <section class="pair-body" id="body" aria-live="polite"></section>
+  <footer class="pair-actions" id="actions"></footer>
+</main>
+<script src="phones-pair.js"></script>
+</body>
+</html>

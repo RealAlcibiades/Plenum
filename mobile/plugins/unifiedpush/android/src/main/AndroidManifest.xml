@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 11 and later hide other apps unless they are named here: the distributor (ntfy and similar) must be visible. -->
+    <queries>
+        <intent>
+            <action android:name="org.unifiedpush.android.distributor.REGISTER" />
+        </intent>
+    </queries>
+
+    <application>
+        <!-- The connector's PushService. Not exported: only the distributor's broadcasts reach it, through the connector.
+             It runs only when a distributor delivers something; there is no socket and no foreground service. -->
+        <service
+            android:name="com.realalcibiades.plenum.unifiedpush.UnifiedPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>

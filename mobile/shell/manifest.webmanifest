@@ -1,0 +1,13 @@
+{
+  "name": "Plenum",
+  "short_name": "Plenum",
+  "description": "Run, watch and approve the coding agents on your own computer.",
+  "start_url": "./",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f6fb",
+  "theme_color": "#f6f6fb",
+  "icons": [
+    { "src": "icons/app.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

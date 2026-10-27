@@ -1,0 +1,1143 @@
+/* ext-phone.css (mob-11, phone layer part 1; MOBILE-UI sections 4, 8.1 to 8.5.2, 8.13, 8.14, 11, 13, 16.2). Every rule is under
+   html[data-surface="phone"], so the desktop page is unchanged. Colour comes from the shared tokens in style.css only (P-18): no
+   colour literal, no named colour, and no inline style in the markup. The shell owns #plenum-stop; this file only sizes the dock cell. */
+
+/* ---------- 4.1 phone tokens ---------- */
+html[data-surface="phone"] {
+  --sa-top:    var(--dbg-sa-top,    var(--safe-area-inset-top,    env(safe-area-inset-top, 0px)));
+  --sa-right:  var(--dbg-sa-right,  var(--safe-area-inset-right,  env(safe-area-inset-right, 0px)));
+  --sa-bottom: var(--dbg-sa-bottom, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  --sa-left:   var(--dbg-sa-left,   var(--safe-area-inset-left,   env(safe-area-inset-left, 0px)));
+
+  --tap: 44px;
+  --tap-lg: 48px;
+  --gutter: 16px;
+  --gutter-tight: 8px;
+  --ph-title-h: 48px;
+  --ph-bar-h: 56px;
+  --ph-strip-h: 36px;
+  --ph-sheet-radius: 20px;
+  --ph-card-radius: 16px;
+  --ph-btn-radius: 12px;
+
+  --kb: 0px;
+  --vvh: 100dvh;
+  --composer-top: 0px;
+  --tz: 1;
+
+  --col: calc(100% - 2 * var(--gutter));
+  --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: var(--ui);
+  --mono: ui-monospace, "SF Mono", "Roboto Mono", "Cascadia Mono", monospace;
+
+  --dur-fast: 120ms;
+  --dur: 220ms;
+}
+
+html[data-surface="phone"] body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Landscape (8.1): a 44 px title and bar, icons only in the bar. Labels stay in aria-label. */
+@media (max-height: 500px) {
+  html[data-surface="phone"] {
+    --ph-title-h: 44px;
+    --ph-bar-h: 44px;
+  }
+  html[data-surface="phone"] .ph-bar-label { display: none; }
+}
+/* Text zoom 1.6 and up (data-tz 3): the bar keeps its icons and names; the labels go (11.3, P-08). */
+html[data-surface="phone"][data-tz="3"] .ph-bar-label { display: none; }
+
+/* ---------- the app grid and the main column ---------- */
+html[data-surface="phone"] .app {
+  height: var(--vvh);
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+html[data-surface="phone"] .main {
+  height: 100%;
+  min-height: 0;
+}
+
+/* Touch targets (P-02): at least 44 px, through min-size so text zoom grows them. */
+html[data-surface="phone"] :is(button, [role="button"], [role="tab"], [role="radio"], summary) {
+  min-height: var(--tap);
+  min-width: var(--tap);
+}
+/* Text fields are 16 px or more (P-03), so the platform does not zoom in on focus. */
+html[data-surface="phone"] :is(input, select, textarea) {
+  font-size: max(16px, 1em);
+}
+/* style.css sizes the fields of a card (.card input[type=password]) at 12.5 px, with more weight than the rule above. */
+html[data-surface="phone"] .card :is(input[type="password"], input[type="text"], input[type="search"], input[type="url"], input[type="email"], input[type="number"], select, textarea) {
+  font-size: max(16px, 1em);
+}
+
+/* ---------- the title bar (8.2, 8.14) ---------- */
+html[data-surface="phone"] .topbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--gutter-tight);
+  flex: none;
+  box-sizing: border-box;
+  height: auto;
+  min-height: calc(var(--ph-title-h) + var(--sa-top));
+  padding: var(--sa-top) calc(var(--gutter-tight) + var(--sa-right)) 0 calc(var(--gutter-tight) + var(--sa-left));
+}
+html[data-surface="phone"] #titlebar {
+  flex-wrap: nowrap;
+  gap: var(--gutter-tight);
+}
+/* The drive pill is a titlebar slot too, but the phone keeps it: it is the drive's indicator on every tab (wave 106 fix). */
+html[data-surface="phone"] .topbar > :is(.controls, .titlebar-space, .titlebar-slot:not(#drivePillSlot), .pane-buttons, .ext-side-toggle) {
+  display: none;
+}
+html[data-surface="phone"] #drivePillSlot:not(:empty) { display: flex; align-items: center; }
+html[data-surface="phone"] .drive-pill { min-width: var(--tap); min-height: var(--tap); justify-content: center; }
+html[data-surface="phone"] #titlebar .proj-title {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+html[data-surface="phone"] .proj-name,
+html[data-surface="phone"] .proj-path { display: none; }
+/* Chips that other panels place after the project name go to the More sheet (8.2). They stay in the DOM: their panels re-place them. */
+html[data-surface="phone"] #titlebar .proj-title > :not(.ph-title) { display: none; }
+html[data-surface="phone"] .ph-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 16px/1.25 var(--display);
+  color: var(--text);
+  padding: 0 4px;
+}
+html[data-surface="phone"] .ph-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-btn-radius);
+  background: none;
+  color: var(--text-2);
+}
+html[data-surface="phone"] .ph-icon-btn:hover { background: var(--surface-2); color: var(--text); }
+html[data-surface="phone"] .ph-back-ic { transform: rotate(180deg); }
+html[data-surface="phone"] .ph-back { order: -1; }
+html[data-surface="phone"] .drive-pill { flex: none; }
+html[data-surface="phone"] .drive-pill .dp-text,
+html[data-surface="phone"] .drive-pill .dp-stop { display: none; }
+html[data-surface="phone"] .remote-chip { display: none; }
+html[data-surface="phone"] .ph-chip-conn {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  max-width: 42%;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--bg));
+  color: var(--text-2);
+  font: 600 13px/1 var(--ui);
+}
+html[data-surface="phone"] .ph-chip-word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-surface="phone"] .ph-chip-word:empty { display: none; }
+html[data-surface="phone"] .ph-more { flex: none; order: 3; }
+html[data-surface="phone"] .ph-chip-conn { order: 2; }
+html[data-surface="phone"] #drivePillSlot { order: 1; }
+html[data-surface="phone"] .ph-more .ph-dots { width: 22px; height: 22px; }
+
+/* A status dot is a colour and a word beside it (11.4). Each tone is a shared token. */
+html[data-surface="phone"] .ph-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+html[data-surface="phone"] .ph-dot[data-tone="ok"] { background: var(--ok); }
+html[data-surface="phone"] .ph-dot[data-tone="warn"] { background: var(--warn); }
+html[data-surface="phone"] .ph-dot[data-tone="bad"] { background: var(--bad); }
+html[data-surface="phone"] .ph-dot[data-tone="muted"] { background: var(--muted); }
+html[data-surface="phone"] .ph-dot[data-p] { background: var(--p, var(--muted)); }
+
+/* ---------- the bottom bar and the Stop dock (C2, 8.1) ---------- */
+html[data-surface="phone"] .ph-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 18;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
+  height: calc(var(--ph-bar-h) + var(--sa-bottom));
+  padding: 0 var(--sa-right) var(--sa-bottom) var(--sa-left);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  transition: opacity var(--dur-fast), transform var(--dur-fast);
+}
+html[data-surface="phone"][data-phone-kb] .ph-bar {
+  opacity: 0;
+  transform: translateY(100%);
+  pointer-events: none;
+}
+html[data-surface="phone"] .ph-bar-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: min(var(--tap-lg), var(--ph-bar-h));
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--ph-btn-radius);
+  background: none;
+  color: var(--muted);
+  font: 600 11.5px/1.1 var(--ui);
+}
+html[data-surface="phone"] .ph-bar-item[aria-current="page"] { color: var(--accent); }
+html[data-surface="phone"] .ph-bar-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+html[data-surface="phone"] .ph-bar-ic { width: 20px; height: 20px; }
+html[data-surface="phone"] .ph-bar-label {
+  max-width: 100%;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11.5px * min(var(--tz), 1.3) / var(--tz));
+}
+html[data-surface="phone"] .ph-bar-badge {
+  position: absolute;
+  top: 4px;
+  left: calc(50% + 6px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 600 11px/18px var(--ui);
+  text-align: center;
+}
+html[data-surface="phone"] .ph-bar-badge[data-tone="amber"] { background: var(--warn); color: var(--accent-ink); }
+html[data-surface="phone"] .ph-bar-badge[data-tone="red"] { background: var(--bad); color: var(--accent-ink); }
+html[data-surface="phone"] .ph-bar-badge[hidden] { display: none; }
+/* The cell the shell's #plenum-stop covers. ext-phone draws nothing in it; the shell reads --ph-stop-* (see the panel's header). */
+html[data-surface="phone"] .ph-stop-dock {
+  display: block;
+  min-width: 64px;
+  min-height: min(var(--tap-lg), var(--ph-bar-h));
+}
+
+/* ---------- sheets (C6): the bottom edge is the bar's top ---------- */
+html[data-surface="phone"] .ph-scrim {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+  z-index: 44;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: ph-fade 200ms ease-out both;
+}
+html[data-surface="phone"] .ph-sheet {
+  position: fixed;
+  left: var(--sa-left);
+  right: var(--sa-right);
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-height: calc(var(--vvh) - var(--sa-top) - 24px - var(--ph-bar-h) - var(--sa-bottom));
+  padding-bottom: 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-2);
+  border-bottom: 0;
+  border-radius: var(--ph-sheet-radius) var(--ph-sheet-radius) 0 0;
+  box-shadow: var(--shadow-2), inset 0 1px 0 var(--sheen);
+  animation: ph-sheet-in var(--dur) var(--ease) both;
+}
+html[data-surface="phone"] .ph-handle {
+  flex: none;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background: var(--line-2);
+}
+html[data-surface="phone"] .ph-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 52px;
+  padding: 4px 8px 4px 16px;
+}
+html[data-surface="phone"] .ph-sheet-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 16px/1.3 var(--display);
+  color: var(--text);
+}
+html[data-surface="phone"] .ph-sheet-title:focus { outline: none; }
+html[data-surface="phone"] .ph-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 8px 8px;
+}
+html[data-surface="phone"] .ph-sheet-note {
+  margin: 0 8px 6px;
+  color: var(--muted);
+  font: 13px/1.4 var(--ui);
+  overflow-wrap: anywhere;
+}
+html[data-surface="phone"] .ph-sheet :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Action row (C7): 52 px tall, label 15, note 13. Disabled rows keep their note so the reason is read. */
+html[data-surface="phone"] .ph-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--ph-btn-radius);
+  background: none;
+  color: var(--text);
+  font: 500 15px/1.35 var(--ui);
+  text-align: left;
+}
+html[data-surface="phone"] .ph-row:hover,
+html[data-surface="phone"] .ph-row:focus-visible { background: var(--surface-2); }
+html[data-surface="phone"] .ph-row > .ic { flex: none; width: 20px; height: 20px; color: var(--muted); }
+html[data-surface="phone"] .ph-row[aria-disabled="true"] { color: var(--muted); }
+html[data-surface="phone"] .ph-row-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+html[data-surface="phone"] .ph-row-label { overflow-wrap: anywhere; }
+html[data-surface="phone"] .ph-row-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+html[data-surface="phone"] .ph-row-danger .ph-row-label { color: var(--bad); }
+html[data-surface="phone"] .ph-row .ph-check { color: var(--accent); margin-left: auto; }
+html[data-surface="phone"] .ph-row[aria-checked="true"] .ph-row-label { color: var(--accent); }
+html[data-surface="phone"] .ph-group-head {
+  margin: 14px 12px 4px;
+  color: var(--muted);
+  font: 600 11.5px/1.2 var(--ui);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+html[data-surface="phone"] .ph-group[hidden] { display: none; }
+html[data-surface="phone"] .ph-row[hidden] { display: none; }
+
+/* Dot in a model row: the provider's colour through --p (style.css's [data-p] rules). */
+html[data-surface="phone"] .ph-opt .ph-dot { width: 10px; height: 10px; margin-right: 2px; }
+
+/* The model and role sheet (8.5.2) */
+html[data-surface="phone"] .ph-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 4px 8px 8px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+html[data-surface="phone"] .ph-seg-btn {
+  min-height: var(--tap-lg);
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-2);
+  font: 600 15px/1.2 var(--ui);
+}
+html[data-surface="phone"] .ph-seg-btn[aria-checked="true"] {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+html[data-surface="phone"] .ph-effort {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 6px;
+  margin: 4px 8px 8px;
+}
+html[data-surface="phone"] .ph-effort .ph-seg-btn {
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+}
+html[data-surface="phone"] .ph-effort .ph-seg-btn[aria-checked="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+html[data-surface="phone"] .ph-search {
+  display: block;
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  min-height: var(--tap);
+  margin: 4px 8px 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--ph-btn-radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 16px var(--ui);
+}
+
+/* ---------- the composer (C13, 8.5.1): row 2 is [+] [model chip] [Mode] [Send] ---------- */
+html[data-surface="phone"] .composer-wrap {
+  position: relative;
+  flex: none;
+  padding-bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+}
+html[data-surface="phone"][data-phone-kb] .composer-wrap { padding-bottom: 0; }
+html[data-surface="phone"] .composer {
+  width: auto;
+  margin: 0 var(--gutter-tight);
+  padding: 8px 10px;
+  gap: 6px;
+  border-radius: 20px;
+}
+html[data-surface="phone"] #input {
+  min-height: var(--tap);
+  max-height: calc(var(--vvh) * 0.4);
+  padding: 8px 6px 4px;
+  font: 16px/24px var(--ui);
+}
+html[data-surface="phone"] .composer-images { padding: 0 2px; }
+html[data-surface="phone"] .composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+html[data-surface="phone"] .composer-bar > :is(.computer-seg, .mode-seg, label.pick) { display: none; }
+html[data-surface="phone"] .composer-bar > .ph-plus {
+  order: 0;
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+html[data-surface="phone"] .ph-plus .ic { width: 20px; height: 20px; }
+html[data-surface="phone"] .ph-model-chip {
+  order: 1;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 110px;
+  min-height: var(--tap);
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2) 66%, var(--bg));
+  color: var(--text);
+  font: 600 14px/1.2 var(--ui);
+  text-align: left;
+}
+html[data-surface="phone"] .ph-model-chip:disabled { opacity: 0.5; }
+html[data-surface="phone"] .ph-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-surface="phone"] .composer-bar .mode-wrap { order: 2; flex: 0 1 auto; max-width: 112px; min-width: 0; }
+html[data-surface="phone"] .composer-bar .mode-btn {
+  min-height: var(--tap);
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-surface="phone"] .composer-bar #send {
+  order: 3;
+  flex: none;
+  width: var(--tap-lg);
+  height: var(--tap-lg);
+  min-width: var(--tap-lg);
+  min-height: var(--tap-lg);
+}
+html[data-surface="phone"] .composer-bar .computer-btn { display: none; }
+html[data-surface="phone"] .composer-bar .attach-btn { display: none; }
+html[data-surface="phone"] .foot {
+  width: auto;
+  min-height: 0;
+  margin: 4px var(--gutter) 0;
+  gap: 8px;
+  font-size: 12px;
+}
+html[data-surface="phone"] .foot .hint { display: none; }
+html[data-surface="phone"][data-phone-kb] .foot { display: none; }
+html[data-surface="phone"] .board-summary { min-height: var(--tap); width: calc(100% - 16px); margin: 0 8px 6px; }
+
+/* ---------- the transcript (8.4.1) ---------- */
+html[data-surface="phone"] .chat {
+  padding: 12px 0 20px;
+  scroll-behavior: auto;
+  mask-image: none;
+  -webkit-mask-image: none;
+  overscroll-behavior: contain;
+}
+html[data-surface="phone"] .stream { width: var(--col); gap: 16px; }
+html[data-surface="phone"] .turn.user { max-width: 88%; }
+html[data-surface="phone"] .turn.assistant .turn-body,
+html[data-surface="phone"] .turn.advisor .turn-body { font-size: 16px; line-height: 1.6; }
+html[data-surface="phone"] .turn-head .when { opacity: 1; }
+html[data-surface="phone"] .turn-head { min-height: var(--tap); }
+html[data-surface="phone"] .turn-body pre,
+html[data-surface="phone"] .turn-body .table-wrap { max-width: 100%; overflow-x: auto; }
+html[data-surface="phone"] .ph-turn-more {
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-btn-radius);
+  background: none;
+  color: var(--muted);
+}
+html[data-surface="phone"] .ph-turn-more:hover { color: var(--text); background: var(--surface-2); }
+
+/* ---------- the Projects tab (8.3): the sidebar is a full screen between the title and the bar ---------- */
+html[data-surface="phone"] .sidebar { display: none; }
+html[data-surface="phone"] .ext-side-toggle,
+html[data-surface="phone"] .ext-side-scrim { display: none !important; }
+html[data-surface="phone"][data-ph-tab="projects"] .sidebar {
+  display: flex;
+  position: fixed;
+  top: calc(var(--sa-top) + var(--ph-title-h) + var(--ph-strip-now, 0px));
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+  left: 0;
+  right: 0;
+  z-index: 4;
+  width: auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px var(--gutter) 12px;
+  border: 0;
+  background: var(--bg);
+  overflow-y: auto;
+}
+html[data-surface="phone"][data-ph-tab="projects"] .main > :not(.topbar) { display: none; }
+html[data-surface="phone"][data-ph-tab="projects"] .pane { display: none; }
+html[data-surface="phone"] .brand { display: none; }
+html[data-surface="phone"] .side-head { min-height: var(--tap); }
+html[data-surface="phone"] .projects { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 0 8px; }
+html[data-surface="phone"] .proj-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 10px 44px 10px 10px;
+  border-radius: var(--ph-btn-radius);
+}
+html[data-surface="phone"] .proj-item .forget { display: none; }
+html[data-surface="phone"] .proj-item .pn { font-size: 15px; }
+html[data-surface="phone"] .proj-item .pp { font-size: 13px; }
+html[data-surface="phone"] .ph-row-more {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  display: inline-grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ph-btn-radius);
+  background: none;
+  color: var(--muted);
+}
+html[data-surface="phone"] .ph-row-more:hover { color: var(--text); background: var(--surface-2); }
+html[data-surface="phone"] .side-foot { padding-top: 8px; }
+html[data-surface="phone"] .side-link { min-height: var(--tap-lg); font-size: 15px; }
+
+/* ---------- the panes, Settings, drawers and the Mode menu (8.2) ---------- */
+html[data-surface="phone"] .pane {
+  position: fixed;
+  top: calc(var(--sa-top) + var(--ph-title-h) + var(--ph-strip-now, 0px));
+  right: 0;
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+  left: 0;
+  z-index: 19;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  border-left: 0;
+  background: var(--bg);
+}
+html[data-surface="phone"] .pane-grip { display: none; }
+html[data-surface="phone"] .pane-head {
+  height: auto;
+  min-height: var(--tap);
+  padding: 0 var(--gutter-tight);
+  gap: 4px;
+}
+html[data-surface="phone"] .pane-back { display: grid; }
+html[data-surface="phone"] .pane-expand,
+html[data-surface="phone"] #paneClose { display: none; }
+html[data-surface="phone"] .pane-tabs > [role="tab"]:not([aria-selected="true"]) { display: none; }
+html[data-surface="phone"] .settings-page {
+  top: calc(var(--sa-top) + var(--ph-title-h) + var(--ph-strip-now, 0px));
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+}
+html[data-surface="phone"] .drawer {
+  top: calc(var(--sa-top) + 8px);
+  right: 0;
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+  left: 0;
+  width: auto;
+  max-width: none;
+  border-radius: var(--ph-sheet-radius) var(--ph-sheet-radius) 0 0;
+  border-bottom: 0;
+}
+html[data-surface="phone"] .scrim { bottom: calc(var(--ph-bar-h) + var(--sa-bottom)); }
+html[data-surface="phone"] .mode-menu {
+  position: fixed;
+  top: auto;
+  left: var(--sa-left);
+  right: var(--sa-right);
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom));
+  width: auto;
+  max-height: calc(var(--vvh) - var(--sa-top) - 24px - var(--ph-bar-h) - var(--sa-bottom));
+  overflow-y: auto;
+  border-radius: var(--ph-sheet-radius) var(--ph-sheet-radius) 0 0;
+  border-bottom: 0;
+  padding-bottom: 8px;
+}
+html[data-surface="phone"] .mode-menu button { min-height: 52px; }
+
+/* A confirm or risk dialog is docked above the bar band (8.2): full width less 8, buttons stacked, the primary on top. */
+html[data-surface="phone"] dialog.confirm-dialog {
+  top: auto;
+  bottom: calc(var(--ph-bar-h) + var(--sa-bottom) + 8px);
+  left: var(--gutter-tight);
+  right: var(--gutter-tight);
+  width: auto;
+  max-width: none;
+  margin: 0;
+}
+html[data-surface="phone"] dialog.confirm-dialog .confirm-actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+}
+html[data-surface="phone"] dialog.confirm-dialog .confirm-actions button { width: 100%; min-height: var(--tap-lg); }
+
+/* Toasts: under the title bar, above sheets (C17, P-35). */
+html[data-surface="phone"] .toasts {
+  top: calc(var(--sa-top) + var(--ph-title-h) + var(--ph-strip-now, 0px) + 8px);
+  left: var(--gutter);
+  right: var(--gutter);
+  translate: 0 0;
+  align-items: stretch;
+  z-index: 50;
+}
+html[data-surface="phone"] .toast { max-width: 100%; }
+
+/* The connection strip (9, C5) sits under the title bar, never over it (P-25). While it shows, the screens below move down by its
+   height (two lines at 360 px, so 56 px). The shell's own strip rule is the same position; this one is the phone page's. */
+html[data-surface="phone"] #plenum-conn-strip { top: calc(var(--sa-top) + var(--ph-title-h)); }
+html[data-surface="phone"]:has(#plenum-conn-strip:not([hidden])) { --ph-strip-now: 56px; }
+html[data-surface="phone"]:has(#plenum-conn-strip:not([hidden])) .chat { padding-top: calc(12px + var(--ph-strip-now)); }
+
+/* The keyboard hides the bar; the Stop floats over the composer (8.1). The shell reads data-ph-stop. */
+html[data-surface="phone"][data-phone-kb] .ph-stop-dock { min-height: 0; }
+
+/* Focus rings and reduced motion */
+html[data-surface="phone"] :focus-visible { outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) {
+  html[data-surface="phone"] .ph-scrim,
+  html[data-surface="phone"] .ph-sheet { animation: none; }
+  html[data-surface="phone"] .ph-bar { transition-duration: 0s; }
+}
+
+@keyframes ph-fade { from { opacity: 0; } }
+@keyframes ph-sheet-in { from { translate: 0 24px; opacity: 0; } }
+
+/* ---------- part 2 (mob-11, wave 107): the approval card, hand-over, the waiting bar, strips, Report, Newer, the panes (8.6 to 8.12) ---------- */
+
+/* A hidden attribute is hidden on the phone, whatever a desktop rule says. */
+html[data-surface="phone"] [hidden] { display: none !important; }
+
+/* Screen-reader lines: visually hidden, still announced (P-17). */
+html[data-surface="phone"] .ph-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+}
+
+/* ---------- 8.6 the approval card: Approve and Deny at 48 px, Deny 40 % on the left, Approve 60 % on the right, a 12 px gap ---------- */
+html[data-surface="phone"] .approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+html[data-surface="phone"] .approval-actions > button {
+  min-height: var(--tap-lg);
+  min-width: 0;
+  font-size: 16px;
+  border-radius: var(--ph-btn-radius);
+}
+html[data-surface="phone"] .approval-actions > button.ph-deny { order: 1; flex: 4 1 0; }
+html[data-surface="phone"] .approval-actions > button.ph-approve { order: 2; flex: 6 1 0; }
+html[data-surface="phone"] .approval-actions > .hint { order: 3; flex: 1 1 100%; margin-left: 0; font-size: 15px; }
+
+/* Arming (8.6 rule 2): both buttons drawn at 60 % for 400 ms. They are never disabled for it. */
+html[data-surface="phone"] .approval[data-ph-arming] .approval-actions > button:not(.ph-again),
+html[data-surface="phone"] .approval[data-ph-arming] .ph-scope-btn:not(.ph-again) { opacity: 0.6; }
+
+/* An ignored tap: the button fills at once and reads "Tap again" (P-34). */
+html[data-surface="phone"] .approval-actions > button.ph-again,
+html[data-surface="phone"] .ph-scope-btn.ph-again {
+  opacity: 1;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+html[data-surface="phone"] .approval-actions > button.ph-deny.ph-again {
+  background: var(--surface-3);
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+/* Card scope choices (Always allow, for this run) are 44 px rows above the answers (8.6 rule 7). */
+html[data-surface="phone"] .ph-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+html[data-surface="phone"] .ph-scope-btn {
+  min-height: var(--tap);
+  width: 100%;
+  font-size: 15px;
+  text-align: left;
+  border-radius: var(--ph-btn-radius);
+}
+
+/* The reason field stays behind "Deny with a reason…" until it is asked for; its text is 16 px. */
+html[data-surface="phone"] .approval-reason {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--tap);
+  font-size: 16px;
+}
+html[data-surface="phone"] .ph-link-btn {
+  display: block;
+  min-height: var(--tap);
+  margin-top: 4px;
+  padding: 0 var(--gutter-tight);
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+}
+html[data-surface="phone"] .ph-off-note {
+  margin: 10px 0 0;
+  color: var(--warn);
+  font-size: 15px;
+}
+
+/* ---------- 8.10 the hand-over box: 48 px buttons, a 16 px field, the phone-type-secret strip above it ---------- */
+html[data-surface="phone"] .approval.typeit .approval-actions > button { min-height: var(--tap-lg); }
+html[data-surface="phone"] .approval.typeit .approval-reason { font-size: 16px; }
+html[data-surface="phone"] .approval.typeit .approval-note { font-size: 15px; }
+
+/* ---------- 8.6 the waiting bar: amber edge, 52 px tall, the View button 44 px ---------- */
+html[data-surface="phone"] .ph-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  margin: 0 var(--gutter-tight) 8px;
+  padding: 4px 8px 4px 14px;
+  border-radius: var(--ph-btn-radius);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--warn);
+  color: var(--text);
+  font-size: 15px;
+}
+html[data-surface="phone"] .ph-wait-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-surface="phone"] .ph-wait-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+html[data-surface="phone"] .ph-wait-view {
+  flex: 0 0 auto;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ---------- 9 the connection strip and the tier note ---------- */
+html[data-surface="phone"] .ph-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 var(--gutter-tight) 8px;
+  padding: 10px 12px;
+  border-radius: var(--ph-btn-radius);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-left: 4px solid var(--muted);
+  color: var(--text);
+}
+html[data-surface="phone"] .ph-strip[data-tone="warn"] { border-left-color: var(--warn); }
+html[data-surface="phone"] .ph-strip[data-tone="bad"] { border-left-color: var(--bad); }
+html[data-surface="phone"] .ph-strip-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+}
+html[data-surface="phone"] .ph-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html[data-surface="phone"] .ph-strip-btn {
+  min-height: var(--tap);
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+html[data-surface="phone"] .ph-tier-note {
+  margin: 0 var(--gutter-tight) 8px;
+  padding: 12px;
+  border-radius: var(--ph-btn-radius);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.4;
+}
+html[data-surface="phone"] #composer[hidden] { display: none; }
+
+/* ---------- 8.13 the Newer pill: 44 px, right of centre, clear of the floating Stop ---------- */
+html[data-surface="phone"] .ph-newer {
+  position: fixed;
+  left: 50%;
+  right: calc(var(--sa-right) + 88px);
+  bottom: calc(var(--composer-top, 0px) + 8px);
+  z-index: 30;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border-radius: 22px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  box-shadow: 0 4px 16px var(--line);
+}
+
+/* ---------- 8.8 Review: 56 px rows, Wrap on by default, the diff's own lines scroll when Wrap is off (P-29) ---------- */
+html[data-surface="phone"] .ph-wrap {
+  min-height: var(--tap);
+  margin: 0 0 8px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+html[data-surface="phone"] .ph-wrap[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+html[data-surface="phone"] .ext-review-lines {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+html[data-surface="phone"] .ext-review-lines.ph-nowrap {
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+/* The desktop draws each line as wide as its code (a row of max-content). On the phone a line is as wide as the screen and its code wraps;
+   with Wrap off the rows are as wide as their code again and the lines box scrolls. */
+html[data-surface="phone"] .ext-review-line { width: auto; min-width: 0; }
+html[data-surface="phone"] .ext-review-code {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+html[data-surface="phone"] .ext-review-lines.ph-nowrap .ext-review-line { width: max-content; min-width: 100%; }
+html[data-surface="phone"] .ext-review-lines.ph-nowrap .ext-review-code {
+  flex: 0 0 auto;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+html[data-surface="phone"] .ext-review-row { min-height: 56px; }
+html[data-surface="phone"] .ext-review-name { font-size: 13px; }
+html[data-surface="phone"] .ext-review-stats,
+html[data-surface="phone"] .ext-review-viewed { font-size: 12px; }
+/* "Viewed" on a row is a 44 px target: the box is drawn inside a 44 px square, so the tick keeps its size and the hit area grows. */
+html[data-surface="phone"] .ext-review-viewed { gap: 0; }
+html[data-surface="phone"] .ext-review-viewed input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  margin: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+html[data-surface="phone"] .ext-review-viewed input::before {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: 6px;
+  border: 2px solid var(--line-2);
+  background: var(--surface);
+}
+html[data-surface="phone"] .ext-review-viewed input:checked::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+html[data-surface="phone"] .ext-review-viewed input:checked::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  width: 6px;
+  height: 11px;
+  border: solid var(--accent-ink);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+html[data-surface="phone"] .ext-review-viewed input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-radius: 10px; }
+/* [‹ Previous] [Viewed ✓] [Next ›] under the diff, 48 px; "2 of 3" is a line above the three. */
+html[data-surface="phone"] .ph-review-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px;
+  min-width: 0;
+}
+html[data-surface="phone"] .ph-review-nav[hidden] { display: none; }
+html[data-surface="phone"] .ph-review-where {
+  order: -1;
+  flex: 0 0 100%;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+html[data-surface="phone"] .ph-review-nav button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+}
+html[data-surface="phone"] .ph-review-nav button:disabled { opacity: 0.55; }
+html[data-surface="phone"] .ph-review-nav .ph-review-viewed[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+/* ---------- 8.7 Agents: rows 56 px, every Stop 44 px or more, the nested agents indented ---------- */
+html[data-surface="phone"] .ext-agl-row { min-height: 56px; }
+html[data-surface="phone"] .ext-agl-nested { margin-left: 16px; }
+html[data-surface="phone"] .ext-agl-stop,
+html[data-surface="phone"] .ext-agl-stop-all,
+html[data-surface="phone"] .ext-board-stop,
+html[data-surface="phone"] .ext-board-open {
+  min-height: var(--tap);
+  min-width: var(--tap);
+}
+html[data-surface="phone"] .ext-board-run-line { flex-wrap: wrap; }
+
+/* ---------- 8.9 and 8.10 Artifacts and the computer run view: pictures fit the width; the filmstrip scrolls sideways ---------- */
+html[data-surface="phone"] .cr-stage img,
+html[data-surface="phone"] .cr-viewer-img {
+  max-width: 100%;
+  height: auto;
+}
+html[data-surface="phone"] .cr-bar { overflow-x: auto; }
+
+/* ---------- 8.11 Browser: the picture fills the width; the tabs scroll sideways ---------- */
+html[data-surface="phone"] .ext-brw-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+html[data-surface="phone"] .ext-brw-url { font-size: 16px; min-height: var(--tap); }
+html[data-surface="phone"] .ext-brw-tabs { overflow-x: auto; }
+
+/* ---------- 8.12 Settings: This phone, and the Report sheet ---------- */
+html[data-surface="phone"] .ph-note-line {
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.4;
+}
+html[data-surface="phone"] .ph-report-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap-lg);
+  margin-top: 8px;
+  border-radius: var(--ph-btn-radius);
+  border: 1px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+}
+html[data-surface="phone"] .ph-report-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+html[data-surface="phone"] .ph-note-field {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: var(--ph-btn-radius);
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+}
+html[data-surface="phone"] .ph-sheet-report .ph-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-surface="phone"] .ph-newer,
+  html[data-surface="phone"] .ph-wait { transition-duration: 0s; }
+}
+
+/* ---------- the composer's mic (L18, P-24): drawn only when plenumShell.caps names dictation ---------- */
+html[data-surface="phone"] .composer-bar > .ph-mic {
+  order: 2;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+html[data-surface="phone"] .ph-mic .ic { width: 20px; height: 20px; }
+html[data-surface="phone"] .ph-mic[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ---------- 8.12 the notes the phone adds to the desktop's own Settings sections ---------- */
+html[data-surface="phone"] .ph-settings-note {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.4;
+}

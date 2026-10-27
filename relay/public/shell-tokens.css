@@ -1,0 +1,65 @@
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces, from the page background up to the most raised. The two --bg values are repeated
+     in app.js (the window colour the desktop app picks up) and in desktop/main.cjs. */
+  --bg: light-dark(#f6f6fb, #0a0a11);
+  --bg-side: light-dark(#eeeef7, #0d0d16);
+  --surface: light-dark(#ffffff, #13131d);
+  --surface-2: light-dark(#f2f2f9, #1a1a27);
+  --surface-3: light-dark(#e6e6f2, #232434);
+  --line: light-dark(rgba(24, 22, 60, 0.09), rgba(255, 255, 255, 0.07));
+  --line-2: light-dark(rgba(24, 22, 60, 0.16), rgba(255, 255, 255, 0.13));
+  --sheen: light-dark(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.05));
+
+  --text: light-dark(#15151f, #edeef6);
+  --text-2: light-dark(#40435a, #b9bdcf);
+  --muted: light-dark(#686c85, #8389a0);
+
+  /* The brand runs periwinkle to orchid, the same as the loop in the app icon. */
+  --accent: light-dark(#5a48dd, #a9b2ff);
+  --accent-2: light-dark(#b0409f, #dfa3e4);
+  --accent-ink: light-dark(#ffffff, #100d24);
+  --brand: linear-gradient(120deg, light-dark(#5568ee, #9fb1ff) 0%, light-dark(#7a52e0, #c2a9f7) 52%, light-dark(#b548ad, #e4a1de) 100%);
+  --glow-a: light-dark(rgba(110, 96, 255, 0.17), rgba(124, 108, 255, 0.2));
+  --glow-b: light-dark(rgba(214, 120, 210, 0.13), rgba(224, 140, 222, 0.1));
+  --halo: radial-gradient(closest-side, light-dark(rgba(110, 96, 255, 0.34), rgba(126, 110, 255, 0.5)), light-dark(rgba(214, 120, 210, 0.12), rgba(224, 150, 225, 0.16)) 55%, transparent 74%);
+
+  --claude: light-dark(#bd5b27, #ec9a6c);
+  --muse: light-dark(#2c62d8, #8fb4ff);
+  --codex: light-dark(#18814b, #76d8a4);
+  --advisor: light-dark(#6b3dc2, #c8a8ff);
+  --ok: light-dark(#157a48, #62d6a0);
+  --bad: light-dark(#c22c3c, #ff8088);
+  --warn: light-dark(#8a5a00, #f6c468);
+  /* Gemini: a teal-blue, apart from Muse blue, and readable on both surfaces. */
+  --gemini: light-dark(#0c7d91, #6fd6e6);
+  /* Cursor: a graphite slate. It is apart from every provider's colour, and from amber, red and green, which mean attention, failure and passed. */
+  --cursor: light-dark(#4b5b6e, #b4c3d6);
+  /* Grok Build: a rose, apart from every provider colour and from amber (attention), red (failure) and green (passed). */
+  --grok: light-dark(#b5366f, #ff8fbe);
+
+  --code-bg: light-dark(#f1f1f8, #08080d);
+  --scrim: light-dark(rgba(40, 38, 70, 0.28), rgba(4, 4, 10, 0.55));
+  --shade-1: light-dark(rgba(30, 26, 80, 0.06), rgba(0, 0, 0, 0.4));
+  --shade-2: light-dark(rgba(30, 26, 80, 0.17), rgba(0, 0, 0, 0.5));
+  --shade-3: light-dark(rgba(30, 26, 80, 0.28), rgba(0, 0, 0, 0.7));
+  --shadow-1: 0 1px 2px var(--shade-1), 0 10px 26px -8px var(--shade-2);
+  --shadow-2: 0 2px 6px var(--shade-1), 0 28px 64px -14px var(--shade-3);
+
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --bar-h: 52px;
+  --col: min(800px, 100% - 56px);
+  /* Space taken by the window buttons when the desktop app draws its own title bar. */
+  --win-controls: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  --win-top: env(titlebar-area-height, 0px);
+
+  --i-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  /* The same chevron in a mid grey, for menus the browser draws itself. */
+  --i-chevron-grey: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238389a0' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  --i-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}

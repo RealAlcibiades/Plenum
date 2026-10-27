@@ -1,0 +1,6 @@
+/* Fixture shell stylesheet: tokens only. A var() fallback may hold a literal; a bare literal may not. */
+body {
+  background: var(--bg, #0a0a11);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+}

@@ -1,0 +1,11 @@
+Copyright (c) [LICENSOR NAME]. All rights reserved.
+
+This licence covers only the files in the relay folder of the Plenum repository (the Worker, the Durable Object, the placeholder and built phone shell under public/, the tests, package.json, wrangler.jsonc and the README).
+
+You may deploy unmodified copies of the files in this folder to your own Cloudflare account, and run them, for use with Plenum. All other rights reserved.
+
+This folder does not grant any right to modify the files, to redistribute them, to offer a relay to anyone else, or to use them with software other than Plenum, except with the copyright holder's written permission.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Plenum's own licence and end-user agreement, in the root of the repository, govern the Plenum application that talks to this relay.

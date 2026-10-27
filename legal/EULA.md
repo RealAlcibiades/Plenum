@@ -22,7 +22,7 @@ You must be at least 18, or the age of majority where you live if that is higher
 
 ## 2. Your licence
 
-We give you a free, personal, non-exclusive, non-transferable, revocable licence to install and use Plenum on computers you own or control, for your own purposes or your organization's internal purposes, as long as you follow this agreement.
+We give you a free, personal, non-exclusive, non-transferable, revocable licence to install and use Plenum on computers and phones you own or control (the Plenum phone apps and web app are part of Plenum), for your own purposes or your organization's internal purposes, as long as you follow this agreement.
 
 Plenum changes its own files only when you apply an update in its Updates panel or install a new version of Plenum (section 11), and you may change your own installed copy for your own use. A changed copy is your responsibility. This agreement still applies to it, and so do sections 12 and 13.
 
@@ -80,6 +80,7 @@ Plenum can let AI models act on your computer as well as answer. Depending on th
 - Plenum's safety features lower some risks, but they are not complete and they can fail. They include approval cards, blocked folders and commands, checkpoints, turn snapshots with Rewind, plan mode, sandbox settings, spend limits and the check that keeps a model from typing into a password field. They do not cover what providers' tools do on their own, such as files that Codex, Gemini or Muse Code write, or what Cursor does when it runs in its print mode. Snapshots cannot undo anything outside your project folder, such as a message that was sent or a change on another system. The password-field check depends on what your operating system tells Plenum about the field that has the focus. On Windows Plenum does not type where it cannot tell. On macOS and Linux it types where the system cannot say, and on Linux it can tell only in programs that expose their fields to the accessibility service. A model can also be misled by instructions hidden in files, web pages, screens or tool output ("prompt injection").
 - You are responsible for protecting your systems and data. Keep backups and use version control. For agents that act without asking, prefer a separate user account, container or virtual machine. Watch long runs. Keep passwords and private information out of view when a model can see your screen. Do not point agents at systems, accounts or data you are not allowed to use.
 - You are responsible for following the terms of every website, app and service an agent uses for you.
+- A phone you pair with Plenum can start, approve and stop the same actions as the Plenum window on that computer. Actions taken from a paired phone are your actions. Keep paired phones locked, remove a lost or shared phone under Settings > Phones, and secure the accounts (your network, your Tailscale or your own relay) that carry the connection. Those networks and services are not ours and we give no warranty for them.
 
 ## 9. Acceptable use
 
@@ -95,11 +96,13 @@ Do not use Plenum, or let an agent use it, to:
 
 ## 10. Privacy
 
-Plenum runs on your computer and sends us nothing. It has no telemetry, analytics or crash reporting, no account with us, and no server of ours. The Privacy Notice describes what Plenum keeps on your computer and what it sends to the providers you choose. It is part of this agreement. If you use Plenum for an organization, or with other people's personal data, you are responsible for following the data-protection laws that apply to you.
+Plenum runs on your computer and sends us nothing. It has no telemetry, analytics or crash reporting, no account with us, and no server of ours. The Privacy Notice describes what Plenum keeps on your computer and what it sends to the providers you choose. The Privacy Notice also describes the phone link. It is part of this agreement. If you use Plenum for an organization, or with other people's personal data, you are responsible for following the data-protection laws that apply to you.
 
 ## 11. Updates and changes
 
 Plenum can check for new versions that we publish on GitHub and, on builds that support it, download them and install them when you choose Restart to update or when you quit Plenum, and it never restarts by itself. You can turn the check off in Settings > Updates; you then update by downloading a new version yourself. The Privacy Notice (section 6) says what the check sends. The Updates panel is different: it only applies changes that a model proposed and that you reviewed and chose to apply. Those changes come from the model, not from us. When Plenum updates to a new version, the changes you applied from the Updates panel are set aside, so that the new version runs as we shipped it.
+
+The Plenum phone apps update through their app store or the release page, not through Plenum on your computer. A phone app and the computer may run different versions; Plenum shows which one needs updating.
 
 We may change, suspend or stop Plenum or any feature at any time, and some features may be marked as planned or experimental. We have no duty to support, fix or update Plenum.
 
@@ -149,7 +152,7 @@ You may end this agreement at any time by uninstalling Plenum and deleting your 
 
 ## 17. Export and sanctions
 
-You will follow the export-control and sanctions laws that apply to you and to Plenum. You confirm that those laws do not bar you from receiving software. Plenum includes standard encryption from Electron and Chromium, which some countries regulate.
+You will follow the export-control and sanctions laws that apply to you and to Plenum. You confirm that those laws do not bar you from receiving software. Plenum includes standard encryption from Electron and Chromium, and the phone link uses X25519 key exchange and ChaCha20-Poly1305 encryption implemented in Plenum itself, which some countries regulate.
 
 ## 18. Governing law and disputes
 

@@ -3,8 +3,8 @@
   "effective": "[EFFECTIVE DATE]",
   "contact": "[CONTACT EMAIL]",
   "sha256": {
-    "EULA.md": "ff5ab1cc8a090a79534eb9736462396bbc83afd9358973152a66b9d402085007",
-    "PRIVACY.md": "5696eae726ee5e8c038f8f31bf51c4b43d74da1197386a01ea9bc35457d5b74f"
+    "EULA.md": "b02792986ff7f5c757b1ac73df7a4a53a6c0bc19dc5c619fc6130316df84547b",
+    "PRIVACY.md": "5484740b0d6aaab18350209d687a62c723e6174c2e7f9b20cf305cde2be1e6e6"
   },
   "changes": {
     "1": [
@@ -26,6 +26,8 @@
       "Cursor is now described as a tool Plenum runs. It signs in through Cursor's own sign-in, and Plenum does not use a Cursor API key.",
       "Both documents now describe the local bridge through which Claude Code, Codex, Gemini CLI and Cursor can use Plenum's browser, computer use and agents, the check that runs after each turn, the tool test, and where the screenshots of a computer-use run go. The License Agreement says what Plenum's password-field check does and does not cover.",
       "Grok Build is now described as a tool Plenum runs, with its own sign-in and no xAI key, and the Privacy Notice lists the threads of a project, the dated copy of the state file made before threads, and the isolated copies (git worktrees) kept outside the project.",
+      "Plenum can now pair with your phone. The License Agreement says that a paired phone can start, approve and stop actions on your computer and that those actions are yours; the Privacy Notice describes what the phone link stores, what leaves your computer in each connection mode (your network, your Tailscale, your own relay) and what phone notifications contain.",
+      "The License Agreement names the encryption Plenum itself implements for the phone link (X25519 and ChaCha20-Poly1305).",
       "Plenum still collects nothing and sends nothing to us."
     ]
   }

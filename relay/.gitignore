@@ -1,0 +1,11 @@
+# Installed packages and local Worker state
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
+
+# Logs and OS files
+*.log
+Thumbs.db
+.DS_Store

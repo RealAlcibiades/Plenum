@@ -32,6 +32,7 @@ Nothing from the app. Update checks go to GitHub, not to us (section 6). Plenum 
 | The in-app browser's profile: cookies, sign-ins, site storage, cache and history of the sites opened in the Browser pane | `Partitions/plenum-browser` in the desktop app's user-data folder (the one named for `keys.json` below) | Kept between runs of Plenum, so the sites you signed in to stay signed in. Clear it with **Clear browsing data** in the Browser pane's settings, or delete that folder while Plenum is closed. |
 | Files downloaded in the Browser pane | The system Downloads folder, or a folder you choose in the pane | Saved only after you answer the question Plenum shows for each download. Until then the file waits in a private temporary folder, which is emptied if you cancel. Plenum never opens or runs a downloaded file, and never deletes one it saved. |
 | API keys | `keys.json` in the desktop app's user-data folder: `%APPDATA%\Plenum`, `~/Library/Application Support/Plenum` or `~/.config/Plenum` | Encrypted by the operating system (see section 3) |
+| Phone link: this computer's phone-link key, the list of paired phones (names, public keys, when they were paired and last seen, their notification addresses), the relay room secret and notification signing keys | `phones.json` in the desktop app's user-data folder (the one named for `keys.json`), or `phones.json` in the state folder when Plenum is started with node | Encrypted by the operating system in the desktop app; plain text under node. Delete a phone under Settings > Phones, or the file while Plenum is closed. |
 | Server log | `server.log` in the same user-data folder (desktop app only) | Start-up, status and error messages. It can include file paths, project names and error text from providers. It never includes keys. |
 | A random rollout ID (desktop app only) | `.updaterId` in the desktop app's user-data folder (`%APPDATA%\Plenum` on Windows, `~/Library/Application Support/Plenum` on macOS, `~/.config/Plenum` on Linux) | Sent with each update check so a release can reach a share of installs first. It identifies the install, not you. We never receive it. Delete the file to remove it; the next check makes a new one. |
 | Update bookkeeping and installers (desktop app only) | `update-state.json` and `updates` in the same user-data folder | Which versions were offered, installed or skipped. On Windows, `updates` holds the installer of the version that is running, kept so a version that does not start can be put back, and the one waiting to be installed. The updater also keeps a downloaded installer in its own cache folder, `muse-console-updater` under your local app-data folder (`%LOCALAPPDATA%` on Windows, `~/Library/Caches` on macOS, `~/.cache` on Linux), until it is installed. Delete these folders to remove them. |
@@ -102,29 +103,39 @@ Plenum sends data to a provider only when you use a feature that needs a model, 
 - Links you click open in your own web browser.
 - The in-app browser loads the sites that you or a model open. Those sites see what any browser visit shows them.
 - Plenum turns off the online spell-check dictionary download that Electron would otherwise make on Linux.
+- **Phones.** Off until you pair a phone. With Allow phones on this network, this computer listens on your network and other devices on it can see that Plenum is running. With Tailscale, Plenum runs your own Tailscale, which sees connection metadata and publishes your machine name in a public certificate log under its own privacy policy. With a relay, this computer connects out to the relay you deployed in your own Cloudflare account, which sees IP addresses, timing and sizes but never content, because everything between phone and computer is end-to-end encrypted with keys only your devices hold. The web page a phone opens from the same network is the exception: it is plain http, so devices on that network can see and change the page itself, though not the messages inside the encrypted link. A Stop sent from a locked phone travels outside the encrypted link, signed with a key only that phone and your computer hold; your network can see that a Stop was sent, not what it stopped. Nothing goes to us in any mode.
+- **Phone notifications.** When you turn them on, this computer sends a short notification through Apple's or Google's push service (or the UnifiedPush app you chose) to your phone. It contains only the project name and a status, encrypted so the push service cannot read it, unless you turn on Include the first line.
 
 Plenum makes no other network requests of its own.
 
 ## 7. Notifications
 
-Desktop notifications show only the project name and a short status. They never include a prompt or a reply.
+Desktop and phone notifications show only the project name and a short status. They never include a prompt or a reply. On a phone you can choose to include the first line of a waiting card.
 
 ## 8. Your choices
 
 You control Plenum's data. You can read it, export a chat from **Chat history**, or delete the folders listed in section 2. We hold no data about you, so there is nothing for us to access, correct or delete. Send requests about data a provider holds to that provider. If you use Plenum for an organization, your organization decides how the data is used and is responsible for it.
 
-## 9. Children
+## 9. Plenum on your phone
+
+The Plenum phone apps and the Plenum web app keep these on the phone: the keys that pair it with your computer, in the phone's Keychain or Keystore or in the web app's storage; the list of computers it is paired with; cached copies of the Plenum interface files from your computer; and your notification and app-lock settings. They keep no chat transcripts.
+
+What travels between the phone and your computer is end-to-end encrypted with keys that only your devices hold, using X25519 key exchange and ChaCha20-Poly1305 encryption. The web page a phone opens from the same network (plain http) is not covered: devices on that network can see and change that page. A Stop sent from a locked phone is signed rather than encrypted, so your network can see that it was sent. Your network, your Tailscale or your own relay sees only addresses, timing and sizes, never content. What you send from the phone goes from your computer to the AI providers you set up, as it does from the desktop, and each provider handles it under its own privacy policy.
+
+Uninstalling a phone app deletes what the app stores on the phone, but not the pairing on your computer. Remove the phone under Settings > Phones on the computer to end the pairing.
+
+## 10. Children
 
 Plenum is not meant for children. You must be 18 or older to use it. We do not knowingly collect information from anyone, including children.
 
-## 10. Security
+## 11. Security
 
-Plenum's local server listens only on your own computer (127.0.0.1) and answers only requests from Plenum's own page. Chat history, settings, check output, turn snapshots and computer-use run logs are stored without encryption. Anyone or anything that can use your computer account can read them. Commands and provider tools that a model runs get your user rights and your environment variables, except the keys Plenum removes, so secrets in your environment are visible to them. The check command you set for a project runs the same way after a turn that changed files.
+Plenum's local server listens only on your own computer (127.0.0.1) and answers only requests from Plenum's own page. The phone link is a separate, opt-in, end-to-end encrypted channel that is off until you pair a phone; paired phones are listed and can be removed under Settings > Phones. Chat history, settings, check output, turn snapshots and computer-use run logs are stored without encryption. Anyone or anything that can use your computer account can read them. Commands and provider tools that a model runs get your user rights and your environment variables, except the keys Plenum removes, so secrets in your environment are visible to them. The check command you set for a project runs the same way after a turn that changed files.
 
-## 11. Changes to this notice
+## 12. Changes to this notice
 
 The version and effective date are at the top. When this notice changes in a way that matters, Plenum shows the new version and asks you to review it before you continue.
 
-## 12. Contact
+## 13. Contact
 
 [LICENSOR NAME] · [CONTACT EMAIL]

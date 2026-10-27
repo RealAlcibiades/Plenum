@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext is allowed for the LAN channel only in practice: the shell's pages load from https://localhost, and the
+     channel to the computer is ws:// on the local network with Noise inside it. MOBILE.json mobile.android_specifics:
+     base-config cleartextTrafficPermitted true. No domain-config and no debug-overrides: nothing else is loosened. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

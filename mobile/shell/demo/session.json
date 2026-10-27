@@ -1,0 +1,63 @@
+{
+  "format": "plenum-demo-session",
+  "version": 1,
+  "note": "A recorded session for the store review and the offline demo (MOBILE-UI 6.18). Nothing here reaches a computer. Names are examples.",
+  "computer": { "name": "Demo computer", "desktopVersion": "1.4.2", "carrier": "lan" },
+  "projects": [{ "id": "my-app", "name": "my-app" }],
+  "runs": [
+    { "id": "run-1", "project": "my-app", "title": "Fix the login redirect", "state": "running", "since": "14:02", "waitingFor": "approval" },
+    { "id": "run-2", "project": "my-app", "title": "Add a test for the retry queue", "state": "finished", "since": "13:10", "summary": "Finished: Add a test for the retry queue" }
+  ],
+  "approvals": [
+    {
+      "id": "ap-1",
+      "runId": "run-1",
+      "project": "my-app",
+      "kind": "command",
+      "firstLine": "npm test -- --watch=false",
+      "detail": "Runs in my-app. Changes nothing outside the folder.",
+      "defaultDeny": false,
+      "state": "waiting"
+    }
+  ],
+  "agents": [{ "id": "agent-1", "name": "Reviewer", "runId": "run-1", "state": "running" }],
+  "computerRun": {
+    "id": "cr-1",
+    "runId": "run-1",
+    "app": "Notepad",
+    "step": 12,
+    "of": 80,
+    "state": "driving",
+    "frames": [
+      { "caption": "Step 11. Notepad is open.", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 360 220'><rect width='360' height='220' fill='#f4f4f8'/><rect x='12' y='12' width='336' height='24' fill='#d9dbe6'/><text x='20' y='29' font-family='sans-serif' font-size='13' fill='#222'>Notepad</text><rect x='20' y='50' width='320' height='150' fill='#ffffff' stroke='#c8cad6'/><text x='30' y='74' font-family='monospace' font-size='12' fill='#222'>def login(next):</text><text x='30' y='92' font-family='monospace' font-size='12' fill='#222'>  return redirect(next)</text></svg>" },
+      { "caption": "Step 12. The cursor is on the redirect line.", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 360 220'><rect width='360' height='220' fill='#f4f4f8'/><rect x='12' y='12' width='336' height='24' fill='#d9dbe6'/><text x='20' y='29' font-family='sans-serif' font-size='13' fill='#222'>Notepad</text><rect x='20' y='50' width='320' height='150' fill='#ffffff' stroke='#c8cad6'/><text x='30' y='74' font-family='monospace' font-size='12' fill='#222'>def login(next):</text><text x='30' y='92' font-family='monospace' font-size='12' fill='#1f6feb'>  return redirect(safe(next))</text><rect x='30' y='100' width='120' height='2' fill='#1f6feb'/></svg>" }
+    ]
+  },
+  "diff": {
+    "id": "diff-1",
+    "runId": "run-1",
+    "file": "src/login.js",
+    "added": 2,
+    "removed": 1,
+    "hunks": [
+      {
+        "header": "@@ -12,3 +12,4 @@",
+        "lines": [
+          { "t": " ", "s": "export function login(req) {" },
+          { "t": "-", "s": "  return redirect(req.query.next);" },
+          { "t": "+", "s": "  const next = safeNext(req.query.next);" },
+          { "t": "+", "s": "  return redirect(next);" },
+          { "t": " ", "s": "}" }
+        ]
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "id": "art-1",
+      "name": "login-flow.svg",
+      "caption": "The login flow after the fix.",
+      "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 360 160'><rect width='360' height='160' fill='#f4f4f8'/><rect x='20' y='56' width='90' height='40' rx='6' fill='#dfe3f0' stroke='#6b72a6'/><text x='32' y='80' font-family='sans-serif' font-size='13' fill='#222'>Sign in</text><rect x='135' y='56' width='90' height='40' rx='6' fill='#dfe3f0' stroke='#6b72a6'/><text x='147' y='80' font-family='sans-serif' font-size='13' fill='#222'>Check</text><rect x='250' y='56' width='90' height='40' rx='6' fill='#dfe3f0' stroke='#6b72a6'/><text x='262' y='80' font-family='sans-serif' font-size='13' fill='#222'>Return</text><line x1='110' y1='76' x2='135' y2='76' stroke='#6b72a6' stroke-width='2'/><line x1='225' y1='76' x2='250' y2='76' stroke='#6b72a6' stroke-width='2'/></svg>"
+    }
+  ]
+}

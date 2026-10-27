@@ -1,0 +1,130 @@
+/* Fixture styles (mob-18). Stands in for the shell until mobile/www has the real shell. Tokens on :root, dark under the three rules. */
+:root {
+  --bg: #f5f5f2;
+  --fg: #1c1c1a;
+  --muted: #5d5d58;
+  --card: #ffffff;
+  --line: #d6d6cf;
+  --accent: #2b59c3;
+  --ok: #1d7443;
+  --warn: #8a5a00;
+  --stop: #b3261e;
+  --on-stop: #ffffff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131312;
+    --fg: #ededea;
+    --muted: #a8a8a2;
+    --card: #1e1e1c;
+    --line: #3a3a36;
+    --accent: #8fb0ff;
+    --ok: #7fd9a2;
+    --warn: #f0c46e;
+    --stop: #f2b8b5;
+    --on-stop: #3a0d0a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131312;
+  --fg: #ededea;
+  --muted: #a8a8a2;
+  --card: #1e1e1c;
+  --line: #3a3a36;
+  --accent: #8fb0ff;
+  --ok: #7fd9a2;
+  --warn: #f0c46e;
+  --stop: #f2b8b5;
+  --on-stop: #3a0d0a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+body {
+  min-height: 100vh;
+  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
+}
+
+.fx-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.fx-title { font-weight: 600; font-size: 19px; }
+.fx-chip {
+  max-width: 60%;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fx-main { padding: 16px; }
+.fx-screen { display: block; }
+.fx-head { margin: 8px 0 6px; font-size: 24px; line-height: 1.2; font-weight: 650; overflow-wrap: anywhere; }
+.fx-text { margin: 0 0 16px; color: var(--muted); overflow-wrap: anywhere; }
+.fx-code {
+  margin: 12px 0 20px;
+  font: 600 44px/1.1 ui-monospace, Consolas, "Courier New", monospace;
+  letter-spacing: 0.12em;
+  text-align: center;
+}
+.fx-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; }
+.fx-list dt { color: var(--muted); }
+.fx-list dd { margin: 0; overflow-wrap: anywhere; }
+.fx-card {
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.fx-card p { margin: 0 0 12px; overflow-wrap: anywhere; }
+.fx-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fx-button {
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+}
+.fx-button.primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+.fx-note { margin-top: 12px; color: var(--warn); overflow-wrap: anywhere; }
+
+.fx-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.fx-stop {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--stop);
+  color: var(--on-stop);
+  font: 600 18px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+body[data-screen="stop-pressed"] .fx-stop { opacity: 0.7; }
+body[data-screen="offline"] .fx-title,
+body[data-screen="reconnecting"] .fx-title { color: var(--warn); }
+body[data-screen="connected"] .fx-title { color: var(--ok); }

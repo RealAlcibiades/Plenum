@@ -6,6 +6,7 @@
 #      alpha*.yml) and the .blockmap files to that draft. Each build is also uploaded as a workflow artifact.
 #   3. feed: merges the two macOS feed files. The arm64 and x64 builds each write the same latest-mac.yml, and the second
 #      upload would replace the first, so the merged file lists both architectures and is uploaded again.
+#   4. mobile-*: the phone shell zip, the signed Android and iPhone builds attach to the same draft. See the comment above them.
 # Publishing the draft is what makes the update visible to installed apps. A draft is invisible to them until then, so
 # review its assets and its notes first.
 #
@@ -18,6 +19,10 @@
 #                                                       Signs the macOS builds. A signed macOS build is marked
 #                                                       plenumSigned, and then the Mac app installs updates itself.
 #   APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER   An App Store Connect key for notarisation. All three or none.
+#   ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD,    The signed Android APK and AAB (mobile-android). All four or none.
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#   MATCH_PASSWORD, MATCH_GIT_BASIC_AUTHORIZATION,      The signed iPhone archive (mobile-ios). With the three APPLE_API_*
+#   MATCH_GIT_URL                                       names above: all six or none.
 #
 # The app shows the draft's notes as plain text under "What changed in <version>". Bullets and line breaks are kept;
 # links, images and other formatting are dropped; the text is cut at 4000 characters. Short lines or a bullet list read best.
@@ -187,6 +192,14 @@ jobs:
       - name: Build the legal texts
         run: npm run legal
 
+      # The phone shell (mobile/www) ships inside the app; it is built from mobile/shell with the phone packages, as every pack
+      # and dist script does locally.
+      - name: Build the phone shell
+        shell: bash
+        run: |
+          (cd mobile && npm ci --ignore-scripts --no-audit --no-fund)
+          npm run mobile:build
+
       # Each platform sees only its own certificate secrets. WIN_CSC_LINK would otherwise fall back to CSC_LINK.
       # forceCodeSigning is added only when that platform's certificate secret is set, so a broken certificate
       # fails the build instead of shipping unsigned.
@@ -331,3 +344,383 @@ jobs:
           for file in "$RUNNER_TEMP"/merged/*.yml; do
             gh release upload "$TAG" "$file" --clobber --repo "$REPO"
           done
+
+  # Phone builds for this tag (track B, wave 119). They run after prepare and attach to the same draft. None of them publishes to
+  # a store, submits for review or uploads to TestFlight: that stays in the manual run of mobile.yml.
+  #   mobile-check    Counts the signing secrets. Each platform is all or none, and a partial set fails this job. No write token.
+  #   mobile-shell    Builds the phone shell (mobile/www) and zips it as plenum-shell-<version>.zip. Needs no signing secret.
+  #   mobile-android  Signed APK and AAB, only when the four Android secrets are set. Runs in the release-signing environment.
+  #   mobile-ios      Signed iPhone archive and IPA, only when the six Apple secrets are set. Runs in the release-signing environment.
+  #   mobile-attach   The only job with contents: write. It downloads the plenum-* artifacts and uploads them to the draft. It
+  #                   checks out no code and runs no build step.
+  # The signing jobs start only when mobile-check has passed with their secrets set, so a missing set skips them without a
+  # reviewer being asked. Owner: create the environment release-signing (Settings > Environments) with required reviewers. The
+  # secrets stay repository secrets, because mobile-check reads them before any environment is reached. The tag jobs of mobile.yml
+  # (android-release and ios-archive) are separate and are not held by this environment.
+  mobile-check:
+    name: Check the phone signing secrets (all or none)
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      android: ${{ steps.check.outputs.android }}
+      ios: ${{ steps.check.outputs.ios }}
+    steps:
+      # The values are passed to the script as environment variables and are never printed. Only the counts are.
+      - name: Count the signing secrets that are set
+        id: check
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+        run: |
+          count() {
+            local n=0 value
+            for value in "$@"; do
+              if [ -n "$value" ]; then n=$((n + 1)); fi
+            done
+            echo "$n"
+          }
+          android=$(count "$ANDROID_KEYSTORE_B64" "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD")
+          ios=$(count "$APPLE_API_KEY" "$APPLE_API_KEY_ID" "$APPLE_API_ISSUER" "$MATCH_PASSWORD" "$MATCH_GIT_BASIC_AUTHORIZATION" "$MATCH_GIT_URL")
+          if [ "$android" -ne 0 ] && [ "$android" -ne 4 ]; then
+            echo "::error::ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD must all be set, or none."
+            exit 1
+          fi
+          if [ "$ios" -ne 0 ] && [ "$ios" -ne 6 ]; then
+            echo "::error::APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER, MATCH_PASSWORD, MATCH_GIT_BASIC_AUTHORIZATION and MATCH_GIT_URL must all be set, or none."
+            exit 1
+          fi
+          android_state=false
+          if [ "$android" -eq 4 ]; then android_state=true; fi
+          ios_state=false
+          if [ "$ios" -eq 6 ]; then ios_state=true; fi
+          {
+            echo "android=$android_state"
+            echo "ios=$ios_state"
+          } >> "$GITHUB_OUTPUT"
+          echo "Phone signing: Android $android_state ($android of 4 secrets set), iOS $ios_state ($ios of 6 set)."
+
+  mobile-shell:
+    name: Build the phone shell zip
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install the mobile packages
+        working-directory: mobile
+        run: npm ci
+
+      # scripts/build-mobile.mjs writes mobile/www and relay/public. --check then confirms that both are complete.
+      - name: Build the phone shell and check its output
+        run: |
+          node scripts/build-mobile.mjs
+          node scripts/build-mobile.mjs --check
+
+      - name: Zip the shell
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/shell-out"
+          mkdir -p "$out"
+          zip_path="$out/plenum-shell-$VERSION.zip"
+          (cd mobile/www && zip -q -r -X "$zip_path" .)
+          unzip -Z1 "$zip_path" > "$RUNNER_TEMP/shell-files.txt"
+          grep -qx 'index.html' "$RUNNER_TEMP/shell-files.txt"
+          grep -qx 'shell.js' "$RUNNER_TEMP/shell-files.txt"
+          echo "Zipped $(wc -l < "$RUNNER_TEMP/shell-files.txt" | tr -d ' ') files into plenum-shell-$VERSION.zip."
+
+      - name: Upload the shell zip
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plenum-shell
+          path: ${{ runner.temp }}/shell-out/plenum-shell-${{ needs.prepare.outputs.version }}.zip
+          if-no-files-found: error
+
+  mobile-android:
+    name: Android signed APK and AAB
+    needs: [prepare, mobile-check]
+    if: needs.mobile-check.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release-signing
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up JDK 21 (temurin)
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up the Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+
+      - name: Install the SDK packages for API 36
+        run: |
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdk" ]; then sdk="$(command -v sdkmanager)"; fi
+          yes | "$sdk" --licenses > /dev/null || true
+          "$sdk" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install the mobile packages, build the shell and sync the Android project
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      # The keystore is written to the runner's temporary folder. The last step of this job removes it, whatever happened before.
+      - name: Decode the upload keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/plenum-upload.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          echo "ANDROID_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
+
+      # The passwords reach Gradle as environment variables, and the build reads ANDROID_KEYSTORE_PATH (app/build.gradle).
+      - name: Build the signed APK and AAB
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - name: Check that the APK is signed
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="mobile/android/app/build/outputs/apk/release/app-release.apk"
+          aab="mobile/android/app/build/outputs/bundle/release/app-release.aab"
+          test -f "$apk"
+          test -f "$aab"
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          "$apksigner" verify --min-sdk-version 26 "$apk"
+
+      - name: Upload the signed APK and AAB
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plenum-android-release
+          path: |
+            mobile/android/app/build/outputs/apk/release/app-release.apk
+            mobile/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Remove the upload keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/plenum-upload.keystore"
+
+  mobile-ios:
+    name: iOS archive and IPA for the App Store
+    needs: [prepare, mobile-check]
+    if: needs.mobile-check.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: release-signing
+    permissions:
+      contents: read
+    env:
+      # The bundle identifier the owner confirms (MOBILE.json owner_todos). mobile/capacitor.config.ts holds the same value.
+      APP_BUNDLE_ID: com.realalcibiades.plenum
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode 26
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26 is installed on this runner image."
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      # SPM only: the project is App.xcodeproj, with no workspace and no pod install (CocoaPods is not used).
+      - name: Install the mobile packages, build the shell and sync the iOS project
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run build
+          npx cap sync ios
+
+      # The version is pinned on purpose (2.241.0, published on RubyGems 10 Oct 2026). Change it here, after reading its release notes.
+      - name: Install fastlane 2.241.0
+        run: gem install fastlane -v 2.241.0 -N
+
+      # The App Store Connect key is written to the runner's temporary folder, and the last step of this job removes it.
+      - name: Write the App Store Connect key
+        shell: bash
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$APPLE_API_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+
+      # Read-only: fastlane fetches the certificates and profiles and never creates or changes them. The App Store Connect key
+      # reaches fastlane through its documented environment variables, so match does not ask for an Apple ID.
+      - name: Fetch the signing certificates with fastlane match (read only)
+        env:
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }}
+          APP_STORE_CONNECT_API_KEY_KEY_FILEPATH: ${{ runner.temp }}/AuthKey.p8
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+          FASTLANE_DISABLE_COLORS: "1"
+        run: fastlane match appstore --readonly --app_identifier "$APP_BUNDLE_ID"
+
+      - name: Archive the iOS app
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          xcodebuild -project mobile/ios/App/App.xcodeproj -scheme App -sdk iphoneos -configuration Release \
+            -archivePath "$RUNNER_TEMP/archive/Plenum.xcarchive" -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$APPLE_API_KEY_ID" \
+            -authenticationKeyIssuerID "$APPLE_API_ISSUER" \
+            archive
+
+      - name: Export the IPA for the App Store
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>destination</key>
+            <string>export</string>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/archive/Plenum.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$APPLE_API_KEY_ID" -authenticationKeyIssuerID "$APPLE_API_ISSUER"
+          shopt -s nullglob
+          ipas=("$RUNNER_TEMP/export"/*.ipa)
+          if [ "${#ipas[@]}" -ne 1 ]; then
+            echo "::error::The export must produce exactly one IPA."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/ipa-out"
+          cp "${ipas[0]}" "$RUNNER_TEMP/ipa-out/"
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plenum-ios-ipa
+          path: ${{ runner.temp }}/ipa-out
+          if-no-files-found: error
+
+      - name: Remove the App Store Connect key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+  # Runs after the phone jobs. It is the only job here with a write token, and it runs no code from the repository: it only
+  # downloads the artifacts that the jobs above uploaded and attaches them. A signing job that failed attaches nothing.
+  mobile-attach:
+    name: Attach the phone builds to the draft release
+    needs: [prepare, mobile-check, mobile-shell, mobile-android, mobile-ios]
+    if: ${{ always() && needs.prepare.result == 'success' && needs.mobile-check.result == 'success' && needs.mobile-shell.result == 'success' && (needs.mobile-android.result == 'success' || needs.mobile-android.result == 'skipped') && (needs.mobile-ios.result == 'success' || needs.mobile-ios.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      REPO: ${{ needs.prepare.outputs.repo }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the phone builds
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: plenum-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/phone-out
+
+      - name: Attach the phone builds to the draft release
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/phone-out"
+          shell_zip="$out/plenum-shell-$VERSION.zip"
+          if [ ! -f "$shell_zip" ]; then
+            echo "::error::plenum-shell-$VERSION.zip is missing from the phone builds."
+            exit 1
+          fi
+          files=("$shell_zip")
+          for name in app-release.apk app-release.aab; do
+            if [ -f "$out/$name" ]; then files+=("$out/$name"); fi
+          done
+          shopt -s nullglob
+          for ipa in "$out"/*.ipa; do files+=("$ipa"); done
+          echo "Attaching ${#files[@]} phone files to $TAG on $REPO."
+          gh release upload "$TAG" "${files[@]}" --clobber --repo "$REPO"

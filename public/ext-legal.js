@@ -92,7 +92,9 @@
 
   const termsVersion = data => Number(data?.terms?.version) || 0;
   const acceptedVersion = data => Number(data?.accepted?.version) || 0;
-  const needsAccept = data => acceptedVersion(data) < termsVersion(data);
+  // Round w119-legal: the server's own answer (required, which lib/legal.mjs termsAccepted gives: the version AND both hashes). A reply
+  // without that field is read by version alone. Without this a changed text with the same version unlocked the page and then refused.
+  const needsAccept = data => (typeof data?.required === 'boolean' ? data.required : acceptedVersion(data) < termsVersion(data));
 
   const linesOf = value => {
     if (Array.isArray(value)) return value.map(line => String(line));

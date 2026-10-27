@@ -1,0 +1,245 @@
+/* The pairing window (desktop/phones-pair.html). It takes the app's colour tokens (public/style.css :root) and follows the system theme.
+   Two colours are fixed on purpose: the magenta capture check square, and the white behind the QR code (a scanner needs it). The
+   window is 420 by 640 and every state fits it without scrolling at 100 % and at 175 % scaling. */
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f6f6fb, #0a0a11);
+  --surface: light-dark(#ffffff, #13131d);
+  --surface-2: light-dark(#f2f2f9, #1a1a27);
+  --line: light-dark(rgba(24, 22, 60, 0.09), rgba(255, 255, 255, 0.07));
+  --line-2: light-dark(rgba(24, 22, 60, 0.16), rgba(255, 255, 255, 0.13));
+  --text: light-dark(#15151f, #edeef6);
+  --text-2: light-dark(#40435a, #b9bdcf);
+  --muted: light-dark(#686c85, #8389a0);
+  --accent: light-dark(#5a48dd, #a9b2ff);
+  --accent-ink: light-dark(#ffffff, #100d24);
+  --ok: light-dark(#157a48, #62d6a0);
+  --bad: light-dark(#c22c3c, #ff8088);
+  --warn: light-dark(#8a5a00, #f6c468);
+  --shadow-1: 0 1px 2px light-dark(rgba(30, 26, 80, 0.06), rgba(0, 0, 0, 0.4)), 0 10px 26px -8px light-dark(rgba(30, 26, 80, 0.17), rgba(0, 0, 0, 0.5));
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The capture check square: 6 CSS pixels at the top-left corner of the page. Nothing else is drawn there. */
+.marker {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  background: #ff00ff;
+  z-index: 10;
+}
+
+[hidden] { display: none !important; }
+
+.pair {
+  height: 100%;
+  padding: 16px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pair-head h1 {
+  margin: 0;
+  font: 600 19px/1.2 var(--display);
+  color: var(--text);
+}
+
+.pair-sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pair-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  overflow: auto;
+}
+
+.pair-body p { margin: 0; }
+
+.pair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+  min-height: 36px;
+}
+
+/* Two buttons (Deny and Allow, Copy link and Cancel) sit at the two ends of the row; one button sits at the right. */
+.pair-actions:has(> .btn:nth-child(2)) { justify-content: space-between; }
+
+.pair-actions .status {
+  margin-right: auto;
+  color: var(--ok);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* The phone-pairing strip: what a paired phone can do, in the danger colour. */
+.strip {
+  border-radius: 10px;
+  padding: 8px 12px 8px 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--bad);
+}
+
+.strip-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.strip-text {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.qr-frame {
+  align-self: center;
+  background: #ffffff;
+  padding: 8px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-1);
+}
+
+.qr {
+  display: block;
+  width: 280px;
+  height: 280px;
+  image-rendering: pixelated;
+}
+
+.qr-hidden {
+  align-self: stretch;
+  padding: 14px 12px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px dashed var(--line-2);
+  color: var(--text-2);
+  text-align: center;
+}
+
+.lede {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.hints-title {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hints {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+.hints li {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.hints li.on .dot { color: var(--ok); }
+.hints li.off { color: var(--muted); }
+
+.dot {
+  flex: 0 0 auto;
+  width: 0.9em;
+  text-align: center;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Confirm: the device, the code and the warning. The code is at least 32 pixels, in the mono face, so the phone's can be matched. */
+.device-name {
+  font: 600 16px/1.3 var(--display);
+  color: var(--text);
+}
+
+.device-kind {
+  color: var(--muted);
+}
+
+.code-label {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.code {
+  font: 600 36px/1.1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* Buttons: a plain surface, the accent for the one a person most likely wants. */
+.btn {
+  min-height: 34px;
+  min-width: 96px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 13px var(--ui);
+  cursor: pointer;
+}
+
+.btn:hover { background: var(--surface-2); }
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

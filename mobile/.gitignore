@@ -1,0 +1,45 @@
+# Installed packages
+node_modules/
+
+# Built shell (scripts/build-mobile.mjs writes it; the release tag attaches a zip of it, not the folder)
+www/
+
+# Capacitor copies www/ into the native projects on `cap sync`
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+
+# ios/App/CapApp-SPM/ is not ignored: cap sync generates it and it is committed (its own .gitignore covers the build output)
+
+# Native build output and local machine files
+android/.gradle/
+android/.idea/
+android/app/build/
+android/build/
+android/local.properties
+android/*.jks
+android/*.keystore
+ios/App/Pods/
+ios/App/build/
+ios/App/App/build/
+ios/App/DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Signing material, never committed
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+*.jks
+*.keystore
+*key*.properties
+keystore.properties
+android/app/google-services.json
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db

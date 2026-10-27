@@ -343,6 +343,23 @@ Each run is kept in the state folder, under `computer/runs`. It holds every scre
 
 Each change saves at once, and the line under it says **Saved** or why the change was refused. Panels can add their own sections; see [Extending Plenum](#extending-plenum).
 
+## Phones
+
+A phone can show the same Plenum as this window: chat, models, approvals, agents, review and Stop. You pair a phone once, from **Settings › Phones › Add phone**. Pairing happens only at this computer: a window that screen capture does not show asks you to check a six-digit code against the phone and press **Allow**. No model, tool or other program can pair a phone, press Allow or raise a phone's tier.
+
+- **Ways to reach this computer.** The same network (off until you turn on **Allow phones on this network**; Windows may ask before Plenum can listen), your own Tailscale (after you agree in Settings › Phones, Plenum runs `tailscale serve` with your Tailscale), or a relay you deploy to your own Cloudflare account from the `relay/` folder. Plenum runs no server for phones, and its developer receives nothing from them.
+- **Encryption.** Each phone link is encrypted end to end with X25519 key exchange and ChaCha20-Poly1305 (the Noise protocol). The web page a phone opens on the same network is plain http, so an active attacker on that network can alter it. Use Tailscale or the relay on networks you do not trust.
+- **What a phone can do.** At the **Full** tier a phone can do what this window can. Actions a phone starts, approves or stops are your actions, as the License Agreement says. **Approve and watch** lets a phone watch, approve and stop, and **Read only** lets it watch and stop. Tiers are set here, at the computer.
+- **Indicator.** While a phone is connected, the title bar shows **Phone connected** and the tray shows how many. No setting hides it. Every action a phone takes is labelled with that phone's name in the activity list, the approvals and the history.
+- **Stop.** Stop works from a phone in every tier, and from a notification. It ends every run on this computer.
+- **Notifications.** Off until you turn them on, and each kind has its own switch. They show the project name and a short status. **Include the first line** adds the first line of a card, which can name files and commands. A phone browser gets them from its own push service (Google, Apple or Mozilla); an Android phone can use UnifiedPush through the app you choose, such as ntfy.
+- **Keys and removal.** The phone link's keys are in `phones.json` in the desktop app's user-data folder, encrypted by the operating system. Under plain `node` they are plain files in the state folder, and Settings › Phones says so. Remove a phone under Settings › Phones: its connection closes at once and its key is deleted here. Keep phones locked, and remove a lost one.
+- **Stop from a locked phone.** The lock screen's Stop everything and a notification's Stop all reach the computer without unlocking the phone. They use a Stop key that can only stop runs on that computer, and Remove revokes it with the phone.
+- **Changing how phones connect.** Only the computer can turn phones on or off, change the ways phones reach it or use Remove all. A phone with Full control can still remove a single phone.
+- **Relay room.** If your relay turns this computer away, Settings › Phones offers New room. Phones paired before then use the relay again after you pair them again.
+- **Phone apps.** The phone code is in `mobile/`. The phone web app loads from this computer, or from your relay. The iPhone and Android apps update through their stores or the release page, not through this computer.
+- **Not in this version.** Taps and typing that act on this computer's browser or screen as you are a later addition, with its own notice.
+
 ## Side panes
 
 The side pane is the column to the right of the chat. Panels put their tabs into it, such as Artifacts, the Browser, Review and Agents, and only one tab shows at a time. **Back to the chat** hides the column and keeps the tabs. **Close pane** closes the tab that is showing. Drag the pane's left edge to resize it, double-click the edge to reset it, or focus the edge and use the arrow keys. The pane starts at 440 px. It is never narrower than 380 px, and never wider than the smaller of 60% of the window and the window less 480 px, so the chat keeps room. Below 860 px the pane covers the window below the title bar, and **Back to the chat** returns to the chat. The width is kept only for the life of the page.

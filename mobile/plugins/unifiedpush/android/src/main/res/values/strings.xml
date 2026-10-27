@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification channel names, shown in Android's notification settings for Plenum. -->
+    <string name="plenum_channel_approvals">Approvals and your turn</string>
+    <string name="plenum_channel_finished">Finished runs</string>
+    <string name="plenum_channel_limits">Limits</string>
+</resources>

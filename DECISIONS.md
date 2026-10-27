@@ -697,6 +697,74 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Built in the 0.6 stabilization (27 Oct 2026); tested by the threads-split suites (page, route, and the real page against a mock Messages API) at 1280 and 1000 px in both themes.
 
+## 65. Phones run a hybrid client: a small bundled shell over Plenum's own interface
+
+**Decision.** A phone runs a small bundled shell (pairing, the encrypted channel, keys, app lock, Stop and push) that loads Plenum's own `public/` interface under two shims: `window.plenumShell`, and a fetch shim that sends the interface's same-origin requests over the channel. Every surface then has every power the desktop window has, with the same models in every role, the same approvals and notices, and no second API to keep in step. The PWA and Android load the interface from the paired desktop, checked against the hash of its manifest. The iOS store build carries a release snapshot of the same tag and gates its panels by capability names. The phone layout is `public/ext-phone.js` and `public/ext-phone.css`, active only when the page is marked as a phone.
+
+**Reason.** One interface keeps every feature on the phone without a second codebase that drifts from the desktop. The bundled shell keeps Stop, the keys and pairing working when the interface does not load. The iOS store build cannot download code that changes its features (App Store guideline 2.5.2), so it carries the snapshot.
+
+**Source.** MOBILE.json `decision.client_model`, `decision.shims`, `decision.phone_layout` and `decision.disagreements_settled` (the UI source on the iOS store build and on Android); MOBILE-UI.md section 0.
+
+**Status.** Decided 22 Oct 2026 and in build (phase 1 is the PWA with the Bridge). Not released; the Android and iOS store builds are phases 2 and 3.
+
+## 66. The Bridge is an opt-in module that carries the phone link and proxies to the loopback server
+
+**Decision.** `lib/remote/`, the Bridge, runs in the Node server process while phones are on. It listens on 127.0.0.1, and on the LAN only while "Allow phones on this network" is on. It accepts a WebSocket only at `/b/<pathKey>` from allowed origins, and it runs the Noise handshake before any application frame: IK for a paired phone, IKpsk2 while pairing. Each request becomes a request to `127.0.0.1:4317` carrying the per-launch token, which never leaves the desktop. The Bridge strips any token, cookie, host, origin or `x-plenum-*` header the phone sends, adds `x-plenum-device` with the paired device's id, and returns the answer as frames. Tiers are a route policy in the Bridge, so a new route falls into a tier by default. The loopback server, its Host, Origin and token checks and its Content Security Policy are unchanged.
+
+**Reason.** A phone then reaches only what the desktop window reaches, through the same checks, so no route becomes a second API. Keeping the token on the desktop keeps it off the phone and off the network. One place for the tiers, with a test that fails on an unclassified route, stops a new route from quietly gaining phone access.
+
+**Source.** MOBILE.json `decision.transport` (bridge, listener_exposure), `decision.powers` (tiers, adapters) and `decision.floor.unchanged`.
+
+**Status.** In build in `lib/remote/`, `lib/routes/remote.mjs` and `lib/routes/stop-all.mjs`. The route-classification test and the sealed phone tests are the acceptance before release.
+
+## 67. Pairing is human-only, at the desktop, in a window that screen capture does not show
+
+**Decision.** Only a person at the desktop can pair a phone, confirm a pairing or raise a phone's tier. Settings › Phones › Add phone opens a small window with capture excluded. The window draws the QR code in the main process, so the one-time secret never enters the page. The person compares the six-digit code with the phone and presses Allow or Deny in that window. The secret reaches the main process only, and it is wiped only after Allow. No route, tool, MCP call or model can start a pairing, press Allow, add a device or raise a tier. `lib/routes/remote.mjs` refuses `pair/start`, `pair/confirm` and tier changes that carry `x-plenum-device`, and the confirm route that sealed tests use under plain node is not registered under the desktop app. A phone may remove only its own device; a Full-tier phone may remove others.
+
+**Reason.** A paired phone can do everything the window can, so the grant must be one that neither the model nor the phone can take. A window that computer use never drives, and a secret that the page never sees, keep the grant with the person. The design follows the Sunshine CVE-2024-45407 lesson that MOBILE.json cites: the device is written and the secret wiped only after Allow.
+
+**Source.** MOBILE.json `decision.transport.pairing`, `decision.floor.additions[0]` and `decision.disagreements_settled` ("Where Allow is clicked"); MOBILE-UI.md section 7.2.
+
+**Status.** In build in `desktop/handlers/phones.cjs` and `desktop/phones-pair*`. The acceptance checks for the pairing window are in MOBILE-UI.md section 16.4.
+
+## 68. A 'Phone connected' indicator that no setting hides
+
+**Decision.** While a phone is connected, the title bar shows a chip, "Phone connected: <device>", and the tray item reads "Phones (n connected)" with the same count in its tooltip. The first connection of each launch raises one operating-system notification, and each connection or disconnection shows a toast. Every action from a phone is labelled "via <device>" in the Phones activity list, the events channel, approvals, Actions and history. No setting hides the chip or the tray count. On the phone the same information is the "Phones connected" row of the ⋯ sheet, so one phone can see another.
+
+**Reason.** A phone can start and stop work from anywhere, so the person at the computer must always see that a phone is connected and which one. A setting that hid the chip would hide the signal the floor depends on, the same signal that the visible indicator while a model drives gives.
+
+**Source.** MOBILE.json `decision.floor.additions[1]` and `decision.floor.unchanged` (the visible indicator while a model drives); MOBILE-UI.md section 15, items 2 and 18.
+
+**Status.** The chip and toasts are in `public/ext-remote.js`, and the tray item is added in `desktop/main.cjs` in wave 119. The indicator is part of the floor, so a test that fails when a setting hides it is required before release.
+
+## 69. Phones reach the computer in three ways, none run by the owner
+
+**Decision.** *The same network*: a random high port on the LAN, off by default, for native shells and for a plain http web page that needs no account. Source addresses are limited to private, link-local and CGNAT ranges unless "Any address" is on. *Your Tailscale*: after a consent step, Plenum runs your own `tailscale serve`, so a phone reaches `https://<name>.ts.net`. Plenum never bundles Tailscale and does not offer Tailscale Funnel. *Your relay*: `relay/` in this repository, deployed by you to your own Cloudflare account with a Deploy button. The computer dials out and claims a room, and the relay forwards opaque encrypted frames. A relay user's web shell comes from that user's own relay. The owner runs no relay and no server for phones. An owner relay is an option only after counsel reviews its policies.
+
+**Reason.** Each way needs no owner account, and each lets the person choose who sees the connection. Funnel would expose the pairing listener to the whole internet for a convenience nobody asked for, and the relay already gives "anywhere". Hosting the shell on the owner's page would make the owner's account a supply-chain target that holds the phone's keys.
+
+**Source.** MOBILE.json `decision.transport.carriers` and `decision.disagreements_settled` (Tailscale Funnel, who hosts the PWA shell, the LAN carrier for the web client and the relay repository).
+
+**Status.** In build in `lib/remote/` and `relay/`. Tailscale and the relay are opt-in in Settings › Phones. The owner relay is not built.
+
+## 70. Push sends three generic kinds through the browser's own push services, and no owner service is used in phase 1
+
+**Decision.** There are three kinds of phone notification: an approval is waiting (including a hand-over for a password, a code or a CAPTCHA), a run finished or failed, and a spend or plan limit was reached. Each kind has its own switch, and the text is generic, such as "Plenum: an approval is waiting on <computer>". The desktop does not send while someone is at its window or the phone app is in front. "Include the first line" is off by default and sits behind the phone-push notice. A phone browser gets Web Push from its own push service (Google, Apple or Mozilla), and `lib/remote/push.mjs` signs and encrypts the message with node:crypto under RFC 8291 and RFC 8292. On Android, UnifiedPush goes through the distributor app that the person chooses, such as ntfy. No owner service is used in phase 1. An iOS forwarder that the owner might run later (phase 3b) waits for counsel; until it exists, the Privacy Notice keeps "we collect nothing and have no server".
+
+**Reason.** A push service sees the timing and the device's push address, so the content stays generic and encrypted. The browser's push service and the ntfy app need no owner account. Apple's push key cannot ship in the desktop app, so an owner forwarder would make the owner a processor of device tokens and IP addresses, which is a legal decision for counsel. The `web-push` package is MPL-2.0, which the licence check does not allow, so the sender is written with node:crypto and tested against the RFC 8291 appendix A vector.
+
+**Source.** MOBILE.json `decision.push` (principle, phase1_webpush, phase2_android and phase3_ios_native) and `decision.disagreements_settled` (the Web Push sender, Android push and iOS native push).
+
+**Status.** Phase 1 is in build in `lib/remote/push.mjs`. The phase 3b forwarder is not built.
+
+## 71. Phone security fix round (27 Oct 2026)
+
+**Decision.** A locked phone can always Stop: a per-device Stop key from the pairing handshake signs one STOP_ONLY message that the desktop checks before any DH. Release builds give the desktop UI on the phone a narrow facade instead of the shell core and its plugins, and the channel Worker enforces the request policy; the native key enforcement waits for the store builds. ?selftest and the debug hooks exist only in dev builds. A pairing link opened from outside the app waits on a review screen. The LAN web page stays, with an honest notice and a 'Web page (plain http)' label, and new phones keep Full control by default as the owner decided. Only the computer changes how phones reach it. Pairing offers no longer end after three bad tries, relay rooms budget bytes per phone and keep their claim, and Remove all moves to a new room.
+
+**Source.** MOBILE.json `notices` (phone-lan), `decision.floor.additions`, `protocol.handshake` and `decision.transport.revocation`; MOBILE-UI.md sections 6.12 to 6.13 and 7.1 to 7.2; `lib/notices.mjs` (`phone-lan`); `legal/PRIVACY.md`; `README.md` (Phones).
+
+**Status.** Words only, in this round. Not released; the code they describe comes with the phone groups.
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).
@@ -710,3 +778,4 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 - The overlay's content protection is probed at run time; the result on each platform is recorded in the smoke output.
 - Grok Build's ACP message shapes, the `~/.grok` file names, the GROK_CODE_XAI_API_KEY name, headless billing and the live Check tool calls result need a signed-in run and a real xAI key (item 60).
 - The isolated copies' hook-marker tests must pass on a real repository before release (item 63).
+- The phone link's counsel questions (the eight in MOBILE.json's legal list) are open, and the placeholders stay until the owner supplies them: export classification of the phone encryption on iOS, Android and the desktop; whether the 4.2.7 position holds for a client with pictures and cards but no live mirror, and whether LAN-only control is enough; whether Tailscale Personal's non-commercial label covers developers at work; the GDPR and CCPA duties of an owner push forwarder or relay; the Apple 5.1.2(i) consent wording; whether a local report with email meets Google Play's rule for reporting generated content; Apple's standard EULA or a custom one; and the relay's deploy-only licence grant (items 65 to 70).

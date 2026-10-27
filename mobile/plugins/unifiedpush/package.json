@@ -1,0 +1,30 @@
+{
+  "name": "plenum-unifiedpush",
+  "version": "8.0.0",
+  "private": true,
+  "description": "Capacitor plugin for the Plenum Android app: UnifiedPush registration through the person's push app (for example ntfy), endpoint and message delivery to the shell, and the closed-app notifications the desktop sends.",
+  "license": "SEE LICENSE IN ../../../LICENSE.txt",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src/",
+    "android/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

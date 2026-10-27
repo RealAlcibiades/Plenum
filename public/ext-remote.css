@@ -1,0 +1,78 @@
+/* Settings > Phones (public/ext-remote.js) and the title-bar chip. Every colour is a token from style.css, so both themes follow; nothing is set
+   inline. The layout works at 480 px: rows wrap, buttons keep 44 px-free sizes at desktop widths, and no line scrolls sideways. */
+
+.remote-root { display: grid; gap: 14px; min-width: 0; }
+/* The section's own hidden rows win over the display rules below (.field, .switch-row, .remote-line). */
+.remote-root [hidden] { display: none !important; }
+.remote-main { display: grid; gap: 14px; min-width: 0; }
+.remote-block { display: grid; gap: 8px; min-width: 0; }
+.remote-intro, .remote-help, .remote-quiet, .remote-meta { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.remote-plain { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.remote-error { margin: 0; color: var(--bad); font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.remote-sub { margin: 8px 0 0; font: 600 13px/1.3 var(--display); color: var(--text-2); }
+.remote-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.remote-port { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
+/* The switch rows: the title in text colour with its sentence under it. */
+.remote-switch { align-items: flex-start; }
+.remote-switch-text { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.remote-switch small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+/* The notices. A strip has a 3 px edge in its tone: danger is red, warn amber, info accent. A notice wrapper is empty when nothing is shown. */
+.remote-notes { display: grid; gap: 8px; min-width: 0; }
+.remote-notes:empty { display: none; }
+.remote-note {
+  display: grid; gap: 6px; min-width: 0; padding: 10px 12px 10px 14px; border-radius: 10px;
+  background: var(--surface-2); border-left: 3px solid var(--accent);
+}
+.remote-note[data-tone="danger"] { border-left-color: var(--bad); }
+.remote-note[data-tone="warn"] { border-left-color: var(--warn); }
+.remote-note[data-tone="info"] { border-left-color: var(--accent); }
+.remote-note-title { font: 600 13px/1.35 var(--display); color: var(--text); overflow-wrap: anywhere; }
+.remote-note-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
+.remote-note-ok { justify-self: start; }
+
+/* Pairing: the offer row is a quiet panel with its words, its countdown and its buttons. */
+.remote-offer {
+  display: grid; gap: 8px; min-width: 0; padding: 12px 14px; border-radius: 10px;
+  background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line);
+}
+.remote-offer-title { margin: 0; font: 600 13.5px/1.35 var(--display); color: var(--text); overflow-wrap: anywhere; }
+.remote-offer-text { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.remote-offer-code { margin: 0; font: 600 20px/1.2 var(--mono); color: var(--text); letter-spacing: 0.04em; }
+
+/* The paired phones: one row each, with the name, a sentence about it, its control and its removal. */
+.remote-devices, .remote-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.remote-device {
+  display: grid; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg);
+}
+.remote-device-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.remote-name { min-width: 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.remote-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.remote-dot[data-on="true"] { background: var(--ok); }
+.remote-device-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; min-width: 0; }
+.remote-tier { min-width: 180px; max-width: 100%; }
+.remote-tier-text { font-size: 13px; color: var(--text-2); }
+.remote-status { margin-top: 0; }
+
+/* The activity list: 'via <device>: <what it did>' with the time at the end. */
+.remote-activity-item {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; min-width: 0;
+  font-size: 12.5px; color: var(--text-2);
+}
+.remote-activity-text { min-width: 0; overflow-wrap: anywhere; }
+.remote-activity-time { font-size: 12px; color: var(--muted); }
+
+/* The title-bar chip. It is a status, not a control that closes: no close mark, and the name never widens the title bar. */
+.chip.remote-chip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Narrow windows: the chip keeps to a short word (paintChip), so it stays inside the title bar. */
+@media (max-width: 620px) {
+  .chip.remote-chip { max-width: 96px; }
+}
+
+@media (max-width: 480px) {
+  .remote-tier { min-width: 0; flex: 1 1 100%; }
+  .remote-device-actions > .ghost { flex: 0 0 auto; }
+  .remote-line > .primary, .remote-line > .ghost { max-width: 100%; }
+}

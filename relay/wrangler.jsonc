@@ -1,0 +1,19 @@
+{
+  // Plenum relay. No secrets and no account settings: the Deploy to Cloudflare
+  // button deploys this file unchanged into the user's own account.
+  "name": "plenum-relay",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // The Worker sets the Content-Security-Policy header on every shell file,
+    // so every request runs the Worker first.
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "observability": { "enabled": false }
+}
