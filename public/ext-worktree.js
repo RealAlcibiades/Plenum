@@ -488,11 +488,27 @@
 
   // ---------- Discard ----------
 
+  // The commits on the copy's branch that deleting the branch would drop, as the server counts them now. Throws with the server's reason when
+  // it cannot say, so Discard does nothing rather than delete a branch it has not counted.
+  async function commitsOn(id) {
+    const data = await MU.api(`/api/worktrees/status?project=${enc(activeProject())}&thread=${enc(id)}`);
+    if (!Number.isInteger(data.ahead)) throw new Error(data.error || 'Plenum could not count the commits on the branch.');
+    return data.ahead;
+  }
+
   async function discardCopy(id) {
     const t = threadById(id);
     if (!t?.worktree) return;
     const branch = t.worktree.branch;
-    const check = { label: 'Also delete the branch', checked: false };
+    let commits;
+    try {
+      commits = await commitsOn(id);
+    } catch (err) {
+      MU.toast(err.message, 'bad');
+      return;
+    }
+    const noun = commits === 1 ? '1 commit' : `${commits} commits`;
+    const check = { label: commits > 0 ? `Also delete the branch (${noun} on it will be lost)` : 'Also delete the branch', checked: false };
     const sure = await MU.confirm({
       title: 'Discard the isolated copy',
       body: `Discard this thread's isolated copy? Changes that were not committed in it are lost. The branch ${branch ?? ''} is kept unless you tick the box.`,
@@ -501,8 +517,19 @@
       check,
     });
     if (!sure) return;
+    // Deleting a branch with commits of its own drops them, so a ticked box is asked once more. Keep branch (the safe button, and Escape) keeps it.
+    let deleteBranch = check.checked === true;
+    if (deleteBranch && commits > 0) {
+      deleteBranch = await MU.confirm({
+        title: `Delete the branch and its ${noun}?`,
+        body: 'This cannot be undone.',
+        action: 'Delete branch',
+        cancel: 'Keep branch',
+        tone: 'danger',
+      });
+    }
     try {
-      const data = await MU.api('/api/worktrees/discard', { project: activeProject(), thread: id, deleteBranch: check.checked === true });
+      const data = await MU.api('/api/worktrees/discard', { project: activeProject(), thread: id, deleteBranch: deleteBranch === true });
       known.delete(id);
       T.adopt(data);
       const gone = data.discarded?.branchDeleted === true;

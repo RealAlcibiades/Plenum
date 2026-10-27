@@ -12,6 +12,8 @@
 //                            "Make this thread the writer". Other panels add to it through MuseUI.threads.header (pro-02's branch chip).
 //   the New thread drawer    Name, Model, plan mode, the slot window.MuseThreadDialogExtras, the one-writer switch, Closed threads, and
 //                            export and import of the project's threads. Ctrl+T opens it in the desktop app (a browser keeps Ctrl+T).
+//   div.ext-thread-split     split view (threads phase 2): a second open thread of the project on the right, beside the one on the left
+//                            (the active thread). Ctrl-click a tab, Open beside, or Ctrl+Shift+\ opens it. Built on the first opening only.
 // Every piece of text from the server or the user is set with textContent. Nothing here sets an inline style attribute in markup.
 (function () {
   const MU = window.MuseUI;
@@ -60,6 +62,61 @@
     }
     return {};
   })();
+  // ---------- split view (threads phase 2): constants and what the window keeps ----------
+
+  const SPLIT_KEY = 'plenum.threads.split';
+  const NEED_TWO = 'Split view needs a second thread. Make one with + Thread.';
+  const COMMANDS_LEFT = 'Commands run in the left message box. Swap sides to run one for this thread.';
+  const DRIVE_KEEP = 'A model is driving, so the left pane stays in view with its drive bar.';
+  const FOLD_NARROW = 'The window is narrower than 1100 px, so one thread shows at a time.';
+  const FOLD_PANE = 'The side pane is open, so one thread shows at a time.';
+  const IDLE_HINT = 'Enter to send · Shift+Enter for a new line';
+  const BUSY_HINT = 'Working… Esc stops · Enter queues what you type';
+  const PLAN_TITLE = 'Plan mode: no file edits or commands in this thread. Swap sides to change it.';
+  const MODEL_TITLE = 'The model of this thread. Swap sides to change it.';
+  const DIVIDER_LABEL = 'Resize the two panes';
+  const DIVIDER_TITLE = 'Drag to resize. Double-click for equal halves.';
+  const LOADING = 'Loading the chat…';
+  const QUEUE_ONE = '1 message queued. It starts when the current run in this thread ends.';
+  const CLEAR_TITLE = 'Drop the waiting messages. The run in progress is not stopped';
+  const EDIT_FULL = 'The composer already has text. Send or clear it first.';
+  const RATIOS = [35, 40, 45, 50, 55, 60, 65];
+  const SP = MU.threads.split ?? null;   // app.js's hook; without it split view stays off
+  const WIDE = window.matchMedia ? window.matchMedia('(min-width: 1100px)') : null;
+  const appEl = document.getElementById('app');
+  // The widths and each project's right thread, as plenum.threads.split keeps them. Read once, here, next to the seen marks.
+  const remembered = (() => {
+    const kept = { ratio: 50, beside: {} };
+    try {
+      const value = JSON.parse(localStorage.getItem(SPLIT_KEY) || '{}');
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        if (RATIOS.includes(value.ratio)) kept.ratio = value.ratio;
+        if (value.beside && typeof value.beside === 'object' && !Array.isArray(value.beside)) {
+          for (const [project, thread] of Object.entries(value.beside)) {
+            if (project && typeof thread === 'string' && thread) kept.beside[project] = thread;
+          }
+        }
+      }
+    } catch {
+      // Without storage the split view starts closed, at the even widths.
+    }
+    const keys = Object.keys(kept.beside);
+    for (const key of keys.slice(0, Math.max(0, keys.length - 50))) delete kept.beside[key];
+    return kept;
+  })();
+  // The right thread of each project during this page. Closing split view keeps it here, so Ctrl+Shift+\ opens it again.
+  const lastBeside = new Map();
+  // messages: the saved chat of the right thread (null until read); unsaved: the messages sent from this pane that the saved chat does not
+  // have yet; seq: the number of reads asked, so an answer that a newer read has overtaken is dropped.
+  const split = { project: null, beside: null, ratio: remembered.ratio, focus: 'primary', lastActive: null, messages: null, unsaved: [], seq: 0, loadError: '', gen: 0, wasBusy: false, lastRight: '', lastLeft: '' };
+  let pending = null;          // { id, messages }: the left thread's chat, handed to the right pane by swap()
+  let wrapped = false;         // the parts are in the page (ensureWrapped ran)
+  let besideStream = null;     // the .stream now in the right transcript
+  let besideQueueDrawn = [];   // the queued messages the right queue rows show
+  let readOnlySig = '';        // what the right read-only line was built for
+  let dividerDrag = false;     // a pointer drag on the divider is going on
+  const drafts = new Map();    // thread id -> the text typed in the right box while another thread is there
+
   // thread id -> when its last run ended, from the Agents board's events (lib/activity.mjs).
   const ended = new Map();
 
@@ -114,6 +171,7 @@
     const list = threadList();
     return JSON.stringify([
       state().activeProject, activeId(), state().threadsOff, state().projectBusy, state().writerThread, multiWriter(), narrowQuery?.matches === true, renaming,
+      split.beside, split.focus, Boolean(split.beside) && folded(),
       list.map(t => [t.id, t.name, modelOf(t), t.writer, t.chatMode, statusOf(t)]),
     ]);
   }
@@ -141,22 +199,32 @@
     const label = make('span', 'ext-thread-label');
     label.append(swatch(t), make('span', 'ext-thread-name', t.name));
     if (status) label.append(dot(status));
-    if (t.writer === false) {
-      const shield = MU.icon('shield', 'ext-thread-shield');
-      const tip = writerOf() ? `Read-only: ${writerOf().name} is the writer` : 'Read-only';
-      shield.setAttribute('role', 'img');
-      shield.setAttribute('aria-label', tip);
-      const wrap = make('span', 'ext-thread-ro');
-      wrap.title = tip;
-      wrap.append(shield);
-      label.append(wrap);
-    }
+    if (t.writer === false) label.append(shieldEl(t));
     return label;
+  }
+
+  // The read-only shield of a thread: its tab, its pane's head and the read-only line say the same.
+  function shieldEl(t) {
+    const shield = MU.icon('shield', 'ext-thread-shield');
+    const tip = writerOf() ? `Read-only: ${writerOf().name} is the writer` : 'Read-only';
+    shield.setAttribute('role', 'img');
+    shield.setAttribute('aria-label', tip);
+    const wrap = make('span', 'ext-thread-ro');
+    wrap.title = tip;
+    wrap.append(shield);
+    return wrap;
+  }
+
+  // Where a thread sits while split view is on: 'on the left' for the active thread, 'on the right' for the thread beside it.
+  function sideOf(t) {
+    if (!split.beside) return '';
+    if (t.id === split.beside) return 'on the right';
+    return t.id === activeId() ? 'on the left' : '';
   }
 
   function accessibleName(t) {
     const status = statusOf(t);
-    return [t.name, STATUS_TITLE[status], t.writer === false ? 'read-only' : ''].filter(Boolean).join(', ');
+    return [t.name, STATUS_TITLE[status], t.writer === false ? 'read-only' : '', sideOf(t)].filter(Boolean).join(', ');
   }
 
   function tabEl(t) {
@@ -165,6 +233,9 @@
     wrap.setAttribute('role', 'presentation');
     wrap.dataset.thread = t.id;
     if (selected) wrap.dataset.selected = 'true';
+    if (split.beside && t.id === split.beside) wrap.dataset.beside = 'true';
+    // The pane that has the focus marks its tab: the left thread's, or the right thread's.
+    if (split.beside && (split.focus === 'primary' ? selected : t.id === split.beside)) wrap.dataset.paneFocus = 'true';
     const btn = make('button', 'ext-thread-btn');
     btn.type = 'button';
     btn.setAttribute('role', 'tab');
@@ -172,8 +243,20 @@
     btn.setAttribute('aria-label', accessibleName(t));
     btn.tabIndex = selected ? 0 : -1;
     btn.dataset.thread = t.id;
+    const side = sideOf(t);
+    if (side === 'on the left') btn.title = 'On the left';
+    else if (side === 'on the right') btn.title = `On the right. ${MOD}-click to close split view`;
+    else if (threadList().length >= 2) btn.title = `${MOD}-click to show it on the right`;
     btn.append(tabLabel(t));
-    btn.addEventListener('click', () => choose(t.id));
+    btn.addEventListener('click', e => {
+      // Ctrl-click (Cmd-click) puts the thread on the right, or closes split view when it is there already.
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        toggleBeside(t.id);
+      } else {
+        goTo(t.id);
+      }
+    });
     btn.addEventListener('keydown', onTabKey);
     wrap.append(btn);
     if (renaming === t.id) {
@@ -189,6 +272,12 @@
     more.dataset.thread = t.id;
     more.addEventListener('click', e => {
       e.stopPropagation();
+      openMenu(more, actionsFor(t));
+    });
+    // A right click on a tab opens the same "…" menu.
+    wrap.addEventListener('contextmenu', e => {
+      if (renaming === t.id) return;
+      e.preventDefault();
       openMenu(more, actionsFor(t));
     });
     wrap.append(more);
@@ -237,7 +326,7 @@
     btn.addEventListener('click', e => {
       e.stopPropagation();
       openMenu(btn, [
-        ...list.map(t => ({ label: t.name, checked: t.id === current.id, status: statusOf(t), run: () => choose(t.id) })),
+        ...list.map(t => ({ label: t.name, checked: t.id === current.id, status: statusOf(t), run: () => goTo(t.id) })),
         { separator: true },
         ...actionsFor(current),
       ]);
@@ -256,6 +345,7 @@
   }
 
   function paint() {
+    paintSplit();
     shareWithMentions();
     const p = project();
     const list = threadList();
@@ -267,6 +357,7 @@
     }
     // The active thread is seen from the moment it is on screen.
     markSeen(activeId());
+    if (split.beside && wrapped && !besideEl.hidden) markSeen(split.beside);
     const sig = signature();
     paintHeader();
     if (sig === drawnSignature && !bar.hidden) return;
@@ -288,25 +379,29 @@
   // The header row: the read-only line while the thread on screen is not the writer. pro-02 adds its branch chip to headerExtra.
   function paintHeader() {
     const t = threadList().find(x => x.id === activeId());
-    const readOnly = Boolean(t) && t.writer === false && !multiWriter();
-    readOnlyLine.replaceChildren();
-    if (readOnly) {
-      const writer = writerOf();
-      readOnlyLine.append(make('span', 'ext-thread-readonly-text', `Read-only: ${writer ? writer.name : 'another thread'} is this project’s writer, and two writers would share this folder.`));
-      const make1 = make('button', 'ghost small ext-thread-make-writer', 'Make this thread the writer');
-      make1.type = 'button';
-      const busy = state().projectBusy === true;
-      make1.disabled = busy;
-      make1.title = busy ? TITLE_WAIT : 'Make this the thread that changes files in the project folder';
-      make1.addEventListener('click', () => makeWriter(t));
-      const several = make('button', 'ghost small ext-thread-several', 'Allow several writers…');
-      several.type = 'button';
-      several.title = 'Open the New thread panel, which holds the project switch';
-      several.addEventListener('click', () => openNewDialog());
-      readOnlyLine.append(make1, several);
-    }
-    readOnlyLine.hidden = !readOnly;
-    header.hidden = !readOnly && !headerExtra.childElementCount;
+    const parts = readOnlyParts(t);
+    readOnlyLine.replaceChildren(...parts);
+    readOnlyLine.hidden = parts.length === 0;
+    header.hidden = parts.length === 0 && !headerExtra.childElementCount;
+  }
+
+  // The read-only line of a thread that is not the writer: the words and the two buttons. Nothing for the writer, or while several threads
+  // may write. The header row and the right pane of split view use the same parts.
+  function readOnlyParts(t) {
+    if (!t || t.writer !== false || multiWriter()) return [];
+    const writer = writerOf();
+    const text = make('span', 'ext-thread-readonly-text', `Read-only: ${writer ? writer.name : 'another thread'} is this project’s writer, and two writers would share this folder.`);
+    const make1 = make('button', 'ghost small ext-thread-make-writer', 'Make this thread the writer');
+    make1.type = 'button';
+    const busy = state().projectBusy === true;
+    make1.disabled = busy;
+    make1.title = busy ? TITLE_WAIT : 'Make this the thread that changes files in the project folder';
+    make1.addEventListener('click', () => makeWriter(t));
+    const several = make('button', 'ghost small ext-thread-several', 'Allow several writers…');
+    several.type = 'button';
+    several.title = 'Open the New thread panel, which holds the project switch';
+    several.addEventListener('click', () => openNewDialog());
+    return [text, make1, several];
   }
 
   // ---------- actions ----------
@@ -352,6 +447,7 @@
       title: multiWriter() ? 'This project lets every thread write' : isWriter ? 'This thread is the writer' : busy ? TITLE_WAIT : 'Make this the thread that changes files',
       run: () => makeWriter(t),
     });
+    if (canSplit()) items.push(...splitItemsOf(t));
     if (!t.main) {
       const running = t.running || T.isRunning(t.id);
       items.push({ label: 'Close thread', disabled: running, title: running ? 'Stop the run first' : 'Close the thread and keep its chat', run: () => closeThread(t) });
@@ -505,6 +601,12 @@
 
   // Left and Right move between the tabs, Home and End go to the first and last one. Enter or Space on a tab shows it (a button's own click).
   function onTabKey(e) {
+    // Ctrl+Enter (Cmd+Enter) on a focused tab is the keyboard form of Ctrl-click.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      toggleBeside(e.currentTarget.dataset.thread);
+      return;
+    }
     const tabs = [...bar.querySelectorAll('.ext-thread-btn:not([hidden])')];
     const at = tabs.indexOf(e.currentTarget);
     let next = -1;
@@ -864,7 +966,8 @@
       e.preventDefault();
       openNewDialog();
     } else if (e.key === 'Tab') {
-      const list = threadList();
+      // Ctrl+Tab cycles the thread on the left; the thread on the right is passed over.
+      const list = threadList().filter(t => t.id !== split.beside);
       if (list.length < 2 || MU.dialogOpen?.()) return;
       e.preventDefault();
       const at = list.findIndex(t => t.id === activeId());
@@ -875,6 +978,12 @@
   (window.MuseShortcutRows = window.MuseShortcutRows || []).push(
     { keys: [MOD, 'T'], action: 'New thread (desktop app).' },
     { keys: [MOD, 'Tab'], action: 'Next thread (desktop app). Shift for the previous one.' },
+    { keys: [MOD, 'Shift', '\\'], action: 'Split view on or off. The last thread on the right, or the next one, opens there.' },
+    { keys: [MOD, 'Click'], action: 'On a thread tab: show it on the right, or close split view.' },
+    { keys: [MOD, 'Enter'], action: `On a focused thread tab: the same as ${MOD}-click.` },
+    { keys: [MOD, '1'], action: 'Split view: go to the left message box (desktop app).' },
+    { keys: [MOD, '2'], action: 'Split view: go to the right message box (desktop app).' },
+    { keys: ['F6'], action: 'Move between the sidebar, the chats, the message boxes and the side pane. Shift for back.' },
   );
 
   // ---------- events ----------
@@ -890,9 +999,12 @@
     if (!ev || typeof ev !== 'object') return;
     if (ev.type === 'activity' && ev.op === 'run-end') {
       takeRun(ev.run);
+      // The right pane's transcript is read again when its thread's run ends, whichever window started the run.
+      if (ev.run?.scope === split.beside) loadBeside();
       paint();
     } else if (ev.type === 'hello') {
       loadSnapshot();
+      if (split.beside) loadBeside();
     }
   });
 
@@ -931,6 +1043,795 @@
     }
   }
 
+  // ---------- split view (threads phase 2) ----------
+
+  // The parts, built once. The first opening puts them into the page (ensureWrapped); until then nothing in the page moves.
+  const splitEl = make('div', 'ext-thread-split');
+  const primaryEl = make('div', 'ext-thread-pane ext-thread-primary');
+  const dividerEl = make('div', 'ext-thread-divider');
+  const besideEl = make('section', 'ext-thread-pane ext-thread-beside');
+  besideEl.dataset.threadPane = 'beside';
+  besideEl.hidden = true;
+  dividerEl.title = DIVIDER_TITLE;
+  dividerEl.tabIndex = 0;
+  dividerEl.hidden = true;
+  dividerEl.setAttribute('role', 'separator');
+  dividerEl.setAttribute('aria-orientation', 'vertical');
+  dividerEl.setAttribute('aria-label', DIVIDER_LABEL);
+  dividerEl.setAttribute('aria-valuemin', String(RATIOS[0]));
+  dividerEl.setAttribute('aria-valuemax', String(RATIOS[RATIOS.length - 1]));
+
+  // A pane's head: swatch, name, marks, a line for screen readers, Show, Swap sides (the right pane only) and ×.
+  function paneHead(side) {
+    const el = make('div', 'ext-thread-pane-head');
+    const sw = make('span', 'sw');
+    sw.setAttribute('aria-hidden', 'true');
+    const name = make('h2', 'ext-thread-pane-name');
+    const marks = make('span', 'ext-thread-pane-marks');
+    const spacer = make('span', 'ext-thread-pane-spacer');
+    spacer.setAttribute('aria-hidden', 'true');
+    const status = make('span', 'sr ext-thread-pane-status');
+    status.setAttribute('role', 'status');
+    const show = make('button', 'ghost small ext-thread-pane-show');
+    show.type = 'button';
+    show.hidden = true;
+    const swap = side === 'beside' ? make('button', 'ghost small ext-thread-pane-swap', 'Swap sides') : null;
+    if (swap) swap.type = 'button';
+    const close = make('button', 'icon-btn ext-thread-pane-close');
+    close.type = 'button';
+    close.append(MU.icon('x'));
+    el.append(sw, name, marks, spacer, status, show, ...(swap ? [swap] : []), close);
+    el.hidden = true;
+    return { el, sw, name, marks, status, show, swap, close, key: '' };
+  }
+  const leftHead = paneHead('primary');
+  const rightHead = paneHead('beside');
+  leftHead.show.addEventListener('click', () => showPane('beside'));
+  rightHead.show.addEventListener('click', () => showPane('primary'));
+  leftHead.close.addEventListener('click', () => closeLeft());
+  rightHead.close.addEventListener('click', () => closeSplit());
+  rightHead.swap.addEventListener('click', () => swap());
+
+  // The right pane: a read-only line (the thread is not the writer), its transcript, and its own composer.
+  const rightReadOnly = make('div', 'ext-threads-header ext-thread-pane-readonly');
+  rightReadOnly.setAttribute('role', 'status');
+  rightReadOnly.hidden = true;
+  const rightReadOnlyLine = make('div', 'ext-thread-readonly');
+  rightReadOnly.append(rightReadOnlyLine);
+  const rightChat = make('section', 'ext-thread-pane-chat');
+  rightChat.tabIndex = -1;
+  rightChat.setAttribute('aria-live', 'off');
+  const rightDock = make('div', 'composer-wrap');
+  const rightQueue = make('div', 'queue-line');
+  rightQueue.setAttribute('role', 'status');
+  rightQueue.hidden = true;
+  const rightQueueText = make('span', 'ql-text');
+  const rightQueueList = make('ul', 'queue-list');
+  const rightQueueClear = make('button', 'ghost small', 'Clear queue');
+  rightQueueClear.type = 'button';
+  rightQueueClear.title = CLEAR_TITLE;
+  rightQueue.append(rightQueueText, rightQueueList, rightQueueClear);
+  const rightForm = make('form', 'composer');
+  const rightInput = make('textarea', 'ext-thread-pane-input');
+  rightInput.rows = 1;
+  rightInput.spellcheck = false;
+  const rightBar = make('div', 'composer-bar');
+  const rightModel = make('span', 'pill ext-thread-pane-model');
+  const rightModelSw = make('span', 'sw');
+  rightModelSw.setAttribute('aria-hidden', 'true');
+  const rightModelName = make('span', 'ext-thread-pane-model-name');
+  rightModel.append(rightModelSw, rightModelName);
+  const rightPlan = MU.ui.pill('Plan', 'accent');
+  rightPlan.hidden = true;
+  const rightSend = make('button', 'send');
+  rightSend.type = 'submit';
+  rightSend.append(MU.icon('arrow-up', 'ic-send'), MU.icon('stop', 'ic-stop'));
+  rightBar.append(rightModel, rightPlan, rightSend);
+  rightForm.append(rightInput, rightBar);
+  const rightHint = make('span', 'hint', IDLE_HINT);
+  const rightFoot = make('div', 'foot');
+  rightFoot.append(rightHint);
+  rightDock.append(rightQueue, rightForm, rightFoot);
+  besideEl.append(rightHead.el, rightReadOnly, rightChat, rightDock);
+
+  // Whether the window is too narrow for two panes (under 1100 px, or the side pane open): one pane shows then.
+  const phone = () => document.documentElement.dataset.surface === 'phone';
+  const folded = () => !(WIDE ? WIDE.matches : true) || appEl?.hasAttribute('data-pane-open') === true;
+  const foldReason = () => (WIDE && !WIDE.matches ? FOLD_NARROW : FOLD_PANE);
+  const driving = () => Array.isArray(state().drives) && state().drives.length > 0;
+  const infoOf = id => threadList().find(t => t.id === id) ?? null;
+  const planOn = t => t.chatMode === 'plan' || project()?.chatMode === 'plan';
+  const canSplit = () => Boolean(SP) && !phone() && state().threadsOff !== true && threadList().length >= 2;
+  const setText = (node, text) => {
+    if (node.textContent !== text) node.textContent = text;
+  };
+  const setAttr = (node, name, value) => {
+    const v = String(value);
+    if (node.getAttribute(name) !== v) node.setAttribute(name, v);
+  };
+
+  // Puts the parts into the page, after the tab row: the thread header row through the composer dock move into the left pane, in order.
+  // Once done it stays. Returns false when the page is not as expected, and then split view stays off.
+  function ensureWrapped() {
+    if (wrapped) return true;
+    const dock = MU.el.composerWrap;
+    if (!dock || dock.parentElement !== bar.parentElement || !(bar.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+    const had = document.activeElement;
+    bar.after(splitEl);
+    splitEl.append(primaryEl, dividerEl, besideEl);
+    primaryEl.append(leftHead.el);
+    for (let node = splitEl.nextSibling; node; ) {
+      const next = node.nextSibling;
+      primaryEl.append(node);
+      if (node === dock) break;
+      node = next;
+    }
+    wrapped = true;
+    MU.el.chat.scrollTo({ top: MU.el.chat.scrollHeight, behavior: 'instant' });   // a moved scroller starts at the top
+    if (had instanceof HTMLElement && had !== document.body && had.isConnected) had.focus({ preventScroll: true });
+    return true;
+  }
+
+  // Remembers the widths and each project's right thread. A project keeps its right thread only while split view is on; closing it
+  // removes the entry. Every call is inside try, as the seen marks are.
+  function remember() {
+    if (split.project) {
+      delete remembered.beside[split.project];
+      if (split.beside) remembered.beside[split.project] = split.beside;
+    }
+    remembered.ratio = split.ratio;
+    const keys = Object.keys(remembered.beside);
+    for (const key of keys.slice(0, Math.max(0, keys.length - 50))) delete remembered.beside[key];
+    try {
+      localStorage.setItem(SPLIT_KEY, JSON.stringify(remembered));
+    } catch {
+      // The split view is kept for this page only.
+    }
+  }
+
+  // Changes the right thread. This is the one place that does it: the text in the right box goes with its thread.
+  function setBeside(id) {
+    const next = id || null;
+    if (split.beside === next) return;
+    if (split.beside) {
+      if (rightInput.value.trim()) drafts.set(split.beside, rightInput.value);
+      else drafts.delete(split.beside);
+    }
+    split.beside = next;
+    if (next && split.project) lastBeside.set(split.project, next);
+    split.gen += 1;                       // an answer for the thread that was there is dropped
+    split.wasBusy = false;
+    split.lastRight = '';
+    split.loadError = '';
+    split.unsaved = [];
+    split.messages = pending && pending.id === next ? pending.messages : null;
+    pending = null;
+    besideQueueDrawn = [];
+    readOnlySig = '';
+    rightInput.value = next ? drafts.get(next) ?? '' : '';
+    remember();
+    if (next) {
+      drawBeside({ bottom: true });
+      loadBeside();
+    }
+  }
+
+  // Opens a thread on the right (Ctrl-click, Open beside, Ctrl+Enter on a tab, Ctrl+Shift+\). The message box gets the focus.
+  function openBeside(id) {
+    if (!canSplit() || !id || id === activeId() || !infoOf(id)) return false;
+    setBeside(id);
+    split.focus = 'beside';
+    paint();
+    rightInput.focus({ preventScroll: true });
+    return true;
+  }
+
+  // Ends split view. No thread is closed: both stay open as tabs.
+  function closeSplit() {
+    if (!split.beside) return;
+    const hadFocus = besideEl.contains(document.activeElement);
+    setBeside(null);
+    split.focus = 'primary';
+    paint();
+    if (hadFocus) MU.el.input.focus({ preventScroll: true });
+  }
+
+  // Ctrl-click on a tab: puts the thread on the right, or closes split view when it is there already.
+  function toggleBeside(id) {
+    if (!id || id === activeId()) return;
+    if (split.beside === id) closeSplit();
+    else openBeside(id);
+  }
+
+  // Ctrl+Shift+\: closes split view; else opens the thread this project had on the right, or the next tab after the left one.
+  function toggleSplit() {
+    if (split.beside) {
+      closeSplit();
+      return;
+    }
+    if (threadList().length < 2) {
+      MU.toast(NEED_TWO);
+      return;
+    }
+    if (!canSplit()) return;
+    const left = activeId();
+    const again = lastBeside.get(split.project);
+    if (again && again !== left && infoOf(again)) {
+      openBeside(again);
+      return;
+    }
+    const list = threadList();
+    const at = list.findIndex(t => t.id === left);
+    openBeside(list[(at + 1) % list.length].id);
+  }
+
+  // Shows one pane while split view is folded (or moves the focus to it). While a model drives, the left pane stays in view.
+  function showPane(side) {
+    if (!split.beside) return;
+    let target = side;
+    if (target === 'beside' && folded() && driving()) {
+      MU.toast(DRIVE_KEEP);
+      target = 'primary';
+    }
+    split.focus = target;
+    paint();
+    (target === 'beside' ? rightInput : MU.el.input).focus({ preventScroll: true });
+  }
+
+  // A click on a tab (the click table of section 1.5).
+  function goTo(id) {
+    if (split.beside && id === split.beside) {
+      showPane('beside');
+      return;
+    }
+    if (split.beside && id === activeId()) {
+      showPane('primary');
+      return;
+    }
+    choose(id);
+  }
+
+  // Swap sides: the right thread becomes the active one (the server call), and the thread that was on the left goes to the right. Both
+  // message boxes change sides with their threads.
+  async function swap() {
+    const left = activeId();
+    const right = split.beside;
+    if (!left || !right) return false;
+    const leftText = MU.el.input.value;
+    const rightText = rightInput.value;
+    // The render that follows the switch puts the old left thread on the right (paintSplit); pending hands it the chat it had, so the
+    // right pane does not flash "Loading".
+    pending = { id: left, messages: Array.isArray(state().messages) ? state().messages.slice() : null };
+    try {
+      await T.switchTo(right);
+    } catch (err) {
+      pending = null;
+      MU.toast(err.message, 'bad');
+      return false;
+    }
+    if (split.beside !== left) return false;
+    MU.el.input.value = rightText;
+    MU.el.input.dispatchEvent(new Event('input', { bubbles: true }));
+    rightInput.value = leftText;
+    drafts.delete(right);
+    return true;
+  }
+
+  // The × of the left pane: the right thread takes the whole column (swap, then close).
+  async function closeLeft() {
+    if (await swap()) closeSplit();
+  }
+
+  // The split items of a thread's "…" menu: Open beside, or Swap sides and Close split view for the two threads on screen.
+  function splitItemsOf(t) {
+    const on = Boolean(split.beside);
+    const isLeft = t.id === activeId();
+    const isRight = on && t.id === split.beside;
+    if (on && (isLeft || isRight)) {
+      const rightName = infoOf(split.beside)?.name ?? '';
+      return [
+        { label: 'Swap sides', title: 'Put each thread on the other side', run: () => swap() },
+        { label: 'Close split view', title: `Close the right pane. ${rightName} stays open as a tab.`, run: () => closeSplit() },
+      ];
+    }
+    if (isLeft) return [];
+    const leftName = infoOf(activeId())?.name ?? '';
+    return [{ label: 'Open beside', title: `Show ${t.name} on the right, next to ${leftName}`, run: () => openBeside(t.id) }];
+  }
+
+  // Reads the right thread's chat again (GET /api/threads/chat). An answer for a thread that is no longer there is dropped (the generation),
+  // and so is an answer that a newer read has overtaken (the sequence). A message sent from this pane that the answer does not have yet
+  // stays on screen after the saved messages, until a saved chat has it.
+  async function loadBeside() {
+    const id = split.beside;
+    const pid = state().activeProject;
+    if (!SP || !id || !pid) return;
+    const gen = split.gen;
+    const mine = (split.seq += 1);
+    const asked = Date.now();
+    let data = null;
+    let error = '';
+    try {
+      data = await MU.api(`/api/threads/chat?project=${encodeURIComponent(pid)}&thread=${encodeURIComponent(id)}`);
+    } catch (err) {
+      error = err.message;
+    }
+    if (gen !== split.gen || mine !== split.seq) return;
+    if (error) {
+      split.loadError = error;           // a closed thread answers 404; the next state turns split view off
+    } else {
+      const saved = Array.isArray(data?.messages) ? data.messages : [];
+      const idle = !T.isRunning(id);
+      split.unsaved = split.unsaved.filter(u => !saved.some(m => m.role === 'user' && m.content === u.text && (m.ts ?? 0) >= u.ts - 2000) && !(idle && asked - u.ts > 5000));
+      split.messages = saved;
+      split.loadError = '';
+    }
+    drawBeside();
+  }
+
+  // A line in the right transcript: loading (with a spinner), empty, or could not be read (tone bad).
+  function stateLine(text, tone = '', spin = false) {
+    const p = make('p', 'ext-thread-pane-state');
+    if (tone) p.dataset.tone = tone;
+    if (spin) p.append(make('span', 'spinner'));
+    p.append(text);
+    return p;
+  }
+
+  // Draws the right transcript: the saved chat, or the line that says it loads or could not be read. setBeside, loadBeside and a message
+  // sent from the right pane call it; a render never does, so a redraw never rebuilds the transcript.
+  function drawBeside({ bottom = false } = {}) {
+    const id = split.beside;
+    const info = infoOf(id);
+    if (!SP || !id || !info) return;
+    const near = rightChat.scrollHeight - rightChat.scrollTop - rightChat.clientHeight < 180;
+    const top = rightChat.scrollTop;
+    let stream;
+    if (Array.isArray(split.messages)) {
+      const shown = [...split.messages, ...split.unsaved.map(u => ({ role: 'user', kind: 'chat', content: u.text, ts: u.ts }))];
+      stream = SP.stream(id, shown);
+      if (!stream.childElementCount) stream.append(stateLine(`No messages in ${info.name} yet. Type below to start.`));
+    } else if (split.loadError) {
+      stream = make('div', 'stream');
+      const line = stateLine(`The chat of ${info.name} could not be read: ${split.loadError}`, 'bad');
+      const again = make('button', 'ghost small', 'Try again');
+      again.type = 'button';
+      again.addEventListener('click', () => loadBeside());
+      line.append(again);
+      stream.append(line);
+    } else {
+      stream = make('div', 'stream');
+      stream.append(stateLine(LOADING, '', true));
+    }
+    rightChat.replaceChildren(stream);
+    besideStream = stream;
+    rightChat.scrollTo({ top: bottom || near ? rightChat.scrollHeight : top, behavior: 'instant' });
+  }
+
+  // One queued message of the right pane: its first words (the whole text in the title), Edit and Remove. The same shape as app.js's row.
+  function queueRowEl(item, i) {
+    const row = make('li', 'queue-item');
+    const flat = item.text.replace(/\s+/g, ' ');
+    const label = make('span', 'q-text', flat.length > 80 ? `${flat.slice(0, 80)}…` : flat);
+    label.title = item.text;
+    const edit = make('button', 'ghost small', 'Edit');
+    edit.type = 'button';
+    edit.setAttribute('aria-label', `Edit queued message ${i + 1}`);
+    edit.addEventListener('click', () => editQueuedBeside(item));
+    const remove = make('button', 'ghost small', 'Remove');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', `Remove queued message ${i + 1}`);
+    remove.addEventListener('click', () => removeQueuedBeside(item));
+    row.append(label, edit, remove);
+    return row;
+  }
+
+  function editQueuedBeside(item) {
+    if (rightInput.value.trim()) {
+      MU.toast(EDIT_FULL, 'bad');
+      return;
+    }
+    if (!SP.unqueue(item)) return;
+    rightInput.value = item.text;
+    paint();
+    rightInput.focus({ preventScroll: true });
+  }
+
+  function removeQueuedBeside(item) {
+    if (!SP.unqueue(item)) return;
+    MU.toast('Removed 1 queued message');
+    paint();
+  }
+
+  // Sends the right box's text to the right thread. A command is not sent (it runs in the left box). A spend-cap refusal gives the text back.
+  function sendBeside() {
+    const id = split.beside;
+    const text = rightInput.value.trim();
+    if (!id || !text) return;
+    if (text.startsWith('/')) {
+      MU.toast(COMMANDS_LEFT, 'bad');
+      return;
+    }
+    rightInput.value = '';
+    drafts.delete(id);
+    SP.send(id, text)
+      .then(refused => {
+        if (!refused || split.beside !== id) return;
+        // A refused send never reached the chat: its message leaves the transcript, and a spend-cap refusal gives the text back.
+        split.unsaved = split.unsaved.filter(u => u.text !== text);
+        if (refused === 'policy' && !rightInput.value) rightInput.value = text;
+        drawBeside();
+      })
+      .catch(err => MU.toast(err.message, 'bad'));
+    paint();
+  }
+
+  // Enter while the right thread runs: the text joins its queue (at most five, as the left one).
+  function queueBeside() {
+    const id = split.beside;
+    const text = rightInput.value.trim();
+    if (!id || !text) return;
+    if (text.startsWith('/')) {
+      MU.toast(COMMANDS_LEFT, 'bad');
+      return;
+    }
+    const why = SP.queue(id, text);
+    if (why) {
+      MU.toast(why, 'bad');
+      return;
+    }
+    rightInput.value = '';
+    drafts.delete(id);
+    paint();
+  }
+
+  // The right pane's read-only line: the words and the two buttons, rebuilt only when what they say has changed.
+  function paintReadOnly(t) {
+    const writer = writerOf();
+    const sig = `${t.id}|${t.writer}|${multiWriter()}|${writer?.name}|${state().projectBusy}`;
+    if (sig !== readOnlySig) {
+      readOnlySig = sig;
+      rightReadOnlyLine.replaceChildren(...readOnlyParts(t));
+    }
+    rightReadOnly.hidden = rightReadOnlyLine.childElementCount === 0;
+  }
+
+  // The right composer: the send/stop button, the hint, the model and Plan pills, and the box's labels.
+  function paintRightComposer(t) {
+    const running = T.isRunning(t.id);
+    rightSend.classList.toggle('stop', running);
+    rightSend.title = running ? 'Stop' : 'Send';
+    setAttr(rightSend, 'aria-label', running ? `Stop ${t.name}` : `Send to ${t.name}`);
+    setText(rightHint, running ? BUSY_HINT : IDLE_HINT);
+    setAttr(rightInput, 'aria-label', `Message to ${t.name}`);
+    setAttr(rightInput, 'placeholder', `Ask ${t.name} for a change, a review or a plan`);
+    const model = modelOf(t);
+    const provider = providerOfRef(model);
+    if (provider) rightModelSw.dataset.p = provider;
+    else delete rightModelSw.dataset.p;
+    setText(rightModelName, MU.modelName(model));
+    rightModel.title = MODEL_TITLE;
+    rightPlan.hidden = !planOn(t);
+    rightPlan.title = PLAN_TITLE;
+  }
+
+  // The right queue line: its count, and the rows when the queue itself has changed.
+  function paintRightQueue(t) {
+    const items = SP.queuedItems(t.id);
+    rightQueue.hidden = items.length === 0;
+    if (items.length) setText(rightQueueText, items.length === 1 ? QUEUE_ONE : `${items.length} messages queued. They start one at a time, in order.`);
+    const same = items.length === besideQueueDrawn.length && items.every((item, i) => item === besideQueueDrawn[i]);
+    if (same) return;
+    besideQueueDrawn = [...items];
+    rightQueueList.replaceChildren(...items.map(queueRowEl));
+  }
+
+  // A pane that is not the current one says, in its head's line, that its thread starts to wait or that a run in it has ended.
+  function announce(head, t, before, now, current) {
+    if (current || before === now) return;
+    let text = '';
+    if (now === 'waiting') text = `${t.name} is waiting for your approval.`;
+    else if (before === 'running') text = `Reply finished in ${t.name}.`;
+    if (!text) return;
+    const line = (head === leftHead ? primaryEl : besideEl).hidden ? (head === leftHead ? rightHead : leftHead).status : head.status;
+    line.textContent = '';
+    setTimeout(() => {
+      line.textContent = text;
+    }, 50);
+  }
+
+  // One pane's head: its thread's swatch, name, marks, the Show button (folded only) and, for the right pane, Swap sides.
+  function fillHead(head, t, other, side, fold) {
+    head.el.hidden = false;
+    const provider = providerOfRef(modelOf(t));
+    if (provider) head.sw.dataset.p = provider;
+    else delete head.sw.dataset.p;
+    setText(head.name, t.name);
+    const status = statusOf(t);
+    const shielded = t.writer === false && !multiWriter();
+    const key = `${status}|${shielded}`;
+    if (head.key !== key) {
+      head.key = key;
+      const marks = [];
+      if (status === 'waiting' || status === 'running') marks.push(dot(status));
+      if (shielded) marks.push(shieldEl(t));
+      head.marks.replaceChildren(...marks);
+    }
+    setText(head.show, `Show ${other.name}`);
+    head.show.hidden = !fold;
+    if (side === 'primary') {
+      head.show.disabled = driving();
+      head.show.title = driving() ? DRIVE_KEEP : foldReason();
+    } else {
+      head.show.title = foldReason();
+      head.swap.title = `Show ${t.name} on the left, with the full message box`;
+    }
+    setAttr(head.close, 'aria-label', `Close the ${t.name} pane`);
+    head.close.title = `Close this pane. ${t.name} stays open as a tab.`;
+  }
+
+  // The divider's values and the ratio the panes take (the data-ratio steps of the CSS).
+  function paintDivider() {
+    const left = infoOf(activeId());
+    const right = infoOf(split.beside);
+    setAttr(dividerEl, 'aria-valuenow', split.ratio);
+    setAttr(dividerEl, 'aria-valuetext', `${left?.name ?? ''} ${split.ratio}%, ${right?.name ?? ''} ${100 - split.ratio}%`);
+  }
+
+  function setRatio(n, save = true) {
+    split.ratio = n;
+    splitEl.dataset.ratio = String(n);
+    paintDivider();
+    if (save) remember();
+  }
+
+  // The layout of split view while it is on: which panes show, the heads, the right composer, the marks and the screen-reader regions.
+  function applyOn() {
+    const left = infoOf(activeId());
+    const right = infoOf(split.beside);
+    if (!left || !right) return;
+    const had = document.activeElement;
+    const wasLeft = primaryEl.contains(had);
+    const wasRight = besideEl.contains(had);
+    splitEl.dataset.on = '';
+    splitEl.dataset.ratio = String(split.ratio);
+    const fold = folded();
+    const shown = fold ? (driving() ? 'primary' : split.focus) : null;
+    if (shown) split.focus = shown;   // folded, the pane in view is the current one (a drive keeps the left pane in view)
+    splitEl.dataset.focus = split.focus;
+    if (shown) splitEl.dataset.fold = shown;
+    else delete splitEl.dataset.fold;
+    primaryEl.hidden = shown === 'beside';
+    besideEl.hidden = shown === 'primary';
+    dividerEl.hidden = fold;
+    // A focus in a pane that just went away moves to the other pane's message box.
+    if (wasLeft && primaryEl.hidden) rightInput.focus({ preventScroll: true });
+    else if (wasRight && besideEl.hidden) MU.el.input.focus({ preventScroll: true });
+    setAttr(primaryEl, 'role', 'region');
+    setAttr(primaryEl, 'aria-label', `${left.name}, left pane`);
+    setAttr(besideEl, 'role', 'region');
+    setAttr(besideEl, 'aria-label', `${right.name}, right pane`);
+    setAttr(rightChat, 'aria-label', `Messages in ${right.name}`);
+    fillHead(leftHead, left, right, 'primary', fold);
+    fillHead(rightHead, right, left, 'beside', fold);
+    paintReadOnly(right);
+    paintRightComposer(right);
+    paintRightQueue(right);
+    // A run of the right thread that started after its transcript was drawn: its box goes in now (runStream made it, off screen).
+    const box = SP.box(right.id);
+    if (box && !box.isConnected && besideStream) besideStream.append(box);
+    // A run of the right thread that ended: its saved chat is read again.
+    const busy = T.isRunning(right.id);
+    if (split.wasBusy && !busy) loadBeside();
+    split.wasBusy = busy;
+    const leftNow = statusOf(left);
+    const rightNow = statusOf(right);
+    announce(leftHead, left, split.lastLeft, leftNow, split.focus === 'primary');
+    announce(rightHead, right, split.lastRight, rightNow, split.focus === 'beside');
+    split.lastLeft = leftNow;
+    split.lastRight = rightNow;
+    // Only the pane that has the focus is read out as it changes.
+    setAttr(MU.el.chat, 'aria-live', split.focus === 'primary' ? 'polite' : 'off');
+    setAttr(rightChat, 'aria-live', split.focus === 'beside' ? 'polite' : 'off');
+    paintDivider();
+    // The Settings page covers the panes: the right pane, the divider and the left head leave the reading and tab order.
+    const covered = appEl?.hasAttribute('data-settings-open') === true;
+    besideEl.inert = covered;
+    dividerEl.inert = covered;
+    leftHead.el.inert = covered;
+  }
+
+  // Split view off: the left pane is the whole column, as it was before split view.
+  function applyOff() {
+    const had = besideEl.contains(document.activeElement);
+    for (const name of ['on', 'fold', 'focus', 'ratio']) delete splitEl.dataset[name];
+    primaryEl.hidden = false;
+    besideEl.hidden = true;
+    dividerEl.hidden = true;
+    leftHead.el.hidden = true;
+    rightHead.el.hidden = true;
+    primaryEl.removeAttribute('role');
+    primaryEl.removeAttribute('aria-label');
+    besideEl.removeAttribute('role');
+    besideEl.removeAttribute('aria-label');
+    setAttr(MU.el.chat, 'aria-live', 'polite');
+    setAttr(rightChat, 'aria-live', 'off');
+    besideEl.inert = false;
+    dividerEl.inert = false;
+    leftHead.el.inert = false;
+    if (had) MU.el.input.focus({ preventScroll: true });
+  }
+
+  // Runs on every render (paint is the render hook): the project switch, the swap rule, the checks that close split view, then the layout.
+  function paintSplit() {
+    if (!SP) return;
+    const pid = state().activeProject ?? null;
+    if (pid !== split.project) {
+      split.project = pid;
+      split.lastActive = null;
+      split.focus = 'primary';
+      setBeside(pid ? remembered.beside[pid] ?? null : null);
+    }
+    const ids = new Set(threadList().map(t => t.id));
+    // The swap rule: when the right thread becomes the active one, the thread that was on the left goes to the right.
+    if (split.beside && split.beside === activeId()) {
+      const back = split.lastActive && split.lastActive !== activeId() && ids.has(split.lastActive) ? split.lastActive : null;
+      setBeside(back);
+    }
+    if (split.beside && (!ids.has(split.beside) || !canSplit())) setBeside(null);
+    split.lastActive = activeId();
+    if (!split.beside) {
+      if (wrapped) applyOff();
+      return;
+    }
+    if (!ensureWrapped()) {
+      setBeside(null);
+      return;
+    }
+    applyOn();
+  }
+
+  // The focus says which pane is current. It follows a focus inside a pane and a press in one.
+  function noteFocus(target) {
+    const side = primaryEl.contains(target) ? 'primary' : besideEl.contains(target) ? 'beside' : '';
+    if (!side || side === split.focus || !split.beside) return;
+    split.focus = side;
+    paint();
+  }
+
+  // ---- the right pane's own events ----
+
+  rightForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const id = split.beside;
+    if (!id) return;
+    if (T.isRunning(id)) SP.stop(id);
+    else sendBeside();
+  });
+  rightInput.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    const id = split.beside;
+    if (!id) return;
+    if (e.key === 'Escape') {
+      // A drawer or a dialog takes Escape first; else Escape stops the right thread's run.
+      if (MU.dialogOpen?.() || !MU.el.drawer.hidden) return;
+      if (T.isRunning(id)) {
+        e.preventDefault();
+        SP.stop(id);
+      }
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (T.isRunning(id)) queueBeside();
+      else sendBeside();
+    }
+  });
+  rightQueueClear.addEventListener('click', () => {
+    const id = split.beside;
+    if (!id) return;
+    const n = SP.queuedItems(id).length;
+    T.dropQueued(id);
+    MU.toast(n ? `Dropped ${n} queued ${n === 1 ? 'message' : 'messages'}` : 'The queue was already empty');
+    paint();
+  });
+  // Copy on a code block of the right transcript, as the left one does.
+  rightChat.addEventListener('click', async e => {
+    const copy = e.target.closest('.copy');
+    if (!copy) return;
+    const code = copy.closest('.codeblock')?.querySelector('code')?.textContent ?? '';
+    if (!(await MU.copyText(code))) {
+      MU.toast('The code could not be copied.', 'bad');
+      return;
+    }
+    copy.textContent = 'Copied';
+    setTimeout(() => {
+      copy.textContent = 'Copy';
+    }, 1400);
+  });
+  // The transcript sticks to its bottom while it is near it, as the left one does.
+  new MutationObserver(() => {
+    if (rightChat.scrollHeight - rightChat.scrollTop - rightChat.clientHeight < 180) rightChat.scrollTop = rightChat.scrollHeight;
+  }).observe(rightChat, { childList: true, subtree: true, characterData: true });
+
+  // A message sent from the right pane (app.js sendMessage announces it) shows at once, in its transcript.
+  window.addEventListener('plenum:thread-sent', e => {
+    const d = e.detail;
+    if (!d || d.scope !== split.beside) return;
+    split.unsaved.push({ text: String(d.text ?? ''), ts: Date.now() });
+    if (Array.isArray(split.messages)) drawBeside({ bottom: true });
+  });
+
+  // The focus and the presses that say which pane is current.
+  splitEl.addEventListener('focusin', e => noteFocus(e.target));
+  splitEl.addEventListener('pointerdown', e => noteFocus(e.target));
+
+  // The divider: a drag, a double-click for the even split, and Left, Right, Home and End.
+  const snap = x => Math.min(65, Math.max(35, Math.round(x / 5) * 5));
+  dividerEl.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    dividerDrag = true;
+    try {
+      dividerEl.setPointerCapture(e.pointerId);
+    } catch {
+      // The drag works without the capture too.
+    }
+  });
+  dividerEl.addEventListener('pointermove', e => {
+    if (!dividerDrag) return;
+    const r = splitEl.getBoundingClientRect();
+    if (r.width > 0) setRatio(snap(((e.clientX - r.left) / r.width) * 100), false);
+  });
+  const endDrag = e => {
+    if (!dividerDrag) return;
+    dividerDrag = false;
+    try {
+      dividerEl.releasePointerCapture(e.pointerId);
+    } catch {
+      // Nothing to release.
+    }
+    remember();
+  };
+  dividerEl.addEventListener('pointerup', endDrag);
+  dividerEl.addEventListener('pointercancel', endDrag);
+  dividerEl.addEventListener('dblclick', () => setRatio(50));
+  dividerEl.addEventListener('keydown', e => {
+    let next = null;
+    if (e.key === 'ArrowLeft') next = split.ratio - 5;
+    else if (e.key === 'ArrowRight') next = split.ratio + 5;
+    else if (e.key === 'Home') next = 35;
+    else if (e.key === 'End') next = 65;
+    if (next === null) return;
+    e.preventDefault();
+    setRatio(snap(next));
+  });
+
+  // Ctrl+Shift+\ turns split view on or off (desktop and browser). Ctrl+1 and Ctrl+2 (desktop app, split view on) go to the two message boxes.
+  // Not while a dialog, the drawer or the Settings page is open.
+  document.addEventListener('keydown', e => {
+    if (e.defaultPrevented || e.altKey || e.isComposing || !(e.ctrlKey || e.metaKey)) return;
+    if (MU.dialogOpen?.() || !MU.el.drawer.hidden || appEl?.hasAttribute('data-settings-open')) return;
+    if (e.shiftKey && e.code === 'Backslash') {
+      e.preventDefault();
+      toggleSplit();
+      return;
+    }
+    if (!IS_DESKTOP || e.shiftKey || !split.beside) return;
+    if (e.code === 'Digit1') {
+      e.preventDefault();
+      showPane('primary');
+    } else if (e.code === 'Digit2') {
+      e.preventDefault();
+      showPane('beside');
+    }
+  });
+
+  // The window's width and the side pane or the Settings page change the layout: the page is drawn again.
+  WIDE?.addEventListener?.('change', () => paint());
+  if (appEl) new MutationObserver(() => paint()).observe(appEl, { attributes: true, attributeFilter: ['data-pane-open', 'data-settings-open'] });
+  // F6 reaches the right pane's transcript and message box while it shows (app.js shellRegions).
+  if (SP) SP.regions = () => (split.beside && wrapped ? [rightChat, rightInput] : []);
+
   // ---------- wiring ----------
 
   Object.assign(T, {
@@ -941,6 +1842,10 @@
     focusTab: id => bar.querySelector(`.ext-thread-btn[data-thread="${CSS.escape(String(id))}"]`)?.focus({ preventScroll: true }),
     unread: id => { const t = threadList().find(x => x.id === id); return Boolean(t) && unread(t); },
     status: id => { const t = threadList().find(x => x.id === id); return t ? statusOf(t) : ''; },
+    splitView: {               // split view, for the other panels and the tests (T.split is app.js's hook: not overwritten here)
+      open: openBeside, close: closeSplit, swap, show: showPane, beside: () => split.beside, ratio: () => split.ratio,
+      folded: () => Boolean(split.beside) && folded(),
+    },
   });
 
   // The Agents board opens a run by its scope (MuseUI.board.openScope); a thread's scope is not a project id, so it is taken here.

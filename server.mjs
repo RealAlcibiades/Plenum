@@ -52,9 +52,10 @@ import { loadGlobalRules, loadProjectRules } from './lib/rules.mjs';
 import { IMAGE_REFUSAL, MAX_IMAGES, checkImages, describeImages, takesImages } from './lib/images.mjs';
 import { checkMessageTotals, describeUploads, pdfRefusal, sortAttachments, splitUploads, takesDocuments, withInline } from './lib/attachments.mjs';
 import { runAfter, runBefore, runExpand } from './lib/turn-hooks.mjs';
-import { describeThreads, planModeOf, projectBusy, readOnlyNotice, readOnlyWhy, runningScopes, scopeFor, threadOf } from './lib/scope.mjs';
+import { describeThreads, planModeOf, projectBusy, readOnlyNotice, readOnlyWhy, runningScopes, scopeFor, threadOf, worktreeHeld, worktreeOf } from './lib/scope.mjs';
 import { ensureThreads, migrateThreads, threadsOf } from './lib/threads.mjs';
 import { onShellMessage, shellPost } from './lib/shell.mjs';
+import { forgetWorktree } from './lib/worktree.mjs';
 
 // Under the desktop app this is an Electron utility process, which ends with the app, and the app sends it the saved API
 // keys over its message channel (see connectKeyChannel at the bottom). The Electron binary is also what process.execPath
@@ -114,14 +115,22 @@ function staticAsset(pathname) {
 // id, any other thread `${project id}-t${6 hex}`, so several threads of one project can run at once. projectBusy(running, projectId) says
 // whether any thread of a project runs.
 const running = new Map();
-// Project id -> { scope, kind } while a project-wide operation (a build, a checkpoint restore, a snapshot rewind) is live. A thread of the
-// same project does not start a run meanwhile, and the operation itself starts only when every thread is idle.
+// Project id -> { scope, kind } while a project-wide operation (a build, a checkpoint restore, a snapshot rewind, a merge of a thread's
+// isolated copy into the base branch) is live. A thread of the same project does not start a run meanwhile, and the operation itself
+// starts only when every thread is idle. A merge changes the project folder from the moment its card is shown until git has finished,
+// and a turn that edits the folder meanwhile could be lost by the merge's own abort.
 const exclusive = new Map();
-const EXCLUSIVE_KINDS = { build: 'Builds', restore: 'Restores', rewind: 'Restores' };
+const EXCLUSIVE_KINDS = { build: 'Builds', restore: 'Restores', rewind: 'Restores', 'worktree-merge': 'Merges' };
+// What a live operation is called in "A ... is running in this project." (the run kind when it is not listed here).
+const EXCLUSIVE_NAMES = { 'worktree-merge': 'merge' };
 // True from the moment an update starts being applied until the server restarts (B-87). Run starters refuse while it is set, so no
 // run can be cut off by the restart that follows an applied update.
 let updating = false;
 const UPDATING_TEXT = 'Plenum is applying an update and will restart. Try again in a moment.';
+// True from the desktop app's shutdown message until the process ends (onShellMessage('shutdown') at the bottom). Run starters refuse
+// while it is set, so no run begins during the drain only to be stopped a moment later.
+let shuttingDown = false;
+const CLOSING_TEXT = 'Plenum is closing.';
 // Drive id -> the computer run that is live, so a route can reach the run of a drive (the "Type it for me" box, lib/routes/computer.mjs).
 const liveComputerRuns = new Map();
 // Approval id -> { finish, fullDetail, card, meta, at } for a tool call waiting on the user. fullDetail is the whole diff when the card shows
@@ -142,15 +151,25 @@ function endRun(scopeId, ac) {
   running.delete(scopeId);
   activity.runEnded(scopeId, { aborted: ac.signal.aborted });
 }
-// A project-wide operation (a build, a checkpoint restore, a snapshot rewind) that is live keeps every other thread of the project from
-// starting a run meanwhile, so nothing writes while a restore waits for its card.
+// A project-wide operation (a build, a checkpoint restore, a snapshot rewind, a merge) that is live keeps every other thread of the project
+// from starting a run meanwhile, so nothing writes while a restore or a merge waits for its card.
 function refuseWhileExclusive(project, scope) {
   const op = exclusive.get(project.id);
-  if (op && op.scope !== scope.id) throw httpError(409, `A ${op.kind} is running in this project. Wait until it ends.`);
+  if (op && op.scope !== scope.id) throw httpError(409, `A ${EXCLUSIVE_NAMES[op.kind] ?? op.kind} is running in this project. Wait until it ends.`);
 }
 
-// The 409 for a run that cannot start in this thread: the thread is busy itself, or (for a build, a restore and a rewind) any other thread
-// of the project is. Returns null when it may start. what is 'Builds' or 'Restores'.
+// A thread's isolated copy that is being kept, discarded or merged is not a folder a new run may start in. A starter reads its scope before
+// it awaits (the folder check, a git preflight), so the copy may have changed hands since: this reads the scope again and refuses a copy that
+// is held now. Called in the same synchronous stretch as the other checks and beginRun, so a Keep or Discard that begins later finds the run
+// marked running and is refused by its own check, and one that began earlier is seen here. Returns the scope as it is now.
+function refuseClosingCopy(project, scope) {
+  const now = scopeFor(store, project, scope.id);
+  if (worktreeHeld(now.id) || now.worktree?.state === 'closing') throw httpError(409, 'This thread\'s isolated copy is being kept or discarded.');
+  return now;
+}
+
+// The 409 for a run that cannot start in this thread: the thread is busy itself, or (for a build, a restore, a rewind and a merge) any other
+// thread of the project is. Returns null when it may start. what is 'Builds', 'Restores' or 'Merges'.
 function busyRefusal(project, scope, what) {
   if (running.has(scope.id)) return httpError(409, 'This project is already running. Use /cancel first.');
   if (what && projectBusy(running, project.id)) return httpError(409, `Another thread in this project is running. ${what} wait until every thread is idle.`);
@@ -255,6 +274,16 @@ function keepForgotten(st, project) {
   st.forgotten[project.id] = { settings, spend: project.spend ?? null };
   const ids = Object.keys(st.forgotten);
   for (const old of ids.slice(0, Math.max(0, ids.length - KEEP_FORGOTTEN))) delete st.forgotten[old];
+}
+
+// The thread ids of a project that have an isolated copy on record (lib/scope.mjs: st.worktrees is keyed by thread id, and Main has none).
+const copyIdsOf = (st, project) => Object.keys(st.worktrees ?? {}).filter(id => id.startsWith(`${project.id}-t`));
+// Removing a project is refused while one of its copies is ready, or is being kept, discarded or merged: the work in it is on no branch
+// of the project yet, and the folder lives outside the project (POST /api/projects/remove).
+function refuseOpenCopies(st, project) {
+  if (copyIdsOf(st, project).some(id => ['ready', 'closing'].includes(worktreeOf(st, id)?.state))) {
+    throw httpError(409, 'Keep or Discard this project\'s isolated copies first.');
+  }
 }
 
 // The per-project switch 'The model may start computer use itself' (off by default; Project settings). Read on its own, so only a stored
@@ -870,12 +899,16 @@ async function handleTurn(req, res, { review }) {
   const project = projectById(body.project);
   // The thread this turn belongs to: body.thread, else the project's active thread. An id that is not an open thread of this project
   // (an unknown one, or another project's) answers 404 before anything is stored.
-  const scope = scopeFor(store, project, threadOf(body));
+  let scope = scopeFor(store, project, threadOf(body));
   // Checked before anything is stored, so no message is saved against a folder that is not there (B-73).
   if (await folderGone(project)) throw missingFolder(project);
   if (updating) throw httpError(409, UPDATING_TEXT);
+  if (shuttingDown) throw httpError(409, CLOSING_TEXT);
   if (running.has(scope.id)) throw httpError(409, 'This project is already running. Use /cancel first.');
   refuseWhileExclusive(project, scope);
+  // The scope was read before the folder check awaited: a Keep or Discard of this thread's copy may have begun since, so it is read again
+  // here, with nothing awaited between this and beginRun.
+  scope = refuseClosingCopy(project, scope);
 
   const ac = new AbortController();
   beginRun(project, scope, ac, { kind: review ? 'review' : 'chat' });
@@ -1205,6 +1238,7 @@ async function handleCompact(req, res) {
   const project = projectById(body.project);
   const scope = scopeFor(store, project, threadOf(body));
   if (updating) throw httpError(409, UPDATING_TEXT);
+  if (shuttingDown) throw httpError(409, CLOSING_TEXT);
   if (running.has(scope.id)) throw httpError(409, 'This project is already running. Use /cancel first.');
   refuseWhileExclusive(project, scope);
   const log = store.transcript(scope.id);
@@ -1274,9 +1308,9 @@ const PLAN_TIMEOUT_MS = 10 * 60 * 1000;
 // after, when given, is called once the run's events are over and before done, whether the run ended well or not; it stores what the run
 // leaves in the chat. The state file is saved at the end (saveReporting), so a failed save is an error event in this stream (B-28).
 // opts.scope is the thread the run belongs to (lib/scope.mjs); without it, the thread the request names (body.thread, kept on the request by
-// readBody, or the thread query), else the project's active thread. A build, a restore and a rewind are project-wide: they start only when
-// every thread of the project is idle (409 'Another thread in this project is running. Builds wait until every thread is idle.'), and while
-// one is live no other thread of the project starts a run. makeRun is given { signal, send, scope }.
+// readBody, or the thread query), else the project's active thread. A build, a restore, a rewind and a merge are project-wide: they start only
+// when every thread of the project is idle (409 'Another thread in this project is running. Builds wait until every thread is idle.'), and
+// while one is live no other thread of the project starts a run. makeRun is given { signal, send, scope }.
 async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'run', after, scope: given } = {}) {
   let asked;
   try {
@@ -1284,14 +1318,18 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
   } catch {
     asked = undefined;
   }
-  const scope = given ?? scopeFor(store, project, asked);
+  let scope = given ?? scopeFor(store, project, asked);
   // A run in a folder that is not there is refused before it starts (B-73: council, build, compare and relay). This check comes
   // before the busy check, so nothing awaits between that check and the run being marked as running.
   if (await folderGone(project)) throw missingFolder(project);
   if (updating) throw httpError(409, UPDATING_TEXT);
+  if (shuttingDown) throw httpError(409, CLOSING_TEXT);
   const busy = busyRefusal(project, scope, EXCLUSIVE_KINDS[kind]);
   if (busy) throw busy;
   refuseWhileExclusive(project, scope);
+  // The scope may be older than this moment (a route read it before its own awaits, a merge before its git preflight): it is read again,
+  // so a copy that a Keep or Discard holds now is refused, and the run gets the scope as it is.
+  scope = refuseClosingCopy(project, scope);
   const ac = new AbortController();
   beginRun(project, scope, ac, { kind });
   if (EXCLUSIVE_KINDS[kind]) exclusive.set(project.id, { scope: scope.id, kind });
@@ -1432,6 +1470,7 @@ async function handlePlan(req, res) {
   // A plan is a run of its thread, like a chat turn and a compact (B-34): it is marked running, so /cancel stops it, the page shows the
   // thread as busy, another run in the thread is refused, and a build waits for it. The checks come before anything starts.
   if (updating) throw httpError(409, UPDATING_TEXT);
+  if (shuttingDown) throw httpError(409, CLOSING_TEXT);
   const busy = busyRefusal(project, scope, undefined);
   if (busy) throw busy;
   refuseWhileExclusive(project, scope);
@@ -1800,7 +1839,20 @@ async function handleApi(req, res, url) {
       const body = await readBody(req);
       // Any thread of the project that runs keeps it from being forgotten.
       if (projectBusy(running, body.project)) throw httpError(409, 'That project is busy. Use /cancel first.');
-      keepForgotten(st, st.projects.find(p => p.id === body.project));
+      const going = st.projects.find(p => p.id === body.project);
+      // A copy that is ready holds work that is on no branch of the project yet, so the person chooses Keep branch or Discard first. A copy
+      // that failed or is missing has nothing to lose: what is left of it is removed, as closing its thread does, and its record goes. The
+      // cleanup awaits, so the checks are made again after it, with nothing awaited between them and the removal.
+      if (going) {
+        refuseOpenCopies(st, going);
+        for (const id of copyIdsOf(st, going)) {
+          await forgetWorktree({ project: going, st, id });
+          delete st.worktrees[id];
+        }
+        if (projectBusy(running, body.project)) throw httpError(409, 'That project is busy. Use /cancel first.');
+        refuseOpenCopies(st, going);
+      }
+      keepForgotten(st, going);
       st.projects = st.projects.filter(p => p.id !== body.project);
       if (st.activeProject === body.project) st.activeProject = st.projects[0]?.id ?? null;
       await store.saveOrFail();
@@ -2222,7 +2274,6 @@ await listen();
 // the state is saved; then the app is told it may end the process. Only the desktop channel can ask (lib/shell.mjs), so no page, phone
 // or route can stop the server this way. The app ends the process anyway if this takes longer than its own wait.
 const SHUTDOWN_WAIT_MS = 3000;
-let shuttingDown = false;
 onShellMessage('shutdown', async () => {
   if (shuttingDown) return;
   shuttingDown = true;

@@ -860,9 +860,11 @@ function approvalEl(ev, { reason: askReason = true, source = '' } = {}) {
     // The button that answered is disabled, and a disabled button holds no focus once the card leaves the page. The composer takes
     // the focus then, so the next typing goes somewhere.
     const hadFocus = card.contains(document.activeElement);
+    // A card in the split view's right pane gives the focus back to that pane's message box.
+    const home = card.closest('[data-thread-pane]')?.querySelector('.composer textarea') ?? el.input;
     card.remove();
     ev.onDone?.();
-    if (hadFocus || document.activeElement === document.body) el.input.focus({ preventScroll: true });
+    if (hadFocus || document.activeElement === document.body) home.focus({ preventScroll: true });
   };
   yes.addEventListener('click', () => decide(true));
   no.addEventListener('click', () => decide(false));
@@ -1854,6 +1856,8 @@ async function sendMessage(text, model, images, computer, appNames, scope = acti
     stream().lastElementChild?.classList.add('fresh');
   } else {
     threadNotes.delete(scope);
+    // The split view's right pane (ext-threads.js) shows the message at once; S.messages belongs to the thread on screen.
+    window.dispatchEvent(new CustomEvent('plenum:thread-sent', { detail: { scope, text } }));
   }
   // B-5: the text is kept until the run is known to have gone through, so Retry can put back what the server refused.
   lastSent = { text, images: sent, project: S.activeProject, scope };
@@ -2032,6 +2036,86 @@ function syncQueue() {
   el.send.title = stop ? 'Stop' : 'Send';
   el.send.setAttribute('aria-label', el.send.title);
 }
+
+// ---------- split view (threads phase 2) ----------
+
+// public/ext-threads.js draws a second thread beside the one on screen and uses these, through MuseUI.threads.split. Each takes that
+// thread's scope id; none of them touches S.messages, notes, streamEl or el.chat, which belong to the thread on screen.
+
+// The transcript of that thread as a .stream element, built the way renderChat builds the one on screen: the saved messages (a reply still
+// being written is drawn by its live box instead), the notes this page keeps for the thread, and its live run box last. The reply buttons
+// that act on the thread on screen (Send to, Insert into composer, Build this) are left out. messages is GET /api/threads/chat's list.
+function threadStream(scope, messages) {
+  const s = document.createElement('div');
+  s.className = 'stream';
+  const live = runBoxes.get(scope) ?? null;
+  let host = null;
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (m.kind === 'build' && m.role === 'user') continue;
+    if (m.draft === true && live) continue;
+    if (m.kind === 'build' && m.role === 'assistant' && host) {
+      host.querySelector('.council-slot')?.append(buildEl(buildFromSaved(m)));
+      continue;
+    }
+    const nodes = messageNodes(m);
+    for (const node of nodes) s.append(node);
+    host = m.kind === 'council' && m.role === 'assistant' ? nodes[0] : null;
+  }
+  for (const node of s.querySelectorAll('.reply-actions, .build-this')) node.remove();
+  for (const n of threadNotes.get(scope) ?? []) s.append(n.startsWith('Error: ') ? errorEl(n.slice(7)) : systemTurn(n.startsWith('Notice: ') ? n.slice(8) : n));
+  if (live) s.append(live);
+  return s;
+}
+
+// Stops that thread's run as the Stop button does for the thread on screen: this window's stream if it holds one, else through the server.
+async function stopScope(scope) {
+  const run = runs.get(scope);
+  if (run) {
+    run.abort();
+    return;
+  }
+  if (!S.activeProject) return;
+  try {
+    const { cancelled } = await api('/api/cancel', { project: S.activeProject, thread: scope });
+    toast(cancelled ? 'Cancel sent.' : 'Nothing is running in this thread.');
+  } catch (err) {
+    toast(err.message, 'bad');
+  }
+}
+
+// Queues text behind that thread's run with queueFollowUp's rules. Returns '' when it is queued, or the reason it is not.
+function queueFor(scope, text) {
+  if (!text || !S.activeProject) return 'Type a message first.';
+  if (text.startsWith('/')) return 'Commands run when nothing else is running. Press Esc to stop the run first.';
+  if (text.length > 14_000_000) return 'That message is too long to send (over 14 million characters). Split it up or attach the file with @path.';
+  if (followUps.filter(f => f.scope === scope).length >= MAX_QUEUED) return `${MAX_QUEUED} messages are already waiting in this thread. Wait for one to start, or clear the queue.`;
+  followUps.push({ project: S.activeProject, scope, text, images: [] });
+  syncQueue();
+  return '';
+}
+
+// The hook (MuseUI.threads.split). regions is set by ext-threads.js: () => the right pane's chat and message box, for F6.
+const SPLIT = {
+  stream: threadStream,                                   // (scope, messages) -> a .stream element
+  box: scope => runBoxes.get(scope) ?? null,              // the thread's live run box, or null
+  send: async (scope, text) => {                          // a chat message to that thread; resolves when its run ends: 'policy' (spend cap), 'other' (failed) or null
+    await sendMessage(text, undefined, [], undefined, undefined, scope);
+    // refusedBy is shared by every send of the page, so this thread's own notes say what happened ('Notice: ' is the B-105 spend-cap notice).
+    const mine = scope === activeScope() ? notes : threadNotes.get(scope) ?? [];
+    return mine.some(n => n.startsWith('Notice: ')) ? 'policy' : mine.some(n => n.startsWith('Error: ')) ? 'other' : null;
+  },
+  stop: stopScope,
+  queue: queueFor,
+  queuedItems: scope => followUps.filter(f => f.scope === scope),
+  unqueue: item => {                                      // removes one queued message quietly; true when it was there
+    const i = followUps.indexOf(item);
+    if (i < 0) return false;
+    followUps.splice(i, 1);
+    syncQueue();
+    return true;
+  },
+  regions: null,
+};
 
 // The fallback for the events channel. While the channel is down (and only then, every 5 seconds) the state is read and the
 // page is redrawn when the run, the project or the chat has changed, and the next queued message starts once the project is idle.
@@ -6361,7 +6445,9 @@ function shellRegions() {
   if (settingsShown) return [side, el.settingsPage].filter(node => node && node.getClientRects().length > 0);
   const tab = paneShown && paneActive ? paneInstances.get(paneActive)?.tab : null;
   el.chat.tabIndex = -1;
-  return [side, el.chat, el.input, tab].filter(node => node && node.getClientRects().length > 0);
+  // The split view's right pane (ext-threads.js) adds its chat and its message box after the composer.
+  const beside = typeof SPLIT.regions === 'function' ? SPLIT.regions() : [];
+  return [side, el.chat, el.input, ...beside, tab].filter(node => node && node.getClientRects().length > 0);
 }
 
 function cycleRegion(step) {
@@ -6577,6 +6663,7 @@ window.MuseUI = {
     queued: scope => followUps.filter(f => f.scope === scope).length,
     dropQueued: scope => { followUps = followUps.filter(f => f.scope !== scope); syncQueue(); },
     onRender: fn => { renderHooks.add(fn); return () => renderHooks.delete(fn); },  // called after every redraw of the shell or the chat
+    split: SPLIT,                             // split view (ext-threads.js): another thread's transcript, send, stop and queue
   },
   get state() { return S; },
   get catalog() { return catalog; },

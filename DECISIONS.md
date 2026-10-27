@@ -675,7 +675,7 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Source.** server.mjs (running keyed by project; 409 refusals for a second run); lib/store.mjs (load spreads unknown keys); lib/sessions.mjs; lib/archive.mjs; lib/checkpoints.mjs (name rule); lib/threads.mjs (the migration and the dated copy).
 
-**Status.** Phase 1 (wave 4) confirmed by code and tests. Phase 2, split view (two threads side by side), is not built; Ctrl+Tab and Ctrl+Shift+Tab cycling is.
+**Status.** Phase 1 (wave 4) confirmed by code and tests. Phase 2, split view (two threads side by side), is built (item 64); so is Ctrl+Tab and Ctrl+Shift+Tab cycling.
 
 ## 63. Isolated copies live in a short folder outside Plenum's data and outside OneDrive
 
@@ -686,6 +686,16 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 **Source.** git-worktree documentation: remove refuses an unclean worktree unless --force (https://git-scm.com/docs/git-worktree, read 2026-10-20); githooks documentation: post-checkout runs for git worktree add unless --no-checkout, and core.hooksPath moves the hooks folder (https://git-scm.com/docs/githooks, read 2026-10-20); lib/guard.mjs; item 18.
 
 **Status.** Confirmed against the git docs; the hook-marker tests must pass before release. Phase 1 (wave 5) and Phase 2, Merge into the base (wave 6), are built.
+
+## 64. Split view keeps the active thread on the left, and the right pane is this window's view
+
+**Decision.** Ctrl-click a thread tab, Open beside, Ctrl+Enter on a tab or Ctrl+Shift+\ shows a second thread on the right. The left pane is always the project's active thread and keeps every shared control; the right pane has its own message box, Send and Stop, queue and approval cards, and Swap sides moves its thread to the left. When the active thread becomes the right one, the sides swap. Under 1100 px, or with the side pane open, one pane shows at a time, and the left one while a model drives. The right thread of each project and the divider are kept in this window's local storage (plenum.threads.split). The right pane reads its chat through GET /api/threads/chat and builds it with threadStream (MuseUI.threads.split).
+
+**Reason.** The active thread is server state that every window and the phone share, so making the focused pane the active thread would post and redraw on every focus move and move the chat in other windows. renderChat stays as it is, so the B-9 and B-10 guarantees and their tests stand. Widths go through data-ratio steps, so the strict CSP needs no inline style.
+
+**Source.** public/app.js (activeScope, runBoxes, renderChat, sendMessage, shellRegions, MuseUI.threads.split); public/ext-threads.js; lib/routes/threads.mjs; UI-ARCH sections 3, 6 and 8; EXPANSION pro-01 step 8.
+
+**Status.** Built in the 0.6 stabilization (27 Oct 2026); tested by the threads-split suites (page, route, and the real page against a mock Messages API) at 1280 and 1000 px in both themes.
 
 ## Open items
 
@@ -699,5 +709,4 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 - Computer use on macOS and Linux, the OpenAI and Gemini model ids and safety fields, and koffi's union layout on arm64 need a run on those systems (items 57 and 59).
 - The overlay's content protection is probed at run time; the result on each platform is recorded in the smoke output.
 - Grok Build's ACP message shapes, the `~/.grok` file names, the GROK_CODE_XAI_API_KEY name, headless billing and the live Check tool calls result need a signed-in run and a real xAI key (item 60).
-- Split view, with two threads side by side, is not built (item 62).
 - The isolated copies' hook-marker tests must pass on a real repository before release (item 63).

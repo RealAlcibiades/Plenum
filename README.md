@@ -212,7 +212,7 @@ The switch **Several threads may write in this folder**, in the New thread panel
 
 The first start of this version copies the state file to `state.json.pre-threads-<date>` before adding threads. Main keeps the project's chat where earlier versions read it, so an earlier version opened on the same state file still shows Main's chat (the other threads are kept but not shown).
 
-Split view, with two threads side by side, is not built yet. In the desktop app, Ctrl+Tab and Ctrl+Shift+Tab go to the next and the previous thread.
+**Split view** shows two threads of the project side by side. Ctrl-click a thread's tab (Cmd-click on a Mac), choose **Open beside** in its **…** menu (or right-click the tab), or press **Ctrl+Shift+\\**. The left pane is the thread you chose last, with the full message box (model, effort, Mode, Council, attachments and / commands). The right pane has its own message box with Send and Stop, its own queue and its own approval cards. Runs stream in both at once, and Stop and Esc stop only the thread of their pane. **Swap sides** puts the right thread on the left; the **×** in a pane's head closes that pane and keeps the thread as a tab. Drag the line between the panes, or use the arrow keys on it, to change the widths. Under 1100 px, or while the side pane is open, one pane shows at a time, with a **Show …** button in its head; while a model drives the computer or the browser, that is the left pane, which holds the drive bar. In the desktop app, **Ctrl+1** and **Ctrl+2** go to the left and the right message box, and F6 reaches both panes. Plenum remembers each project's right thread and the widths in this window. In the desktop app, Ctrl+Tab and Ctrl+Shift+Tab go to the next and the previous thread on the left.
 
 ## Isolated copies (git worktrees)
 
@@ -349,7 +349,7 @@ The side pane is the column to the right of the chat. Panels put their tabs into
 
 ## Keyboard shortcuts
 
-Press **Ctrl+/** (**Cmd+/** on a Mac) for the full list. The main ones: **Enter** sends (or queues during a run), **Shift+Enter** adds a line, **Esc** closes a list and then stops the run, **/** focuses the message box, **Up** in an empty box recalls your last message, **Ctrl+K** switches project, **Ctrl+Shift+P** turns plan mode on or off, **Ctrl+Shift+C** turns council mode on or off, **Ctrl+Shift+A** opens Accounts, **Ctrl+Shift+B** opens the Agents tab, and **Ctrl+Enter** starts a quick compare or a pipeline. Ctrl+K and Ctrl+/ work even in a text field. Ctrl+Shift letters work from the message box but not from other text fields. The approval modes (Ask first, Auto-approve and Approve all) have no shortcut on purpose. **Ctrl+Alt+Esc** (**Control+Option+Esc** on a Mac) stops a computer or browser run from any app while a run is driving something; see [Model-driven runs: pause and stop](#model-driven-runs-pause-and-stop).
+Press **Ctrl+/** (**Cmd+/** on a Mac) for the full list. The main ones: **Enter** sends (or queues during a run), **Shift+Enter** adds a line, **Esc** closes a list and then stops the run, **/** focuses the message box, **Up** in an empty box recalls your last message, **Ctrl+K** switches project, **Ctrl+Shift+P** turns plan mode on or off, **Ctrl+Shift+C** turns council mode on or off, **Ctrl+Shift+A** opens Accounts, **Ctrl+Shift+B** opens the Agents tab, **Ctrl+Shift+\\** turns split view on or off (**Ctrl+1** and **Ctrl+2** go to its two message boxes in the desktop app), and **Ctrl+Enter** starts a quick compare or a pipeline. Ctrl+K and Ctrl+/ work even in a text field. Ctrl+Shift letters work from the message box but not from other text fields. The approval modes (Ask first, Auto-approve and Approve all) have no shortcut on purpose. **Ctrl+Alt+Esc** (**Control+Option+Esc** on a Mac) stops a computer or browser run from any app while a run is driving something; see [Model-driven runs: pause and stop](#model-driven-runs-pause-and-stop).
 
 ## Checkpoints
 
@@ -511,6 +511,7 @@ Limits are enforced while an agent runs: it is stopped at its tool-step limit, i
 - On Linux, one-window mode shows the window alone, so menus and dialogs that open as separate windows may not be visible to the model.
 - Pausing when you type works on Windows. The macOS check has not been run on a Mac, and Linux cannot see the keyboard. Moving the mouse pauses on all three.
 - Fable 5.1 is untested for the computer toolset.
+- In split view the right pane has no attachments, / commands, Council, Rewind, Regenerate, Send to, Build this or artifact buttons; Swap sides gives its thread the full message box. Notices raised by a right-pane run appear above the left message box, and a run of the right thread started in another window shows when it ends.
 
 ## Tests
 

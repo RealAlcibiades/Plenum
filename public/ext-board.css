@@ -18,6 +18,8 @@
 }
 .ext-board-side-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 .ext-board-side-head .badge[hidden] { display: none; }
+/* The count and its word ("2 running") stay on one line: the badge is a pill, and a wrapped word fell outside it, unreadable. */
+.ext-board-side-head .badge { white-space: nowrap; }
 .ext-board-side-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ext-board-side-more { align-self: flex-start; }
 .ext-board-side-more[hidden] { display: none; }
