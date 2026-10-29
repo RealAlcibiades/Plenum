@@ -7,7 +7,7 @@ that only the two devices can read. Plenum runs no cloud service for this: the o
 
 This folder holds the phone shell (`mobile/shell/`), the Capacitor projects for Android (`mobile/android/`) and iPhone
 (`mobile/ios/`), and the tests (`mobile/test/`). `scripts/build-mobile.mjs` builds the shell into `mobile/www/` and
-`relay/public/`. None of the generated folders is committed.
+`relay/public/`. `mobile/www/` is not committed; `relay/public/` is and must be rebuilt and committed with each version bump.
 
 Contents:
 
@@ -54,7 +54,7 @@ Turn these on in Settings > Phones on the computer. Each one is off until you sw
 
 - Pairing is done at the computer. Settings > Phones > Add phone opens a pairing window that screen capture cannot see. It shows
   a code and a QR. Scan the QR on the phone (or paste the link), then compare the six digits on both screens and press Allow on
-  the computer. A model, a script or a phone cannot press Allow.
+  the computer. A model, a script or a phone cannot press Allow. On Linux Electron cannot keep a window out of screen capture, so the code is never shown there; pair with Copy link.
 - Each phone has a tier, set at the computer in Settings > Phones. Full does everything the desktop UI does, including chat,
   computer use and settings. Approve watches the work, answers approvals, and pauses or stops runs, but starts no new work.
   Read only watches and can press Stop. Nothing else. Changing a tier is always done at the computer.
@@ -63,6 +63,8 @@ Turn these on in Settings > Phones on the computer. Each one is off until you sw
 - Stop is on the phone's screen at all times, in every tier. On the computer, Stop is on the bar and Ctrl+Alt+Esc stops every
   run. A Stop sent from the phone goes ahead of queued requests, and it is retried for 60 seconds if the computer is away.
 - Forget a phone with Remove on its row. Remove all makes a new key for the computer and disconnects every phone.
+- Notifications. Stop all, Deny and Approve carry the sending computer's id (the sha256 of its static key, 64 hex) and act on that computer, whichever one is open. An unknown id is refused; an older computer's short id acts on the open one. The Android UnifiedPush endpoint is kept and sent again at each HELLO until the computer has it. Web Push is one subscription per address: a second computer behind the same address is told "on for another computer", and nothing is replaced; turning off removes only the subscription this computer made.
+- Connection. A relay close 4001 shows "asleep"; a phone the computer does not know shows the revoked screen. HELLO carriers are kept in the record, so a way turned on after pairing is used at the next connection. Relay sessions pace non-priority frames to 1.5 MiB/s (burst 128 KiB) under the relay's 2 MiB/s per-phone cap; STOP, PING, PONG and CANCEL are never held. Resuming or pressing Stop probes a live session with a PING (3 s). A queued Stop on the UI page is handed to the shell page when it leaves (60 s window). The Reconnecting strip waits 1.5 s.
 
 ## 4. The owner's device checklist
 
@@ -147,7 +149,7 @@ Never commit signing material (`.p8`, `.p12`, `.mobileprovision`, `.cer`, keysto
 ## 7. What the CI workflow does
 
 `.github/workflows/mobile.yml` runs on pushes to main, on pull requests, on tags `v*`, every Monday at 06:00 UTC, and on a
-manual run.
+manual run. `release.yml` is the only signing path for a tag: it builds the Android APK and AAB and the iPhone IPA, gated by its own `mobile-check` job. This workflow has no tag signing job.
 
 - `test` (Ubuntu, no secrets): the node suites under the sealed environment (the two Electron suites are skipped), the shell
   build check, the relay suites and the relay dry-run deploy. It also writes the pairing tools the smoke jobs use.
@@ -155,12 +157,9 @@ manual run.
   API 36 emulator through a throwaway server on the runner. It is continue-on-error until the first green runs.
 - `ios-sim` (macOS 26, no secrets): builds the App scheme for the simulator without signing, boots a simulator picked by name,
   installs the app and pairs it the same way. Build and install are required; the pairing step is continue-on-error at first.
-- `android-release` (tags only): when the four Android secrets are set, builds and verifies a signed APK and AAB and attaches
-  them to the draft release that `release.yml` creates for the tag. Without the secrets it prints "No Android signing secrets:
-  unsigned debug build only" and attaches nothing signed.
 - `apple-secrets` and `ios-archive`: with none of the six Apple secrets set, the archive job is skipped; with some but not all,
-  it fails. With all six, a tag archives the app and attaches the IPA to the draft release. TestFlight upload happens only when
-  you start a manual run with `upload_testflight` set to true. Nothing is submitted for review.
+  it fails. The archive runs only on a manual run with `upload_testflight` set to true, and it needs the repository variable
+  `APPLE_TEAM_ID` (not a secret). TestFlight upload happens only on that run. Nothing is submitted for review.
 
 The secrets, by group (each group is all or none):
 

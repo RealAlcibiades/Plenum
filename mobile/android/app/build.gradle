@@ -5,7 +5,8 @@
 // ANDROID_KEY_PASSWORD (mobile.yml, release tags only). Without them the release build is unsigned and debug builds use
 // the local debug key, as usual. Partial settings fail the build.
 //
-// Versions: -PplenumVersionCode=<int> and -PplenumVersionName=<text> come from the release workflow; defaults are 1 and 1.0.
+// Versions: release.yml passes -PplenumVersionCode=<int> (major*10000 + minor*100 + patch, from the tag) and -PplenumVersionName=<text>
+// on its gradlew line. Without them (a local build) the defaults are 1 and 1.0, which the stores refuse for a second upload.
 
 apply plugin: 'com.android.application'
 

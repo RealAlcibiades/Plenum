@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { MessageChannel } from 'node:worker_threads';
 import {
   ARTIFACT_VIEW, base64Of, bodyBytes, capsFor, debugHooksOn, installShim, isLanPage, LOCK_STOP_ARMED_NOTE, LOCK_STOP_READY_LABEL, LOCK_STOP_UNLOCK_LABEL,
-  LOCK_TRY_AGAIN, LOCK_UNKNOWN_NOTE, mapChannelError, pickRequestHeaders, pickResponseHeaders, readCapped, sseParser,
+  LOCK_TRY_AGAIN, LOCK_UNKNOWN_NOTE, LOCK_UNKNOWN_NO_STOP_NOTE, RECONNECT_STRIP_MS, mapChannelError, pickRequestHeaders, pickResponseHeaders, readCapped, sseParser,
 } from '../shell/boot.js';
 import { bytesToB64u, openChannel } from '../shell/channel.js';
 import { deviceFor } from '../shell/app.js';
@@ -1536,5 +1536,117 @@ describe('boot.js against the sealed server (loopback bridge)', () => {
     assert.match(dec.decode(first.value), /"type":"hello"/);
     ac.abort();
     await assert.rejects(reader.read());
+  });
+});
+
+describe('boot.js: the drive ring, the unreadable lock and the Reconnecting strip (B-125, B-130, B-132)', () => {
+  const eventsOf = list => fakeChannel(() => Promise.resolve({
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+    body: streamOf(list.map(event => `data: ${JSON.stringify(event)}\n\n`)),
+    id: 1,
+    cancel() {},
+  }));
+  const drive = (id, state) => ({ id, kind: 'computer', label: 'Notepad', state, steps: 12, limits: { steps: 80 } });
+  const readEvents = async shim => { await (await shim.shimFetch('/api/events')).text(); };
+
+  test('B-125: the stream\'s hello lists the live drives: one that started before the stream opened draws the ring, and one whose stop was missed leaves it', async () => {
+    const first = install({ channel: eventsOf([{ type: 'hello', at: 1, state: { pending: {}, drives: [drive('d1', 'running')] } }]) });
+    await readEvents(first.shim);
+    const stop = first.doc.getElementById('plenum-stop');
+    assert.equal(stop.attrs.has('data-driving'), true, 'a drive that was already running when the stream opened');
+    assert.match(stop.attrs.get('aria-description'), /Notepad, step 12 of 80/);
+    // A later state event without it: the stop was missed while the link was down.
+    first.channel.request = eventsOf([{ type: 'state', state: { drives: [] } }]).request;
+    await readEvents(first.shim);
+    assert.equal(stop.attrs.has('data-driving'), false);
+    // A state event adds one the phone never heard start.
+    first.channel.request = eventsOf([{ type: 'state', state: { drives: [drive('d2', 'running')] } }]).request;
+    await readEvents(first.shim);
+    assert.equal(stop.attrs.has('data-driving'), true);
+  });
+
+  test('B-125: a paused drive keeps the ring and only a stopped one takes it off', () => {
+    const { shim, doc } = install();
+    const stop = doc.getElementById('plenum-stop');
+    shim.noteDriveEvent({ type: 'drive', drive: drive('d1', 'running') });
+    shim.noteDriveEvent({ type: 'drive', drive: drive('d1', 'paused') });
+    assert.equal(stop.attrs.has('data-driving'), true, 'paused is still the model\'s to resume');
+    shim.noteDriveEvent({ type: 'drive', drive: drive('d1', 'stopped') });
+    assert.equal(stop.attrs.has('data-driving'), false);
+  });
+
+  test('B-125: the HELLO\'s drive is taken once: the next snapshot, with the same HELLO, does not bring the ring back after the stream said it ended', () => {
+    const { shim, doc, core } = install();
+    const stop = doc.getElementById('plenum-stop');
+    const hello = { deviceId: 'dev-1', tier: 'full', desktopName: 'Home PC', pending: { runs: 0, driving: { kind: 'computer', app: 'Paint', step: 3, of: 10 } } };
+    core.push({ hello });
+    assert.equal(stop.attrs.has('data-driving'), true, 'the HELLO says a model is driving');
+    shim.noteDriveEvent({ type: 'drive', drive: drive('d1', 'stopped') });
+    assert.equal(stop.attrs.has('data-driving'), false);
+    core.push({ notice: null });
+    core.push({ prefs: { theme: 'follow' } });
+    assert.equal(stop.attrs.has('data-driving'), false, 'a snapshot that repeats the HELLO\'s value is not a new drive');
+    // A new HELLO (a reconnect) that says a model is driving is taken.
+    core.push({ hello: null });
+    core.push({ hello: { ...hello, pending: { runs: 0, driving: { kind: 'computer', app: 'Paint', step: 3, of: 10 } } } });
+    assert.equal(stop.attrs.has('data-driving'), true);
+  });
+
+  test('B-125: a tier event brings the caps of the new tier, and the phone layer shows them', async () => {
+    const events = eventsOf([{ type: 'phone', kind: 'tier', id: 'dev-1234', tier: 'read', caps: ['events', 'chat'] }]);
+    const inst = install({ channel: events });
+    inst.core.push({ hello: { deviceId: 'dev-1234', tier: 'full', caps: ['events', 'chat', 'browser-control', 'computer-control'], desktopName: 'Home PC', pending: {} } });
+    await readEvents(inst.shim);
+    assert.equal(inst.win.plenumShell.connection().tier, 'read');
+    assert.deepEqual(inst.win.plenumShell.connection().caps, ['events', 'chat'], 'lowering a phone takes its controls away as well');
+  });
+
+  test('B-130: with the lock unreadable and no Stop key the lock screen says Stop is at the computer and offers no Stop button that cannot work', () => {
+    const { doc, core } = install();
+    const lock = doc.getElementById('plenum-lock');
+    const note = lock.children.find(c => c.className === 'plenum-lock-note');
+    const both = lock.children.find(c => c.className === 'plenum-lock-unlock-stop');
+    core.push({ locked: true, lock: { mode: 'unknown', locked: true }, lockStop: { ready: false, computerName: '' }, activeId: 'a' });
+    assert.equal(note.textContent, LOCK_UNKNOWN_NO_STOP_NOTE);
+    assert.doesNotMatch(note.textContent, /Stop still works/);
+    assert.match(note.textContent, /Press Stop on your computer/);
+    assert.equal(both.hidden, true, 'a button that promises an unlock that cannot run is not shown');
+    // The Stop key is readable: the note and the button are as before.
+    core.push({ lockStop: { ready: true, computerName: 'Home PC' } });
+    assert.equal(note.textContent, LOCK_UNKNOWN_NOTE);
+    assert.equal(both.hidden, false);
+  });
+
+  test('B-132: Reconnecting shows after 1.5 s, not at once (a first connect does not open on it); Can\'t reach and asleep show at once', () => {
+    const realNow = Date.now;
+    let clock = 5_000_000;
+    Date.now = () => clock;
+    try {
+      const timers = [];
+      const win = fakeWindow();
+      win.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 0; };
+      const { shim, core } = install({ win });
+      core.push({ hello: null, connection: { status: 'connecting', desktopName: 'Home PC' } });
+      assert.equal(shim.els.strip.hidden, true, 'a first connect does not flash the strip');
+      assert.ok(timers.some(t => t.ms === RECONNECT_STRIP_MS + 10), 'it paints again when the wait is over');
+      clock += RECONNECT_STRIP_MS - 100;
+      core.push({ connection: { status: 'reconnecting', desktopName: 'Home PC' } });
+      assert.equal(shim.els.strip.hidden, true, 'moving between connecting and reconnecting does not start the wait again');
+      clock += 200;
+      timers.filter(t => t.ms === RECONNECT_STRIP_MS + 10).forEach(t => t.fn());
+      assert.equal(shim.els.strip.hidden, false);
+      assert.equal(shim.els.strip.getAttribute('data-state'), 'reconnecting');
+      core.push({ connection: { status: 'connected', desktopName: 'Home PC' } });
+      assert.equal(shim.els.strip.hidden, true);
+      core.push({ connection: { status: 'reconnecting', desktopName: 'Home PC' } });
+      assert.equal(shim.els.strip.hidden, true, 'the next drop waits again');
+      core.push({ connection: { status: 'offline', desktopName: 'Home PC' } });
+      assert.equal(shim.els.strip.hidden, false);
+      core.push({ connection: { status: 'asleep', desktopName: 'Home PC' } });
+      assert.equal(shim.els.strip.hidden, false);
+    } finally {
+      Date.now = realNow;
+    }
   });
 });

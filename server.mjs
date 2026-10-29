@@ -13,7 +13,7 @@ import {
 import { summarizeUsage, totalUsage } from './lib/pricing.mjs';
 import { runCli, openSignIn, museSignedIn } from './lib/accounts.mjs';
 import { imageSupport } from './lib/capabilities.mjs';
-import { assertCanSave, connectKeyChannel, keyStorage, parentChannel, storeKey } from './lib/keys.mjs';
+import { assertCanSave, connectKeyChannel, forgetKey, keyStorage, parentChannel, storeKey } from './lib/keys.mjs';
 import { expandFileMentions, listTree, workingDiff } from './lib/files.mjs';
 import { queueUpdate, listUpdates, applyUpdate, discardUpdate, rollbackUpdate, resetOverlay, overlayStatus, acknowledgeRollback } from './lib/updates.mjs';
 import * as overlay from './lib/overlay.mjs';
@@ -83,10 +83,13 @@ const APPROVAL_TIMEOUT_MS = (() => {
   const ms = Number(process.env.PLENUM_APPROVAL_TIMEOUT_MS);
   return Number.isInteger(ms) && ms >= 200 && ms <= 5 * 60 * 1000 ? ms : 5 * 60 * 1000;
 })();
-// A chat message may carry up to 25 MB of files, which is about 33 MB in base64, and up to 14 million characters of text sit
-// beside them in the same body; every other body is held to 16 MB.
+// A chat message may carry up to 25 MB of files, which is about 33 MB in base64, and its text sits in the same body. The body is
+// capped at 40 MB of UTF-8 for files and text together, so 14 million CJK characters (about 42 MB) are refused by the body cap,
+// which the page's text check does not measure. Every other body is held to 16 MB.
 const BODY_LIMIT = 16_000_000;
 const CHAT_BODY_LIMIT = 40_000_000;
+// The most text one chat message may carry (UTF-16 units, the same count the page checks). Longer text is refused, not stored.
+const MAX_MESSAGE_CHARS = 14_000_000;
 const THEMES = ['system', 'dark', 'light'];
 const APPROVAL_VALUES = ['ask', 'auto', 'all'];
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -201,8 +204,8 @@ const approveAllSaid = new Set();
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
-// The version the events channel reports in its hello event, read once. A window that sees a different startedAt after a
-// reconnect knows the server restarted (an applied update) and reloads itself.
+// The version the events channel reports in its hello event, read once. A window that sees a different version or generation after a
+// reconnect knows the build changed (an applied update) and reloads itself; a plain restart of the same build does not reload it.
 const VERSION = await fs.readFile(path.join(overlay.APP_ROOT, 'package.json'), 'utf8').then(text => {
   try {
     return String(JSON.parse(text).version ?? '');
@@ -229,27 +232,31 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req, limit = BODY_LIMIT) {
+async function readBody(req, limit = BODY_LIMIT, tooBig = null) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
     // Large pasted documents are allowed (about 16 MB of JSON); anything bigger is refused with a clear message.
-    if (size > limit) throw httpError(413, `That message is over ${limit / 1_000_000} MB. Split it up or attach the file with @path instead.`);
+    // A route whose body can be bigger than the chat text names its own advice through tooBig.
+    if (size > limit) throw httpError(413, tooBig ?? `That message is over ${limit / 1_000_000} MB. Split it up or attach the file with @path instead.`);
     chunks.push(chunk);
   }
   const text = Buffer.concat(chunks).toString('utf8');
   if (!text) return {};
   // Node's parse error can quote part of the input (a key, in a malformed key request), so its text is never sent back.
   // A body of JSON null counts as an empty body (B-69): the routes read fields from the body, and null has none.
+  let body;
   try {
-    const body = JSON.parse(text) ?? {};
-    // Kept on the request so that streamForProject can read the thread the body names (lib/scope.mjs threadOf).
-    req.plenumBody = body;
-    return body;
+    body = JSON.parse(text) ?? {};
   } catch {
     throw httpError(400, 'The request body is not valid JSON.');
   }
+  // Every route reads named fields from its body. A number, string, boolean or array has none, so it is refused, not ignored.
+  if (typeof body !== 'object' || Array.isArray(body)) throw httpError(400, 'Send a JSON object.');
+  // Kept on the request so that streamForProject can read the thread the body names (lib/scope.mjs threadOf).
+  req.plenumBody = body;
+  return body;
 }
 
 const projectId = abs => createHash('sha1').update(abs.toLowerCase()).digest('hex').slice(0, 12);
@@ -407,6 +414,8 @@ function publicState({ messages = true } = {}) {
     projectThreads: Object.fromEntries(st.projects.map(p => [p.id, { count: threadsOf(st, p).list.filter(t => !t.closedAt).length, busy: projectBusy(running, p.id) }])),
     // running is the active thread's run (threads[].running says it for every thread of the project).
     running: scope ? running.has(scope.id) : false,
+    // The route the thread's run is on: { limit, hop, paused }, or null. A window that joins or reloads mid-route draws its bar from it (B-7).
+    relayRun: scope ? relayRunOf(scope.id) : null,
     // Threads (lib/threads.mjs): the active thread, the open threads of the active project with their state ({ id, name, model, main, writer,
     // chatMode, running, waiting }), the closed ones ({ id, name, closedAt }), whether any thread of the project runs (project-wide operations
     // wait), whether the project allows several writers, and whether threads are off (the dated copy of the state file failed).
@@ -477,13 +486,17 @@ function viaOf(req) {
 // reads it. Only the answer is resolved, so a reason can never turn a denial into an approval.
 // A card of a computer run carries kind 'computer' and, when it is about a screenshot, frame { run, n, w, h, marker? } (the page
 // draws the picture from /api/computer/frame and puts a ring at the marker). The optional second argument is an object that
-// receives { approvalId }, so the caller can close the card itself. requester.close(approvalId, reason) answers one of this
-// requester's waiting cards as denied and tells the page to remove it ({ type: 'approval-closed', approvalId }); a run that is
-// stopped closes its cards that way.
+// receives { approvalId }, so the caller can close the card itself. requester.close(approvalId) answers one of this
+// requester's waiting cards as denied, marks the payload stopped (payload.stopped = true, no reason) and tells the page to remove it
+// ({ type: 'approval-closed', approvalId }); a run that is stopped closes its cards that way.
 function approvalRequester(send, signal) {
   const own = new Set();
   const request = (payload, handle) => new Promise(resolve => {
-    if (signal.aborted) return resolve(false);
+    if (signal.aborted) {
+      // The run is already stopped, so the answer is a stop and not a denial by the user (B-15).
+      if (payload !== null && typeof payload === 'object') payload.stopped = true;
+      return resolve(false);
+    }
     const approvalId = randomUUID();
     own.add(approvalId);
     if (handle !== null && typeof handle === 'object') handle.approvalId = approvalId;
@@ -491,18 +504,22 @@ function approvalRequester(send, signal) {
     let settled = false;
     // by is 'board' when the Agents board answered the card (POST /api/approve with from: 'board'), else ''. It goes on the events
     // channel, so the chat card in another window says where it was answered. via is the phone that answered (viaOf), when one did.
-    const finish = (allow, reason = '', by = '', via = '') => {
+    // stopped is true when a Stop closed the card (request.close): the payload then says stopped, with no reason, so the caller reports a
+    // stop and not a denial by the user. The reply's own Stop (the signal) counts the same.
+    const finish = (allow, reason = '', by = '', via = '', stopped = false) => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
       pendingApprovals.delete(approvalId);
       own.delete(approvalId);
-      if (!allow && reason) payload.reason = reason;
+      const byStop = !allow && !expired && (stopped || signal.aborted);
+      if (byStop) payload.stopped = true;
+      else if (!allow && reason) payload.reason = reason;
       resolve(allow);
       // Every window is told how the card ended, so one that did not answer it can replace the card. Said once.
       if (settled) return;
       settled = true;
-      activity.approvalDone(approvalId, allow ? 'approved' : expired ? 'timed-out' : signal.aborted ? 'stopped' : 'denied', by, via);
-      events.publish({ type: 'approval', action: allow ? 'answered' : (expired ? 'expired' : signal.aborted ? 'stopped' : 'answered'), approvalId, allow, ...(by ? { by } : {}), ...(via ? { via } : {}) });
+      activity.approvalDone(approvalId, allow ? 'approved' : expired ? 'timed-out' : byStop ? 'stopped' : 'denied', by, via);
+      events.publish({ type: 'approval', action: allow ? 'answered' : (expired ? 'expired' : byStop ? 'stopped' : 'answered'), approvalId, allow, ...(by ? { by } : {}), ...(via ? { via } : {}) });
       events.publishState('approvals');
     };
     const onAbort = () => finish(false);
@@ -536,11 +553,12 @@ function approvalRequester(send, signal) {
     });
     events.publishState('approvals');
   });
-  request.close = (approvalId, reason = '') => {
+  // A close is a Stop, never a denial by the user: the card ends as stopped and carries no reason text (a second argument is ignored).
+  request.close = approvalId => {
     if (!own.has(approvalId)) return false;
     const entry = pendingApprovals.get(approvalId);
     if (!entry) return false;
-    entry.finish(false, cleanReason(reason));
+    entry.finish(false, '', '', '', true);
     send({ type: 'approval-closed', approvalId });
     return true;
   };
@@ -577,8 +595,9 @@ const RULES_CHANGED_NOTICE = 'The rules changed, so this reply starts a new sess
 // API reply is already bounded by its max_tokens. The cut is marked in the reply itself.
 const MAX_REPLY_CHARS = 256_000;
 const REPLY_CAP_NOTE = '\n\n[Reply cut at 256,000 characters. The rest was not kept.]';
-// The note a chat reply keeps when its run hit the time limit (RUN_TIMEOUT_MS).
-const timeLimitNote = ref => `Stopped after ${RUN_TIMEOUT_MS / 3_600_000} hours, before ${labelFor(ref)} finished. Any files it created or changed are still on disk.`;
+// The note a chat reply keeps when its run hit the time limit. ms is the limit the turn was given (handleTurn's ceiling, which is longer
+// when a computer run or an agent may run inside it), so the hours printed are the ones that really ran out.
+const timeLimitNote = (ref, ms = RUN_TIMEOUT_MS) => `Stopped after ${Math.round(ms / 360_000) / 10} hours, before ${labelFor(ref)} finished. Any files it created or changed are still on disk.`;
 
 // The hash of the rules text (AGENTS.md and the global rules) each project's chat last sent. A change made outside Plenum shows up as a
 // different hash on the next message, and that message starts a new Native session (prompt-wiring). The Rules panel forgets the sessions
@@ -671,6 +690,10 @@ async function runTurn({ ref, system, messages, root, kind, scope, mode, effort,
     mcpBridge: mcpBridge === true, // a CLI agent of this turn may reach Plenum through the bridge (lib/mcp-server.mjs, openBridge)
     focus: focus === true, // Build focus is on: a coder this turn delegates to gets the focus text (lib/tools/40-delegate.mjs)
     rules: rules ?? null, // the project's AGENTS.md record, which a coder this turn delegates to gets (lib/tools/40-delegate.mjs)
+    // The spend cap, asked before each further request of an API tool loop (lib/providers.mjs, lib/openai-compat.mjs; C-4). It reads the saved
+    // spend, which holds every finished request (onUsage below saves at once). A turn not billed per token is never stopped by it, and a
+    // computer run keeps its own check (run.budgetCheck).
+    budgetCheck: () => billing === 'api' && !ctx.computer && budgetState(projectById(pid), store.transcript(sid)).level === 'cap',
   };
   // A computer run on a model whose project tools are not allowed (an API model without a verified provider or a passed tool test; see
   // toolsAllowed) still gets a ctx, because the run lives on it, but only the two questions of the run are offered or answered, never
@@ -683,7 +706,8 @@ async function runTurn({ ref, system, messages, root, kind, scope, mode, effort,
     const project = projectById(pid);
     return createComputerRun({
       project, settings, task, ref, modelName: labelFor(ref), bridge: computerBridge, approve: requestApproval, closeApproval: requestApproval.close,
-      emit: send, out, signal, budget: { project, log: store.transcript(sid), ref }, mode, covers, consent,
+      // drafted: what this reply's drafts have already added to the project's spend (draftUsd, below), so the run's cap check does not count it twice.
+      emit: send, out, signal, budget: { project, log: store.transcript(sid), ref, drafted: () => draftUsd }, mode, covers, consent,
     });
   };
   if (computer) {
@@ -777,6 +801,8 @@ async function runTurn({ ref, system, messages, root, kind, scope, mode, effort,
         go = false;
         if (!begun.declined) {
           error = true;
+          // The refusal is kept as the reply's error, so the question has a reply that says why it got none (B-84).
+          failure = begun.message;
           send({ type: 'error', message: begun.message });
         }
       } else if (run.drive) {
@@ -788,7 +814,7 @@ async function runTurn({ ref, system, messages, root, kind, scope, mode, effort,
       // Cursor and Grok Build always get the ctx: their approval cards (ask first, the default) are asked through ctx.approve, and they keep
       // their own tools (lib/cursor.mjs, lib/grok.mjs). A read-only run of either ignores the ctx there.
       const cardTurn = ['cursor', 'grok'].includes(splitRef(ref).provider);
-      for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent || computerOnly || cardTurn || mcpBridge ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => reports.push(rec), onStop: r => { if (!capped) stop = r; } })) {
+      for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent || computerOnly || cardTurn || mcpBridge ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => { reports.push(rec); draftTick(); }, onStop: r => { if (!capped) stop = r; } })) {
         // Past the cap the rest of the stream is read but neither kept nor sent, so the process and its tool calls still finish (B-51).
         if (capped || !delta) continue;
         if (text.length + delta.length > MAX_REPLY_CHARS) {
@@ -944,8 +970,12 @@ async function handleTurn(req, res, { review }) {
   beginRun(project, scope, ac, { kind: review ? 'review' : 'chat' });
   events.publishState('run');
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; ac.abort(); }, RUN_TIMEOUT_MS);
+  // The turn's wall-clock backstop. It is armed just before runTurn, when it is known what the turn may run (B-81), not here.
+  let timer = null;
+  let ceilingMs = RUN_TIMEOUT_MS;
   let streaming = false;
+  // True once the reply is saved ahead of its done event (B-42), so the finally block does not save it again.
+  let finalSaved = false;
   // Every event of the run is also published on the events channel with the run's id, so another window can show the run
   // as it goes. The stream here carries the same events, each with that id and the id of the thread the run belongs to (thread).
   // The Agents board reads the same events (lib/activity.mjs).
@@ -1012,6 +1042,8 @@ async function handleTurn(req, res, { review }) {
       if (body.message != null && typeof body.message !== 'string') throw httpError(400, 'The message must be text.');
       const text = String(body.message ?? '').trim();
       if (!text) throw httpError(400, 'Empty message.');
+      // The text limit the page checks, held here too: longer text would be stored and sent, and every later save would carry it (B-36).
+      if (text.length > MAX_MESSAGE_CHARS) throw httpError(400, 'That message is too long to send (over 14 million characters). Split it up or attach the file with @path.');
       // A thread other than Main has the model it was given; Main follows the project's model, else the app's.
       ref = body.model ? parseRef(body.model) : (scope.model ?? eff.model ?? st.model);
       kind = 'chat';
@@ -1168,6 +1200,14 @@ async function handleTurn(req, res, { review }) {
     }
     // The model this turn uses, for the Agents board (lib/activity.mjs). Its own start event carries no model.
     activity.runEvent(scope.id, { type: 'start', model: ref, label: labelFor(ref) });
+    // The backstop is the 3-hour limit plus what this turn may run beyond it: a computer run's own minutes of activity (the drive's
+    // limit is the real one, so a run of 240 minutes is not cut at 3 hours) and the longest time limit of the agent types the chat
+    // role may start (none when the role starts none). A stuck turn still ends (B-81).
+    const agentsNow = agent && kind === 'chat' ? effectiveAgents(st, project) : null;
+    const chatRole = agentsNow?.limits?.roles?.chat ?? null;
+    const agentMinutes = chatRole && chatRole.concurrent > 0 ? Math.max(0, ...chatRole.types.map(name => typeByName(agentsNow, name)?.timeoutMin ?? 0)) : 0;
+    ceilingMs = RUN_TIMEOUT_MS + (computerSettings ? computerSettings.minutes * 60_000 : 0) + agentMinutes * 60_000;
+    timer = setTimeout(() => { timedOut = true; ac.abort(); }, ceilingMs);
     const turn = await runTurn({
       ref, system, messages, root, kind, scope, mode, effort: eff.effort, send, signal: ac.signal, requestApproval, agent: agent && kind === 'chat', tools, denyPatterns, answerBlocked, covers: approveAllCoversOf(st, project), readOnly: review || planMode, images, documents,
       // The computer run this message starts (the person pressed Start in the Computer panel), the project's switch that lets the model
@@ -1178,7 +1218,7 @@ async function handleTurn(req, res, { review }) {
       mcpBridge: kind === 'chat' && !planMode,
       focus, rules,
       // A run that hit its time limit keeps this note in its stored reply (runTurn), so the chat shows it after a reload (B-49).
-      stoppedNote: () => (timedOut ? timeLimitNote(ref) : null),
+      stoppedNote: () => (timedOut ? timeLimitNote(ref, ceilingMs) : null),
     });
     // A plan turn runs outside the model's native CLI session, so that session has not seen it. Forgetting the session makes
     // the next normal turn start a new one with the whole chat, plan included.
@@ -1213,25 +1253,31 @@ async function handleTurn(req, res, { review }) {
     if (timedOut) {
       // The note is stored with the reply by runTurn (stoppedNote), so a run that hits the limit never just disappears. Here it is only
       // shown on the stream, as the reply or as an error after the partial text.
-      const note = timeLimitNote(ref);
+      const note = timeLimitNote(ref, ceilingMs);
       if (turn.text.trim()) send({ type: 'error', message: note });
       else send({ type: 'delta', text: note });
     }
     // usage is what this turn's reply used and cost (null when no model was called); advisorUsage is the same for the
     // advisor's review when "Review every reply" ran one. The page also reads both from the state it fetches afterwards.
+    // The reply is on disk before done is sent, so a client that has read done can rely on it (B-42). A failed save is said on the
+    // stream before done, as the finally block said it, and the finally block does not save again.
+    finalSaved = true;
+    await saveReporting(streaming ? send : null);
     // stop is 'length' when the reply was cut at the output limit, so the page can offer Continue (public/ext-cutoff.js).
     send({ type: 'done', aborted: ac.signal.aborted, timedOut, usage: turn.usage ?? null, stop: turn.stop ?? null, ...(advisorTurn ? { advisorUsage: advisorTurn.usage ?? null } : {}) });
   } catch (err) {
     if (!streaming) throw err;
     send({ type: 'error', message: err.message });
     // A failed run ends with done too, as streamForProject does, so a window that draws this run from the events channel
-    // knows it is over.
+    // knows it is over. Its reply is saved before that done (B-42), as on the success path.
+    finalSaved = true;
+    await saveReporting(send);
     send({ type: 'done', aborted: ac.signal.aborted, timedOut });
   } finally {
     clearTimeout(timer);
     endRun(scope.id, ac);
     events.publishState('run');
-    await saveReporting(streaming ? send : null);
+    if (!finalSaved) await saveReporting(streaming ? send : null);
     if (streaming) res.end();
   }
 }
@@ -1369,6 +1415,8 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; ac.abort(); }, RUN_TIMEOUT_MS);
   let streaming = false;
+  // True once the run's record is saved ahead of its done event (B-42), so the finally block does not save it again.
+  let finalSaved = false;
   const tagged = events.tag(randomUUID(), project.id, kind);
   const send = obj => {
     const ev = tagged({ ...obj, thread: scope.id });
@@ -1394,19 +1442,25 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
       send(ev);
     }
     await finishRun();
+    // Saved before done is sent, so a client that has read done can rely on it being on disk (B-42).
+    finalSaved = true;
+    await saveReporting(send);
     send({ type: 'done', aborted: ac.signal.aborted, timedOut });
   } catch (err) {
     if (!streaming) throw err;
     // What the run left in the chat is stored before the stream says anything more, as in the normal end.
     await finishRun();
     send({ type: 'error', message: err.message });
+    // Saved before done, as on the normal end (B-42); the finally block does not save again.
+    finalSaved = true;
+    await saveReporting(send);
     send({ type: 'done', aborted: ac.signal.aborted, timedOut });
   } finally {
     clearTimeout(timer);
     endRun(scope.id, ac);
     if (exclusive.get(project.id)?.scope === scope.id) exclusive.delete(project.id);
     events.publishState('run');
-    await saveReporting(streaming ? send : null);
+    if (!finalSaved) await saveReporting(streaming ? send : null);
     if (streaming) res.end();
   }
 }
@@ -1492,6 +1546,9 @@ async function handlePlan(req, res) {
   const body = await readBody(req);
   const project = projectById(body.project);
   const scope = scopeFor(store, project, threadOf(body));
+  // A plan needs a goal. An empty one is refused here, as chat and council refuse an empty question, not answered with a 200 error (B-38).
+  const goal = String(body.goal ?? '').slice(0, 4000);
+  if (!goal.trim()) throw httpError(400, 'Give the goal to plan.');
   const cfg = savedCouncil(project);
   const ref = body.planner ? parseRef(body.planner) : cfg.moderator.ref;
   // The agents block in force (the project's own, else the app's, else the defaults): the Planner type's limits and the types a task may name.
@@ -1514,7 +1571,7 @@ async function handlePlan(req, res) {
     const plan = await planBuild({
       ref,
       effort: body.effort ?? cfg.moderator.effort ?? 'high',
-      goal: String(body.goal ?? '').slice(0, 4000),
+      goal,
       recommendation: String(body.recommendation ?? '').slice(0, 8000),
       root: scope.root,
       signal: ac.signal,
@@ -1619,6 +1676,32 @@ function normalizeRelay(input, base = store.get().relay) {
 // The relay log is kept per project (the Relay log panel lists the last hops of the project); a pause belongs to one thread's route.
 const relayLogs = new Map();
 const relayPaused = new Set();
+// The route a thread's run is on, for a window that joins or reloads mid-route (B-7): its hop limit, the hop it is at and the run's own
+// controller, so a record left by a run that has ended is never shown. Set at relay-start, moved by the hop events, dropped at relay-done.
+const relayRuns = new Map();
+function trackRouteRun(scopeId, ev) {
+  let changed = false;
+  if (ev.type === 'relay-start' && ev.kind === 'route') {
+    relayRuns.set(scopeId, { ac: running.get(scopeId) ?? null, limit: ev.hops ?? null, hop: 0 });
+    changed = true;
+  } else if ((ev.type === 'hop-start' || ev.type === 'hop-countdown') && relayRuns.has(scopeId)) {
+    const rec = relayRuns.get(scopeId);
+    if (rec.hop !== ev.hop) {
+      rec.hop = ev.hop;
+      changed = true;
+    }
+  } else if (ev.type === 'relay-done') {
+    relayRuns.delete(scopeId);
+  }
+  // Every window is sent the state again, so one that joins now shows the route bar with this hop (publicState's relayRun).
+  if (changed) events.publishState('run');
+}
+// The route record publicState shows for a thread: only while the run that started it is still the one running there.
+function relayRunOf(scopeId) {
+  const rec = relayRuns.get(scopeId);
+  if (!rec || !running.has(scopeId) || running.get(scopeId) !== rec.ac) return null;
+  return { limit: rec.limit, hop: rec.hop, paused: relayPaused.has(scopeId) };
+}
 function relayLogFor(projectId) {
   if (!relayLogs.has(projectId)) relayLogs.set(projectId, new RelayLog());
   return relayLogs.get(projectId);
@@ -1804,6 +1887,7 @@ async function handleRelayRoute(req, res) {
     }));
   }, ev => {
     if (ev.type === 'hop-done' && ev.ok && ev.text) saveRelayHop(scope, seats, ev, 'route', source.requestTs);
+    trackRouteRun(scope.id, ev);
   }, { kind: 'relay', scope });
 }
 
@@ -1865,6 +1949,8 @@ async function handleApi(req, res, url) {
 
     case 'POST /api/projects': {
       const body = await readBody(req);
+      // A name that is not text is refused, not turned into text (["x"] was stored as "x") (B-35).
+      if (body.name != null && typeof body.name !== 'string') throw httpError(400, 'The project name must be text.');
       const abs = await resolveFolder(body.path);
       const id = projectId(abs);
       if (!st.projects.some(p => p.id === id)) {
@@ -1924,7 +2010,11 @@ async function handleApi(req, res, url) {
       if (body.model) next.model = parseRef(body.model);
       if (body.advisor === 'off') next.advisor = null;
       else if (body.advisor) next.advisor = parseRef(body.advisor);
-      if (typeof body.advisorAuto === 'boolean') next.advisorAuto = body.advisorAuto;
+      // A value that is not true or false is refused, not dropped (B-35).
+      if (body.advisorAuto !== undefined) {
+        if (typeof body.advisorAuto !== 'boolean') throw httpError(400, 'Advisor review must be true or false.');
+        next.advisorAuto = body.advisorAuto;
+      }
       // 'all' is Approve all. A value that is not one of the three is refused, not ignored.
       if (body.approvals !== undefined) {
         if (!APPROVAL_VALUES.includes(body.approvals)) throw httpError(400, 'Approvals must be ask, auto or all.');
@@ -1955,7 +2045,11 @@ async function handleApi(req, res, url) {
       }
       if (body.music !== undefined) next.music = normalizeMusic({ ...(st.music ?? MUSIC_DEFAULT), ...body.music });
       if (body.relay !== undefined) next.relay = normalizeRelay(body.relay);
-      if (body.sessionMode === 'native' || body.sessionMode === 'transcript') next.sessionMode = body.sessionMode;
+      // A value that is not native or transcript is refused, not dropped (B-35).
+      if (body.sessionMode !== undefined) {
+        if (body.sessionMode !== 'native' && body.sessionMode !== 'transcript') throw httpError(400, 'Session mode must be native or transcript.');
+        next.sessionMode = body.sessionMode;
+      }
       // The pause limit of a model-driven run, in minutes, and the stop key's override (null for the default key). Both are
       // checked by lib/drive.mjs and read there from state.json (driveIdleMinutes, driveStopKey).
       if (body.driveIdleMinutes !== undefined) next.driveIdleMinutes = normalizeIdleMinutes(body.driveIdleMinutes);
@@ -2078,12 +2172,14 @@ async function handleApi(req, res, url) {
     case 'POST /api/relay/pause': {
       const body = await readBody(req);
       relayPaused.add(scopeFor(store, projectById(body.project), threadOf(body)).id);
+      events.publishState('run'); // every window shows the pause (publicState's relayRun)
       return json(res, 200, { paused: true });
     }
 
     case 'POST /api/relay/resume': {
       const body = await readBody(req);
       relayPaused.delete(scopeFor(store, projectById(body.project), threadOf(body)).id);
+      events.publishState('run'); // every window shows the resume (publicState's relayRun)
       return json(res, 200, { paused: false });
     }
 
@@ -2169,6 +2265,14 @@ async function handleApi(req, res, url) {
       return json(res, 200, await testAnthropicKey(key));
     }
 
+    // Removes the Anthropic key the Claude card saved (lib/keys.mjs forgetKey). configured is true when a key is still in use after
+    // it, which is so when ANTHROPIC_AUTH_TOKEN is set in the environment.
+    case 'POST /api/accounts/claude/remove': {
+      const result = await forgetKey('anthropic');
+      const { key } = await anthropicKey();
+      return json(res, 200, { ok: result.ok, configured: key !== null, message: result.message });
+    }
+
     case 'POST /api/accounts/claude/login':
       await openSignIn('claude', ['auth', 'login'], 'Claude sign-in');
       return json(res, 200, { ok: true });
@@ -2201,7 +2305,9 @@ async function handleApi(req, res, url) {
         updating = false;
         throw err;
       }
-      res.once('finish', restartSoon);
+      // Not tied to the response's 'finish': Node never emits it on a socket the client has dropped, so the restart would not happen
+      // and updating would stay set (C-16). restartSoon waits 300 ms, so a client that is still there gets the reply first.
+      restartSoon();
       return json(res, 200, { ...result, restarting: true });
     }
 
@@ -2211,7 +2317,7 @@ async function handleApi(req, res, url) {
       if (updating) throw httpError(409, 'An update is already being applied.');
       if (running.size) throw httpError(409, 'A run is in progress. Stop it before rolling back an update.');
       const result = await rollbackUpdate(store.HOME);
-      res.once('finish', restartSoon);
+      restartSoon(); // Not tied to 'finish' (C-16): the restart happens even if the client has gone.
       return json(res, 200, { ...result, restarting: true });
     }
 
@@ -2221,7 +2327,7 @@ async function handleApi(req, res, url) {
       if (updating) throw httpError(409, 'An update is already being applied.');
       if (running.size) throw httpError(409, 'A run is in progress. Stop it before removing the applied updates.');
       const result = await resetOverlay(store.HOME);
-      res.once('finish', restartSoon);
+      restartSoon(); // Not tied to 'finish' (C-16): the restart happens even if the client has gone.
       return json(res, 200, { ...result, restarting: true });
     }
 
@@ -2261,7 +2367,9 @@ const server = http.createServer(async (req, res) => {
       const bad = checkRequest(req);
       if (bad) throw bad;
     }
-    if (req.method === 'POST' && !String(req.headers['content-type'] ?? '').startsWith('application/json')) throw httpError(415, 'Send JSON.');
+    // The media type itself: parameters (charset) and letter case are ignored, and any other type, such as application/jsonx, is refused (B-40).
+    const mediaType = String(req.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+    if (req.method === 'POST' && mediaType !== 'application/json') throw httpError(415, 'Send JSON.');
 
     // The terms gate (lib/legal.mjs): until the License Agreement is accepted, every POST except the legal ones, and the reads that
     // reach a provider, answer 403 with terms: true. It runs before any route, so no provider can be reached around it.
@@ -2366,9 +2474,10 @@ onShellMessage('shutdown', async () => {
 // The server is up, so an applied update that was waiting to prove it starts has done so (lib/overlay.mjs). Only a start that went
 // through the bootstrap (plenum.mjs) proves anything: `node server.mjs` runs the shipped files and leaves pending.json alone.
 if (process.env.PLENUM_OVERLAY_DIR !== undefined) overlay.markHealthy();
-// The token is printed once, for a plain Node run, in a URL fragment (which a browser never sends to the server). Under the
-// desktop app (its token came over the channel) nothing secret is printed, because the desktop keeps this output in its log
-// file. The same holds for any launcher that gave the server a key channel: a token made here could not be used by it anyway.
-if (tokenSource() === 'desktop' || keyChannel) console.log(`Plenum running at http://${HOST}:${PORT}`);
-else console.log(`Open Plenum at http://${HOST}:${PORT}/#token=${token()}`);
+// The token is printed once, for a plain Node run that made it, in a URL fragment (which a browser never sends to the server). A token
+// a launcher supplied in PLENUM_TOKEN is not printed, since the launcher already has it (B-31). Under the desktop app (its token came
+// over the channel) nothing secret is printed, because the desktop keeps this output in its log file. The same holds for any launcher
+// that gave the server a key channel: a token made here could not be used by it anyway.
+if (tokenSource() === 'generated' && !keyChannel) console.log(`Open Plenum at http://${HOST}:${PORT}/#token=${token()}`);
+else console.log(`Plenum running at http://${HOST}:${PORT}`);
 console.log(`State file: ${path.join(store.HOME, 'state.json')}`);

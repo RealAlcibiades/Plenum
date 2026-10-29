@@ -375,7 +375,8 @@ function lockBio(ctx, io) {
   // A Stop for a computer this phone holds the Stop key for is sent without unlocking (C6f); otherwise the Stop unlocks first.
   const stopReady = ctx.lockStop?.ready === true;
   const unknown = ctx.lockUnknown === true;
-  const stopAll = ctx.session
+  // B-130: with the lock unreadable and no Stop key to send without it, no button promises a Stop that cannot go out.
+  const stopAll = ctx.session && !(unknown && !stopReady)
     ? button(stopReady ? C2.LOCK_STOP : C2.LOCK_UNLOCK_STOP, {
       kind: 'danger',
       onClick: () => (stopReady ? io.act.stopLocked() : io.act.unlockAndStop(method)),
@@ -387,7 +388,7 @@ function lockBio(ctx, io) {
     title: 'Plenum is locked',
     body: [
       ctx.driving ? el('p', { class: 'sh-note sh-driving', role: 'status', text: C.drivingLine(ctx.computer, ctx.driving) }) : null,
-      unknown ? para(C2.LOCK_UNKNOWN, 'sh-note') : null,
+      unknown ? para(stopReady ? C2.LOCK_UNKNOWN : C2.LOCK_UNKNOWN_NO_STOP, 'sh-note') : null,
       ctx.stopText ? el('p', { class: 'sh-note', role: 'status', text: ctx.stopText }) : null,
       el('p', { class: 'sh-msg', role: 'alert' }, message),
     ],

@@ -114,7 +114,7 @@
     let busy = false;
 
     const paintPill = () => {
-      const on = String(MuseUI.state.model ?? '').startsWith(PREFIX);
+      const on = String(MuseUI.threads?.info?.()?.model || MuseUI.state.model || '').startsWith(PREFIX);
       pill.textContent = on ? 'In use' : 'Not in use';
       pill.className = on ? 'pill ok' : 'pill';
     };
@@ -183,9 +183,12 @@
       show('Setting the model…', '');
       try {
         showModel(PREFIX + id);
-        await MuseUI.update({ model: PREFIX + id });
-        show(`The model is now ${id}.`, 'ok');
-        MuseUI.toast(`Model set to ${id}`);
+        await MuseUI.setThreadModel(PREFIX + id);
+        // The model goes to the thread on screen, and the toast names it when that is not Main (B-98).
+        const t = MuseUI.threads?.info?.();
+        const where = t && !t.main && t.name ? ` for ${t.name}` : '';
+        show(`The model is now ${id}${where}.`, 'ok');
+        MuseUI.toast(`Model set to ${id}${where}`);
       } catch (err) {
         show(err.message, 'bad');
       } finally {
@@ -232,7 +235,7 @@
   // and redraws the project list on every render too, so a change to either one means the value was just set. The menu is
   // also filled once the catalog has loaded, which is the other change watched. It is checked now as well, in case a render
   // ran before this file did. Nothing is added to the menu before it is filled, because app.js fills it only while it is empty.
-  const syncModel = () => showModel(MuseUI.state.model);
+  const syncModel = () => showModel(MuseUI.threads?.info?.()?.model || MuseUI.state.model);
   for (const node of [MuseUI.el.model, MuseUI.el.projects]) {
     if (node) new MutationObserver(syncModel).observe(node, { childList: true });
   }

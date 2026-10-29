@@ -66,6 +66,8 @@ const SLOT = Object.freeze({
   GetFocusedElement: 8, // IUIAutomation
   get_ConnectionTimeout: 60, put_ConnectionTimeout: 61, get_TransactionTimeout: 62, put_TransactionTimeout: 63, // IUIAutomation2
   get_CurrentControlType: 21, get_CurrentIsPassword: 35, // IUIAutomationElement
+  // IUIAutomationElement, counted the same way (get_CurrentProcessId is 20 and get_CurrentControlType 21): the strings that name a field.
+  get_CurrentName: 23, get_CurrentAutomationId: 29, get_CurrentHelpText: 31,
 });
 const UIA_TIMEOUT_MS = 350;
 const UIA_BUDGET_MS = 1200;
@@ -254,7 +256,22 @@ function uiaApi(koffi) {
       putInt: koffi.proto('int32 __stdcall PlenumUiaPutInt(void *self, uint32 value)'),
     };
     const slotOf = (com, index) => koffi.decode(koffi.decode(com, 'void *'), index * 8, 'void *');
+    // A BSTR out of a getter: read as UTF-16 text, then freed. Only focusedLabel() needs it, so a system without it still answers the rest.
+    let readString = null;
+    try {
+      const freeString = koffi.load('oleaut32.dll').func('void __stdcall SysFreeString(void *bstr)');
+      readString = bstr => {
+        try {
+          return String(koffi.decode(bstr, 'char16_t', -1));
+        } finally {
+          freeString(bstr);
+        }
+      };
+    } catch {
+      readString = null;
+    }
     api = {
+      readString,
       CoInitializeEx: ole32.func('int32 __stdcall CoInitializeEx(void *pvReserved, uint32 dwCoInit)'),
       CoUninitialize: ole32.func('void __stdcall CoUninitialize()'),
       CoCreateInstance: ole32.func('int32 __stdcall CoCreateInstance(void *rclsid, void *pUnkOuter, uint32 dwClsContext, void *riid, _Out_ void **ppv)'),
@@ -351,6 +368,27 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
     const found = code <= 0xffff ? api.VkKeyScanW(code) : -1;
     if (found === -1 || (found & 0xff) === 0xff) throw new Unsupported(`The character ${ch} is not a key on this keyboard layout.`);
     return { vk: found & 0xff, extended: false };
+  }
+
+  // The modifiers the keyboard layout needs for a key that names a character: the high byte of VkKeyScanW (1 shift, 2 ctrl, 4 alt; ctrl
+  // and alt together are how a layout writes AltGr). Letters and digits are the plain keys of their name, as actions.cjs says, and a
+  // named key needs none. -> a list of modifier names, empty when none or when the layout has no such key.
+  function layoutModifiers(name) {
+    if (typeof name !== 'string' || [...name].length !== 1 || Object.hasOwn(VK, name) || /^[a-z0-9]$/i.test(name)) return [];
+    const code = name.charCodeAt(0);
+    const found = code <= 0xffff ? api.VkKeyScanW(code) : -1;
+    if (found === -1 || (found & 0xff) === 0xff) return [];
+    const state = (found >> 8) & 0xff;
+    return [...(state & 2 ? ['ctrl'] : []), ...(state & 1 ? ['shift'] : []), ...(state & 4 ? ['alt'] : [])];
+  }
+
+  // The keys of a key or hold action with the modifiers its characters need: pressing '?' presses Shift and the slash key. The action's
+  // own modifiers stay, in the order ctrl, shift, alt, super, and none is pressed twice.
+  function keysWithModifiers(keys) {
+    const needed = new Set();
+    for (const k of keys) for (const m of layoutModifiers(k)) needed.add(m);
+    if (needed.size === 0) return keys;
+    return [...MODIFIER_NAMES.filter(m => needed.has(m) || keys.includes(m)), ...keys.filter(k => !MODIFIER_NAMES.includes(k))];
   }
 
   const keyEvent = (vk, extended, up) => ({ key: { vk, scan: scanOf(vk), flags: (extended ? KEYEVENTF_EXTENDEDKEY : 0) | (up ? KEYEVENTF_KEYUP : 0) } });
@@ -499,7 +537,7 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
     for (let r = 0; r < a.repeat; r++) {
       const pressed = [];
       try {
-        for (const k of a.keys) {
+        for (const k of keysWithModifiers(a.keys)) {
           keyDown(k);
           pressed.push(k);
         }
@@ -521,7 +559,7 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
   async function doHold(a, token) {
     const pressed = [];
     try {
-      for (const k of a.keys) {
+      for (const k of keysWithModifiers(a.keys)) {
         keyDown(k);
         pressed.push(k);
       }
@@ -837,6 +875,37 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
     }
   }
 
+  // The name, help text and automation id of the focused element, joined with " | " (a one-time code box, a CVV box and the like say so
+  // there: IsPassword is false for them), or null when none can be read. One look, bounded by the same timeouts as the password question.
+  async function focusedLabel() {
+    try {
+      const fg = api.GetForegroundWindow();
+      if (isZero(fg) || pidOf(fg).pid === ownPid) return null;
+      const u = uiaApi(koffi);
+      if (!u || !u.readString) return null;
+      const auto = automationFor(u);
+      if (!auto) return null;
+      const out = [null];
+      if (u.call(auto, SLOT.GetFocusedElement, u.protos.outPointer, out) < 0 || !out[0]) return null;
+      const element = out[0];
+      try {
+        const parts = [];
+        for (const slot of [SLOT.get_CurrentName, SLOT.get_CurrentHelpText, SLOT.get_CurrentAutomationId]) {
+          const got = [null];
+          if (u.call(element, slot, u.protos.outPointer, got) >= 0 && got[0]) {
+            const text = u.readString(got[0]).trim();
+            if (text) parts.push(text);
+          }
+        }
+        return parts.length ? parts.join(' | ').slice(0, 600) : null;
+      } finally {
+        releaseCom(element);
+      }
+    } catch {
+      return null;
+    }
+  }
+
   // What UI Automation says about the focused element: true, false or null. Synchronous COM on the calling thread, bounded by the
   // timeouts set in boundCalls and by UIA_BUDGET_MS for the whole answer. A browser whose tree is not built yet answers with the pane
   // around the page and builds the tree because it was asked, so a "pane" is looked at again after a short wait.
@@ -953,6 +1022,7 @@ function createWinNative({ koffi, ownPid = process.pid, wait = sleep, now = Date
     foreground,
     focus,
     isSecureField,
+    focusedLabel,
 
     async cursor() {
       return readCursor();

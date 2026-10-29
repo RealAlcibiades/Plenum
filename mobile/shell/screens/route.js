@@ -44,6 +44,9 @@ function terminalScreen(s) {
   if (p?.state === 'expired') return 'expired';
   if (p?.state === 'failed') return pairingFailureScreen(p.reason);
   const status = s.connection?.status ?? null;
+  // B-121: three rounds in which the computer answered 'I do not know this phone' (it was removed there while the phone was away): the worker
+  // calls it not-known and keeps trying once a minute; the person sees the revoked screen, whose Pair again and Forget are the way on.
+  if (status === 'not-known') return 'revoked';
   if (STATUS_SCREENS.includes(status)) return status;
   return null;
 }

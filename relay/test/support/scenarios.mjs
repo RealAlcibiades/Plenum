@@ -20,6 +20,12 @@ const MAX_WIRE = 65540;
 const MAX_PHONE = 65536;
 const IDLE_MS = 30 * 24 * 60 * 60 * 1000;
 
+// A control frame the host receives (conn 0), parsed. The room sends one for each phone it loses to a limit (B-28).
+const controlOf = (message) => {
+  assert.equal(connIdOf(message), 0, 'control is conn 0');
+  return JSON.parse(Buffer.from(message).subarray(4).toString());
+};
+
 // skip is false, or a reason string: node:test then reports every scenario as skipped with that reason and runs none of them.
 export function scenarios(d, label, { skip = false } = {}) {
   const t = (name, fn) => test(`${label}: ${name}`, { skip }, fn);
@@ -175,12 +181,14 @@ export function scenarios(d, label, { skip = false } = {}) {
     host.close();
   });
 
-  t('a phone frame over 65536 bytes closes the phone with 1009; the largest frames pass', async () => {
+  t('a phone frame over 65536 bytes closes the phone with 1009 and the host is told; the largest frames pass', async () => {
     const room = hexRoom();
     const host = await d.connect(room, hostHeaders(newSecret()));
     const tooBig = await d.connect(room);
     tooBig.send(bytesOf(MAX_PHONE + 1));
     assert.deepEqual(await tooBig.closed(), { code: 1009, reason: 'frame-too-big' });
+    // The host hears about that phone before anything from the next one (none of its frames arrived, so no connection id to compare).
+    assert.equal(controlOf(await host.next()).op, 'closed');
 
     const largest = await d.connect(room);
     largest.send(bytesOf(MAX_PHONE));
@@ -196,15 +204,18 @@ export function scenarios(d, label, { skip = false } = {}) {
     largest.close();
   });
 
-  t('a phone that sends more than 200 messages in one second is closed with 1008', async () => {
+  t('a phone that sends more than 200 messages in one second is closed with 1008, and the host is told once', async () => {
     const room = hexRoom();
     await d.hook(room, '/__test/freeze');
     const host = await d.connect(room, hostHeaders(newSecret()));
     const flooder = await d.connect(room);
     for (let i = 0; i < 200; i += 1) flooder.send(Buffer.from([i & 0xff]));
-    for (let i = 0; i < 200; i += 1) await host.next();
+    const conn = connIdOf(await host.next());
+    for (let i = 1; i < 200; i += 1) await host.next();
     flooder.send(Buffer.from([1]));
     assert.deepEqual(await flooder.closed(), { code: 1008, reason: 'rate-limit' });
+    assert.deepEqual(controlOf(await host.next()), { op: 'closed', conn }, 'the host is told which phone went');
+    assert.equal(await host.quiet(300), true, 'one report, and nothing after it');
     host.close();
   });
 
@@ -215,8 +226,10 @@ export function scenarios(d, label, { skip = false } = {}) {
     const flooder = await d.connect(room);
     const bystander = await d.connect(room);
     for (let i = 0; i < 33; i += 1) flooder.send(bytesOf(MAX_PHONE));
-    for (let i = 0; i < 32; i += 1) await host.next(10000);
+    const conn = connIdOf(await host.next(10000));
+    for (let i = 1; i < 32; i += 1) await host.next(10000);
     assert.deepEqual(await flooder.closed(), { code: 1008, reason: 'rate-limit' });
+    assert.deepEqual(controlOf(await host.next(10000)), { op: 'closed', conn }, 'the host is told which phone went');
     assert.equal(await host.quiet(400), true, 'the refused 33rd frame is not forwarded');
     // The same second, another phone: its frame still reaches the host, and it stays open.
     bystander.send(Buffer.from('still-here'));
@@ -233,8 +246,10 @@ export function scenarios(d, label, { skip = false } = {}) {
     const flooder = await d.connect(room);
     const others = [await d.connect(room), await d.connect(room)];
     for (let i = 0; i < 33; i += 1) flooder.send(bytesOf(MAX_PHONE));
-    for (let i = 0; i < 32; i += 1) await host.next(10000);
+    const conn = connIdOf(await host.next(10000));
+    for (let i = 1; i < 32; i += 1) await host.next(10000);
     assert.deepEqual(await flooder.closed(), { code: 1008, reason: 'rate-limit' });
+    assert.deepEqual(controlOf(await host.next(10000)), { op: 'closed', conn }, 'the host is told which phone went');
     // Each of the others has its own 2 MiB for this second: 32 full frames each all reach the host, and neither is closed.
     for (const phone of others) {
       for (let i = 0; i < 32; i += 1) phone.send(bytesOf(MAX_PHONE));
@@ -263,6 +278,33 @@ export function scenarios(d, label, { skip = false } = {}) {
     const phone = await d.connect(room);
     phone.send('hello');
     assert.deepEqual(await phone.closed(), { code: 1003, reason: 'binary-only' });
+    host.close();
+  });
+
+  t('a phone the room closes for a text frame, an oversize frame or the rate limit is reported to the host once with its id; a kicked phone is not', async () => {
+    const room = hexRoom();
+    const host = await d.connect(room, hostHeaders(newSecret()));
+    const texter = await d.connect(room);
+    const oversize = await d.connect(room);
+    const kicked = await d.connect(room);
+
+    texter.send(Buffer.from('a'));
+    const texterConn = connIdOf(await host.next());
+    texter.send('hello');
+    assert.deepEqual(await texter.closed(), { code: 1003, reason: 'binary-only' });
+    assert.deepEqual(controlOf(await host.next()), { op: 'closed', conn: texterConn }, 'a text frame closes the phone and the host is told');
+
+    oversize.send(Buffer.from('b'));
+    const oversizeConn = connIdOf(await host.next());
+    oversize.send(bytesOf(MAX_PHONE + 1));
+    assert.deepEqual(await oversize.closed(), { code: 1009, reason: 'frame-too-big' });
+    assert.deepEqual(controlOf(await host.next()), { op: 'closed', conn: oversizeConn }, 'an oversize frame closes the phone and the host is told');
+
+    kicked.send(Buffer.from('c'));
+    const kickedConn = connIdOf(await host.next());
+    host.send(control({ op: 'kick', conn: kickedConn }));
+    assert.deepEqual(await kicked.closed(), { code: 4002, reason: 'kicked' });
+    assert.equal(await host.quiet(300), true, 'a phone the host kicked is not reported back, and nothing else was sent');
     host.close();
   });
 

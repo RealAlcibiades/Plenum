@@ -220,7 +220,7 @@ export function insertShim(html) {
 function loadEsbuild(root) {
   const dir = path.join(root, 'mobile', 'node_modules', 'esbuild');
   if (!exists(path.join(dir, 'package.json'))) {
-    throw new BuildError('esbuild is not installed in mobile/node_modules: run npm ci in mobile/ first');
+    throw new BuildError('esbuild is not installed in mobile/node_modules: run npm ci --prefix mobile first (see README, Platforms)');
   }
   return createRequire(path.join(root, 'mobile', 'package.json'))(dir);
 }
@@ -293,6 +293,8 @@ async function bundle(root, from, format, version, contact, warnings, dev = fals
       },
       nodePaths: [path.join(root, 'mobile', 'node_modules')],
       plugins: [sharedRemotePlugin(root), mobilePackagesPlugin(root)],
+      // A release bundle folds the define's false branches away, so dev-only code (the self-test, the fixture screens) is not shipped.
+      minifySyntax: !dev,
       logLevel: 'silent',
     });
   } catch (err) {
@@ -472,9 +474,12 @@ export async function run(argv, io = {}) {
   }
 
   let planned;
+  let relayPlanned;
   try {
     // --check is always a release build, so the committed relay/public never carries the dev define.
     planned = await plan(root, { dev: dev && !check });
+    // --dev changes mobile/www only: relay/public is always the release tree, so a dev build can never be committed there.
+    relayPlanned = dev && !check ? await plan(root, { dev: false }) : planned;
   } catch (e) {
     if (e instanceof BuildError) { err(`build-mobile: ${e.message}`); return 1; }
     throw e;
@@ -482,7 +487,7 @@ export async function run(argv, io = {}) {
   for (const w of planned.warnings) err(`build-mobile: warning: ${w}`);
 
   const www = planned.files;
-  const relay = relayTree(planned.files);
+  const relay = relayTree(relayPlanned.files);
 
   if (check) {
     const lines = [
@@ -490,7 +495,7 @@ export async function run(argv, io = {}) {
       ...diffTrees(relay, readTree(path.join(root, 'relay', 'public')), 'relay/public'),
     ];
     if (lines.length) {
-      err(`build-mobile: stale, run node scripts/build-mobile.mjs (${lines.length} difference${lines.length === 1 ? '' : 's'}):`);
+      err(`build-mobile: stale, run node scripts/build-mobile.mjs, then git add relay/public and commit it (${lines.length} difference${lines.length === 1 ? '' : 's'}):`);
       for (const l of lines.slice(0, 40)) err(`  ${l}`);
       if (lines.length > 40) err(`  ... and ${lines.length - 40} more`);
       return 1;

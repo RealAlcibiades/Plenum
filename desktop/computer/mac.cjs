@@ -21,8 +21,10 @@
 //    permission as input injection): AXUIElementCreateSystemWide -> AXFocusedUIElement (or, when that fails, AXFocusedApplication ->
 //    AXFocusedUIElement) -> AXRole and AXSubrole. AppKit and Chromium mark a password field as role AXTextField with the SUBROLE
 //    AXSecureTextField; the role is checked for that name too. -> true for one. Then the Carbon flag IsSecureEventInputEnabled(),
-//    which AppKit and Chromium switch on while a password field has focus: on -> true for ANY focused element, a plain text role
-//    included (a program may expose its password field as an ordinary AXTextField; a false positive only refuses typing). With the flag
+//    which AppKit and Chromium switch on while a password field has focus, and which any program can also switch on by itself for as long
+//    as it likes (Terminal's Secure Keyboard Entry, an unlocked password manager): on -> true for ANY focused element, a plain text role
+//    included (a program may expose its password field as an ordinary AXTextField; a false positive only refuses typing, and run.mjs
+//    tells the model that a Secure Keyboard Entry elsewhere is a possible cause, so the person can turn it off). With the flag
 //    off (or unreadable): false for a text field that is not secure, null (cannot tell) for anything else (no permission, no focused
 //    element, a web area or group whose children are not exposed). The system-wide messaging timeout is set to 0.4 s once, because the calls are synchronous on the main thread
 //    and a hung program must not freeze Stop. A failure to load or call anything answers null. UNVERIFIED on a real Mac, like the rest.
@@ -372,14 +374,39 @@ function createMacNative({ koffi, space, run = defaultRun, env = process.env, ge
         }
         if (role === AX_SECURE || subrole === AX_SECURE) return true;
       }
-      // A secure-input flag that is on is the system saying that a password is being typed (AppKit and Chromium switch it on while a
-      // password field has focus). It wins over a plain text role too: a program may expose its password field as an ordinary AXTextField.
-      // A false positive only refuses typing, the safe side; off says nothing either way.
+      // A secure-input flag that is on is the system saying that a password may be being typed (AppKit and Chromium switch it on while a
+      // password field has focus; a program can also keep it on for good, as Terminal's Secure Keyboard Entry does, and then it is on
+      // for every field of every program). It wins over a plain text role too: a program may expose its password field as an ordinary
+      // AXTextField. A false positive only refuses typing, the safe side; off says nothing either way.
       if (secureInputOn(f)) return true;
       // A text field with the flag off: the accessibility answer. Anything else is not conclusive (the program may not expose its fields,
       // or the permission may be missing).
       if (AX_TEXT_ROLES.has(role)) return false;
       return null;
+    } catch {
+      return null;
+    }
+  }
+
+  // The title, description, help, identifier and placeholder of the focused element joined with " | " (a one-time code or CVV box says
+  // so there: it is a plain text field), or null when none can be read.
+  async function focusedLabel() {
+    let f;
+    try {
+      f = loadAx();
+    } catch {
+      return null;
+    }
+    if (!f) return null;
+    try {
+      const focused = axFocused(f);
+      if (!focused) return null;
+      try {
+        const parts = ['AXTitle', 'AXDescription', 'AXHelp', 'AXIdentifier', 'AXPlaceholderValue'].map(name => axString(f, focused, name).trim()).filter(Boolean);
+        return parts.length ? parts.join(' | ').slice(0, 600) : null;
+      } finally {
+        api.CFRelease(focused);
+      }
     } catch {
       return null;
     }
@@ -658,6 +685,7 @@ function createMacNative({ koffi, space, run = defaultRun, env = process.env, ge
     },
 
     isSecureField,
+    focusedLabel,
 
     async userInput() {
       const here = await cursor().catch(() => null);

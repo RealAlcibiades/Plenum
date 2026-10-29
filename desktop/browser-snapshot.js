@@ -12,6 +12,9 @@
 //     actions: prepare-click, focus, read-value, set-value, select, scroll, focus-info, dom-click, submit-form, arm-input, check-input
 //     (arm-input starts listening for a real mouse or key event; check-input says whether one came, and stops listening: the desktop
 //     uses them to send input again that never reached the page)
+//     (focus and guard-on answer { secret, moved, at? }: moved is true when the page's own scripts put the focus on another element than
+//     the ref, secret when that element or the ref is a password, code or card field. guard-on also starts a listener that blurs a
+//     field that takes the focus and cancels an insert aimed anywhere but the ref; guard-off stops it and says what it saw)
 //
 // A password field is listed with type 'password' and no value. So is any field that looks like a one-time code, a security code or a
 // card number (`secret`): its value is never read. Hidden inputs, file inputs and anything not drawn on the page are left out.
@@ -318,6 +321,44 @@
     return document.scrollingElement || document.documentElement;
   };
 
+  // The element that has the focus now, looking through open shadow roots (document.activeElement alone names the host).
+  const activeOf = () => {
+    let node = document.activeElement;
+    for (let i = 0; i < 8 && node && node.shadowRoot && node.shadowRoot.activeElement; i += 1) node = node.shadowRoot.activeElement;
+    return node;
+  };
+
+  // True when the focus is on some other element than `el`: not `el`, not inside it, and not the page itself (nothing focused). A page's
+  // own scripts can move the focus when a field takes it, and text typed goes where the focus is, not where the model aimed.
+  const elsewhere = (el, active) =>
+    !!active && active !== el && active !== document.body && active !== document.documentElement && !(el.contains && el.contains(active));
+
+  const spotOf = el => ({ ref: el.getAttribute ? el.getAttribute(REF_ATTR) || '' : '', role: roleOf(el), name: nameOf(el) });
+
+  // What a field that is about to be typed into looks like once the page has had its say: whether the text would go into `el`, and
+  // whether the focus is on a password, code or card field (either `el` or the element the page moved the focus to).
+  const focusState = el => {
+    const active = activeOf();
+    const moved = elsewhere(el, active);
+    const out = { moved, secret: isSecret(el) || (moved && isSecret(active)) };
+    if (moved) out.at = spotOf(active);
+    return out;
+  };
+
+  // While text is typed (guard-on to guard-off) a listener in this isolated world watches for the page moving the focus or taking the
+  // input somewhere else, which closes the gap between the check and the insert: a password, code or card field that takes the focus is
+  // blurred, and an insert aimed at anything but the field is cancelled before it changes the page. It stops by itself after GUARD_MS.
+  const GUARD_MAX = 20;
+  const GUARD_MS = 10000;
+  const stopGuard = () => {
+    const old = window.__plenumGuard;
+    if (!old) return;
+    window.removeEventListener('focusin', old.onFocus, true);
+    window.removeEventListener('beforeinput', old.onBefore, true);
+    window.removeEventListener('input', old.onInput, true);
+    window.__plenumGuard = undefined;
+  };
+
   const focusInfo = el => {
     if (!el || el === document.body || el === document.documentElement) return { ok: true, none: true };
     const form = describeForm(el);
@@ -350,7 +391,23 @@
       const max = Math.max(0, target.scrollHeight - target.clientHeight);
       return { ok: true, moved: Math.round(after - before), y: Math.round(after), max: Math.round(max), atTop: after <= 0, atBottom: after >= max - 2 };
     }
-    if (action === 'focus-info') return focusInfo(document.activeElement);
+    if (action === 'focus-info') return focusInfo(activeOf());
+    if (action === 'guard-off') {
+      const state = window.__plenumGuard;
+      // No state: the page was replaced since, and the guard went with it.
+      if (!state) return { ok: true, gone: true, landed: false, strayed: false, secret: false, secretNow: false, moved: false };
+      stopGuard();
+      const active = activeOf();
+      // A field the page replaced while the text went in (an editor that redraws itself) is not "moved".
+      const away = state.el.isConnected !== false && elsewhere(state.el, active);
+      // landed: an input event came from the ref. strayed: an insert aimed elsewhere was cancelled. secret: that, or a focus taken before
+      // the text landed, was a password, code or card field. secretNow: such a field holds the focus now. moved: the focus is elsewhere.
+      const out = { ok: true, landed: state.landed, strayed: state.strayed, secret: state.blocked, secretNow: !!active && active !== state.el && isSecret(active), moved: state.moved || away };
+      // The field to name is the secret one when there is one (a field the guard blurred is no longer the active element).
+      const at = out.secretNow ? spotOf(active) : state.at || (active && active !== document.body && active !== document.documentElement ? spotOf(active) : null);
+      if (out.moved && at) out.at = at;
+      return out;
+    }
     if (action === 'arm-input') {
       const old = window.__plenumInput;
       if (old) for (const name of old.names) window.removeEventListener(name, old.handler, true);
@@ -419,7 +476,56 @@
         sel.removeAllRanges();
         sel.addRange(range);
       }
-      return { ok: true, secret: isSecret(el), type: lower(el.tagName) === 'input' ? inputType(el) : '' };
+      // The page's own scripts have run by now (a focus handler can move the focus to another field), so the answer is about where the
+      // focus is, not about the field that was asked for: `secret` is true when either is a password, code or card field.
+      return { ok: true, ...focusState(el), type: lower(el.tagName) === 'input' ? inputType(el) : '' };
+    }
+    if (action === 'guard-on') {
+      stopGuard();
+      const sees = e => (typeof e.composedPath === 'function' && e.composedPath()[0]) || e.target;
+      const inside = t => t === el || (el.contains && el.contains(t)) || (t.isContentEditable === true && t.contains(el));
+      const state = { el, moved: false, strayed: false, blocked: false, landed: false, at: null, count: 0, until: Date.now() + GUARD_MS, onFocus: null, onBefore: null, onInput: null };
+      // Focus taken by another element before the text has landed in the ref: it is given up (a password, code or card field first of
+      // all), so the insert has nowhere else to go. Once the text is in, a page that moves on (to the next field) is its own business.
+      state.onFocus = e => {
+        if (Date.now() > state.until) return stopGuard();
+        const t = sees(e);
+        if (!t || t === window || t === document || inside(t)) return;
+        state.moved = true;
+        if (state.landed) return;
+        if (isSecret(t)) state.blocked = true;
+        if (!state.at || state.blocked) state.at = spotOf(t);
+        if (state.count < GUARD_MAX) {
+          state.count += 1;
+          try {
+            t.blur();
+            // A blurred field can keep the caret, and an insert then still goes into it: with no selection left it goes nowhere.
+            window.getSelection().removeAllRanges();
+          } catch (err) {
+            // A node that cannot give up the focus keeps it; guard-off and the caller's checks still refuse.
+          }
+        }
+      };
+      // An insert aimed at anything but the ref is cancelled before it changes the page.
+      state.onBefore = e => {
+        if (Date.now() > state.until) return stopGuard();
+        const t = sees(e);
+        if (!t || inside(t)) return;
+        state.moved = true;
+        state.strayed = true;
+        if (isSecret(t)) state.blocked = true;
+        if (!state.at || state.blocked) state.at = spotOf(t);
+        e.preventDefault();
+      };
+      state.onInput = e => {
+        const t = sees(e);
+        if (t && inside(t)) state.landed = true;
+      };
+      window.addEventListener('focusin', state.onFocus, true);
+      window.addEventListener('beforeinput', state.onBefore, true);
+      window.addEventListener('input', state.onInput, true);
+      window.__plenumGuard = state;
+      return { ok: true, ...focusState(el) };
     }
     if (action === 'read-value') {
       const secret = isSecret(el);

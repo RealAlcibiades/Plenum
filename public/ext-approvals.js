@@ -3,7 +3,7 @@
 // The button (#modeBtn in index.html) shows what sending allows in the active project: Plan, Ask first, Auto-approve or Approve all,
 // with "· Focus" when Build focus is on. Its colour follows the mode (ext-approvals.css). The menu changes the active project's
 // setting through MuseUI.setProjectApprovals (POST /api/project-approvals). Plan goes through POST /api/project-mode, as the Plan
-// button does, and Build focus through MuseUI.toggleFocus, as the Focus button does. Approve all is asked through
+// button does: for the thread on screen (Main: the project). Build focus through MuseUI.toggleFocus, as the Focus button does. Approve all is asked through
 // MuseUI.askApproveAll before it turns on, from here and from every other control. The app-wide default is the Approvals section
 // of Settings. Every piece of text is set with textContent, and nothing is styled inline.
 (function () {
@@ -21,7 +21,7 @@
     auto: 'Edits and commands run; guards still ask.',
     all: 'Every card is answered for you, including Gemini’s and Muse Code’s own; guards still ask.',
   };
-  const PLAN_HELP = 'Plenum answers and plans, but edits no files and runs no commands in this project.';
+  const PLAN_HELP = 'Plenum answers and plans, but edits no files and runs no commands in this thread (Main: the project).';
   const FOCUS_HELP = 'Get the code working and run only the checks that are strictly needed. It applies from the next message.';
 
   // True while a change is on its way to the server, so a second click cannot send a second one.
@@ -128,7 +128,11 @@
     const p = activeProject();
     const appMode = MODES.includes(MuseUI.state.approvals) ? MuseUI.state.approvals : 'ask';
     const mode = p && MODES.includes(p.approvals) ? p.approvals : 'ask';
-    const plan = p?.chatMode === 'plan';
+    // Plan is the project's, or the thread on screen's own when it is not Main: the same rule as the composer's Plan button (ext-plan.js) (B-93).
+    // A thread that is not the writer is read-only by the one-writer rule, so plan is on for it (lib/scope.mjs planModeOf, ext-plan.js).
+    const thread = (MuseUI.state.threads ?? []).find(t => t.id === MuseUI.state.activeThread) ?? null;
+    const locked = Boolean(thread) && thread.writer === false && MuseUI.state.multiWriter !== true;
+    const plan = p?.chatMode === 'plan' || (Boolean(thread) && !thread.main && thread.chatMode === 'plan') || locked;
     const focus = p ? focusKnown(p.id) === true : false;
     const off = !p || busy;
 
@@ -146,7 +150,7 @@
       radio.disabled = off;
     }
     planRow.input.checked = plan;
-    planRow.input.disabled = off;
+    planRow.input.disabled = off || locked;
     focusRow.input.checked = focus;
     focusRow.input.disabled = off || focusKnown(p?.id) === undefined;
     useDefault.hidden = !(p && p.ownApprovals);
@@ -176,20 +180,37 @@
     }
   }
 
-  // Plan is the project's chat mode, saved by the server (POST /api/project-mode). It is the same request the Plan button sends.
+  // Plan is the chat mode of the thread on screen: Main's is the project's, any other thread has its own. It is the same request the
+  // composer's Plan button sends (ext-plan.js), which names the thread, so the reply is written to that thread and not the project (B-93).
   async function setPlan(on) {
     const p = activeProject();
     if (!p || busy) return paint();
+    const thread = (MuseUI.state.threads ?? []).find(t => t.id === MuseUI.state.activeThread) ?? null;
+    // A thread that is not the writer cannot change its plan mode here: the same words as the composer's Plan button (ext-plan.js).
+    if (thread && thread.writer === false && MuseUI.state.multiWriter !== true) {
+      MuseUI.toast(`${thread.name} is read-only because another thread is this project's writer. Make it the writer from the thread's menu to let it change files.`);
+      return paint();
+    }
+    const named = thread && !thread.main ? { thread: thread.id } : {};
     busy = true;
     paint();
     try {
-      const r = await MuseUI.api('/api/project-mode', { project: p.id, mode: on ? 'plan' : 'normal' });
-      const current = MuseUI.state.projects?.find(x => x.id === r.project);
-      if (current) current.chatMode = r.mode;
+      const r = await MuseUI.api('/api/project-mode', { project: p.id, ...named, mode: on ? 'plan' : 'normal' });
+      let who = p.name;
+      if (r.thread) {
+        const current = (MuseUI.state.threads ?? []).find(t => t.id === r.thread);
+        if (current) {
+          current.chatMode = r.mode === 'plan' ? 'plan' : null;
+          who = `${p.name} · ${current.name}`;
+        }
+      } else {
+        const current = MuseUI.state.projects?.find(x => x.id === r.project);
+        if (current) current.chatMode = r.mode;
+      }
       const when = MuseUI.state.running ? ' It applies from the next message.' : '';
       MuseUI.toast(r.mode === 'plan'
-        ? `Plan mode is on for ${p.name}. Plenum will not edit files or run commands there.${when}`
-        : `Plan mode is off for ${p.name}.${when}`);
+        ? `Plan mode is on for ${who}. Plenum will not edit files or run commands there.${when}`
+        : `Plan mode is off for ${who}.${when}`);
     } catch (err) {
       MuseUI.toast(err.message, 'bad');
     } finally {
@@ -232,7 +253,7 @@
 
   safety.addEventListener('click', () => {
     closeMenu(false);
-    MuseUI.settings?.open?.('app');
+    MuseUI.settings?.open?.('app', 'safety');
   });
 
   function openMenu() {

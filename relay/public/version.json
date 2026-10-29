@@ -1,6 +1,6 @@
 {
   "name": "plenum-shell",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "protocol": "1.0",
-  "shellSha256": "68af6f90e4295e17e93dafa61c44d0867902f881af33ad88822c7f1a811dc6b3"
+  "shellSha256": "3578cd756313d383a0835b34ba0980cf5993950782a5049dc00c58584598b10b"
 }

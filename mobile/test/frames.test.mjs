@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createFakeClock } from './helpers/fake-clock.mjs';
 import {
   TYPE, FLAG, CHUNK, BUFFER_CAP, COALESCE_MS, MAX_PLAINTEXT, PING_INTERVAL_MS, PING_MISSES_TO_CLOSE, POLL_MS,
-  FrameError, FrameSession, StreamTable, decodeFrame, encodeFrame, encodeJsonFrame,
+  WIRE_BUDGET_BYTES_PER_SECOND, NOISE_TAG_BYTES, FrameError, FrameSession, StreamTable, decodeFrame, encodeFrame, encodeJsonFrame,
 } from '../../lib/remote/frames.mjs';
 
 const T = TYPE;
@@ -439,6 +439,76 @@ describe('priority lane, pacing and the buffer cap', () => {
     level = 0;
     clock.advance(POLL_MS);
     assert.equal(sent.length, 1);
+  });
+});
+
+describe('the wire budget of a relay session (B-123)', () => {
+  // The relay closes a phone that sends more than 2 MiB (counted with the 16-byte Noise tag of each message) in one second (relay/src/limits.mjs).
+  const RELAY_LIMIT = 2 * 1024 * 1024;
+
+  function timedSocket(clock) {
+    return {
+      sent: [],
+      bufferedAmount: 0,
+      send(bytes) {
+        this.sent.push({ at: clock.now(), wire: bytes.byteLength + NOISE_TAG_BYTES, type: bytes[0], priority: (bytes[5] & FLAG.PRIORITY) !== 0 });
+      },
+      close() {},
+    };
+  }
+
+  // The most wire bytes in any one second (a window that slides over every send, which is stricter than the relay's fixed windows).
+  function busiestSecond(sent) {
+    let most = 0;
+    let from = 0;
+    let sum = 0;
+    for (let i = 0; i < sent.length; i++) {
+      sum += sent[i].wire;
+      while (sent[i].at - sent[from].at >= 1000) sum -= sent[from++].wire;
+      most = Math.max(most, sum);
+    }
+    return most;
+  }
+
+  function drain(clock, sock, frameCount) {
+    for (let step = 0; step < 100000 && sock.sent.length < frameCount; step++) clock.advance(POLL_MS);
+  }
+
+  test('a session with the relay budget never puts 2 MiB on the wire in one second, and the whole body still arrives', () => {
+    const clock = createFakeClock();
+    const sock = timedSocket(clock);
+    const phone = new FrameSession({ role: 'phone', transport: sock, clock, wireBytesPerSecond: WIRE_BUDGET_BYTES_PER_SECOND });
+    const id = phone.request({ method: 'POST', path: '/api/chat' });
+    phone.body(id, bytesOf(6 * 1024 * 1024, 5), { fin: true });
+    const expected = 1 + Math.ceil((6 * 1024 * 1024) / CHUNK);
+    drain(clock, sock, expected);
+    assert.equal(sock.sent.length, expected, 'every frame is written in the end');
+    assert.ok(busiestSecond(sock.sent) < RELAY_LIMIT, `the busiest second carried ${busiestSecond(sock.sent)} bytes`);
+    assert.ok(sock.sent.at(-1).at >= 3000, 'six MiB takes seconds, not one burst');
+  });
+
+  test('without the option the session writes at link speed, as LAN and Tailscale sessions do', () => {
+    const clock = createFakeClock();
+    const sock = timedSocket(clock);
+    const phone = new FrameSession({ role: 'phone', transport: sock, clock });
+    const id = phone.request({ method: 'POST', path: '/api/chat' });
+    phone.body(id, bytesOf(3 * 1024 * 1024, 6), { fin: true });
+    assert.equal(sock.sent.length, 1 + Math.ceil((3 * 1024 * 1024) / CHUNK), 'all of it is written in the same instant');
+    assert.ok(busiestSecond(sock.sent) > RELAY_LIMIT);
+  });
+
+  test('STOP, PING and PONG go out at once while a body waits for the budget', () => {
+    const clock = createFakeClock();
+    const sock = timedSocket(clock);
+    const phone = new FrameSession({ role: 'phone', transport: sock, clock, wireBytesPerSecond: WIRE_BUDGET_BYTES_PER_SECOND });
+    const id = phone.request({ method: 'POST', path: '/api/chat' });
+    phone.body(id, bytesOf(6 * 1024 * 1024, 7), { fin: true });
+    const before = sock.sent.length;
+    assert.ok(before < 10, 'only the burst went out');
+    assert.equal(phone.stop({ id: 'stop-1' }), true);
+    phone.ping();
+    assert.deepEqual(sock.sent.slice(before).map(f => f.type), [T.STOP, T.PING]);
+    assert.equal(sock.sent.length, before + 2);
   });
 });
 

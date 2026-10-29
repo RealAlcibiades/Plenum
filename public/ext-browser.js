@@ -692,6 +692,9 @@
   const activeProjectId = () => MuseUI.state?.activeProject ?? null;
   const activeProject = () => (MuseUI.state?.projects ?? []).find(p => p.id === activeProjectId()) ?? null;
   let driveBusy = false;
+  // How long Pause or Resume waits for the server's answer before the strip lets go of them.
+  const DRIVE_REPLY_MS = 15_000;
+  const stopsSent = new Set();
 
   function takeDrive(s) {
     if (!s || typeof s.id !== 'string' || s.kind !== 'browser') return;
@@ -876,19 +879,34 @@
   }
 
   // Pause, Resume or Stop for the browser drive, through the drive routes (lib/routes/drive.mjs). A refusal is shown on the status line.
+  // Stop never waits: it does not take the busy flag and is not held back by it, so a Pause or Resume whose answer is late (or never
+  // comes) cannot stand in its way. A Pause or Resume gives up after DRIVE_REPLY_MS, so a withheld answer cannot pin the buttons.
   async function driveAct(route) {
     const d = browserDrive();
-    if (!d || driveBusy) return;
-    driveBusy = true;
-    drawStrip();
+    const stopping = route === '/api/drive/stop';
+    if (!d || (driveBusy && !stopping)) return;
+    // A second click on Stop while the first is on its way would only ask the server twice.
+    if (stopping && stopsSent.has(d.id)) return;
+    if (stopping) stopsSent.add(d.id);
+    else {
+      driveBusy = true;
+      drawStrip();
+    }
+    let timer = null;
     try {
-      const data = await MuseUI.api(route, { id: d.id });
-      if (data && data.drive) takeDrive(data.drive);
+      const late = new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('The browser did not answer in time.')), DRIVE_REPLY_MS);
+      });
+      const data = await Promise.race([MuseUI.api(route, { id: d.id }), late]);
+      // A Pause or Resume answered after the drive was stopped is stale: it must not bring the stopped drive back.
+      if (data && data.drive && (stopping || drives.has(d.id))) takeDrive(data.drive);
     } catch (err) {
       actionError = err?.message || 'The browser could not do that.';
       actionErrorAt = Date.now();
     } finally {
-      driveBusy = false;
+      clearTimeout(timer);
+      if (stopping) stopsSent.delete(d.id);
+      else driveBusy = false;
       drawStrip();
       drawStatus();
     }
@@ -923,7 +941,7 @@
     // A card that waits is answered first, so Resume waits; Stop always works.
     s.toggle.disabled = driveBusy || (paused && d.pausedBy === 'card');
     s.toggle.title = paused && d.pausedBy === 'card' ? 'Answer the card in the chat first. Stop ends the run.' : paused ? 'Let the model carry on' : 'Hold the model’s next step';
-    s.stop.disabled = driveBusy;
+    s.stop.disabled = false;
     s.stop.title = 'Stop the model’s control of the browser now';
     const waiting = paused && d.pausedBy === 'model' && S.secret !== null && (!S.secret.project || S.secret.project === d.projectId);
     s.secret.hidden = !waiting;

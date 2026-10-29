@@ -93,7 +93,8 @@ dialog.confirm-dialog {
 .confirm-check { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; font-size: 13px; color: var(--text-2); cursor: pointer; }
 .confirm-check input { accent-color: var(--accent); margin: 0; }
 .confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.confirm-actions .primary.danger { background: var(--bad); color: #fff; }
+/* The ink is the shared accent ink: white on the dark theme's --bad reads at 2.4 to 1 (B-102). */
+.confirm-actions .primary.danger { background: var(--bad); color: var(--accent-ink); }
 .confirm-actions .primary.danger:hover { filter: brightness(1.07); }
 
 /* ---------- the Approvals section of Settings ---------- */

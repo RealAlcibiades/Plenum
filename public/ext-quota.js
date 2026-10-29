@@ -29,6 +29,9 @@
   const quota = { providers: null, at: 0 };
   const near = new Set(); // providers whose near-limit banner already showed in this page session
   const seenNodes = new WeakSet();
+  // Limit messages this page has handled, by text. A redraw of the chat makes new nodes with the same text, so a message that is
+  // already here is not handled again when the chat is drawn once more (B-100). A new arrival is always handled.
+  const limitSeen = new Set();
   let popOpen = false;
   let busyRefresh = false;
   let painted = '';
@@ -417,15 +420,24 @@
     return found;
   }
 
+  function limitText(turn) {
+    const body = turn.querySelector('.turn-body');
+    return ((body ? body.textContent : turn.textContent) || '').trim();
+  }
+
+  // A redraw of the whole chat adds its stream again (renderChat), so the limit messages in it are new nodes; those already handled are
+  // skipped by their text. A message that arrives on its own is handled once, as before.
   function scanAdded(root) {
     if (!(root instanceof Element)) return;
+    const redraw = root.classList.contains('stream');
     const turns = root.matches('.turn.system') ? [root] : [...root.querySelectorAll('.turn.system')];
     for (const turn of turns) {
       if (seenNodes.has(turn)) continue;
       seenNodes.add(turn);
-      const body = turn.querySelector('.turn-body');
-      const text = (body ? body.textContent : turn.textContent) || '';
-      if (LIMIT_RE.test(text)) onLimit(turn, text);
+      const text = limitText(turn);
+      if (!LIMIT_RE.test(text) || (redraw && limitSeen.has(text))) continue;
+      limitSeen.add(text);
+      onLimit(turn, text);
     }
   }
 
@@ -459,6 +471,11 @@
 
   // Limit errors arrive as chat turns; only the turns added from now on are read (history was read by the page at load).
   if (el.chat) {
+    // The history on the page now is read as seen, so it stays quiet (B-100).
+    for (const turn of el.chat.querySelectorAll('.turn.system')) {
+      const text = limitText(turn);
+      if (LIMIT_RE.test(text)) limitSeen.add(text);
+    }
     new MutationObserver(records => {
       for (const record of records) {
         for (const node of record.addedNodes) scanAdded(node);

@@ -362,16 +362,22 @@
   }
 
   // Sets the model to openrouter:<id>, adding it to the model menu first (as ext-openrouter.js does).
+  // The model goes to the thread on screen, and the toast names that thread when it is not Main (B-98).
+  const threadWord = () => {
+    const t = MuseUI.threads?.info?.();
+    return t && !t.main && t.name ? ` for ${t.name}` : '';
+  };
+
   function useOpenRouter(row) {
     const ref = `openrouter:${row.openrouterId}`;
     const menu = MuseUI.el.model;
     if (menu && menu.options.length && ![...menu.options].some(o => o.value === ref)) menu.append(new Option(`OpenRouter · ${row.openrouterId}`, ref));
-    return runSet(row.key, () => MuseUI.update({ model: ref }), `Model set to ${row.name} (OpenRouter)`);
+    return runSet(row.key, () => MuseUI.setThreadModel(ref), `Model set to ${row.name} (OpenRouter)${threadWord()}`);
   }
 
   function useDirect(row) {
     const name = MuseUI.modelName(row.plenumRef);
-    return runSet(row.key, () => MuseUI.update({ model: row.plenumRef }), `Model set to ${name}`);
+    return runSet(row.key, () => MuseUI.setThreadModel(row.plenumRef), `Model set to ${name}${threadWord()}`);
   }
 
   // The next message only goes to this model: the /ask prefix goes into the composer, and the drawer closes.
@@ -854,7 +860,8 @@
   function actionsBlock(row) {
     const box = make('div', 'af-actions');
     const d = state.data;
-    const current = MuseUI.state.model;
+    // The model of the thread on screen, which is the app's model for Main (B-98).
+    const current = MuseUI.threads?.info?.()?.model || MuseUI.state.model;
     if (row.openrouterId) {
       const ref = `openrouter:${row.openrouterId}`;
       if (current === ref) box.append(make('span', 'pill ok', 'In use'));

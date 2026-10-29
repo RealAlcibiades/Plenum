@@ -153,7 +153,9 @@ const APPROVE_ALL_TITLE = 'Approve all answers every card for you';
 const APPROVE_ALL_ACTION = 'Turn on Approve all';
 const APPROVE_ALL_CONFIRM = 'Edits and commands run at once, inside and outside the project. Gemini runs in its yolo mode and Muse Code with its own prompts off, so Plenum cannot check what they run. Credential folders, system folders and Plenum\'s own source stay off limits. The built-in rules that can wipe a disk or the system still show their card, and nothing answers that card for you unless you turn on "Approve all also answers blocked-command cards" in Project settings. You are responsible for everything that runs while it is on.';
 const GEMINI_EFFORT = 'The Gemini CLI sets its own thinking depth';
-const GEMINI_INSTALL = 'Install the Gemini CLI with npm install --prefix "%USERPROFILE%\\.muse-console\\tools" @google/gemini-cli on Windows, or npm install --prefix "$HOME/.muse-console/tools" @google/gemini-cli on macOS and Linux, then come back here.';
+// The install line on the Gemini card: the npm command the server builds for this machine (providerStatus, installCommand), so the
+// folder is the real one, including MUSE_CONSOLE_HOME.
+const geminiInstall = command => `Install the Gemini CLI with ${command}, then come back here.`;
 
 // aliases are other words that run the same command (/stop runs /cancel). They are found by the palette and the drawer too.
 const COMMANDS = [
@@ -288,6 +290,8 @@ let updates = [];
 // window still shows in the Updates panel after it told the server it had seen it.
 let overlayInfo = null;
 let rollbackNotice = null;
+// The words for a record flagged ignored (lib/overlay/register.cjs): nothing was rolled back, the applied updates were not read (C-24).
+const IGNORED_ROLLBACK_TEXT = 'Plenum could not read its applied updates, so it is running the files it shipped with.';
 let rollbackSeen = '';
 let streamEl = null;
 let paletteItems = [];
@@ -575,7 +579,7 @@ function providerOf(ref) {
 
 // Short display name, for example "anthropic:claude-sonnet-5-5" -> "Sonnet 5.5".
 function modelName(ref) {
-  if (!ref) return '';
+  if (!ref || typeof ref !== 'string') return '';
   const hit = catalog.find(c => `${c.provider}:${c.id}` === ref);
   const label = hit ? hit.label : ref;
   return label.replace(/\s*\(.*\)$/, '').replace(/^Claude\s+/, '');
@@ -708,7 +712,10 @@ function toolEl(name, summary, state = 'running', result = '') {
   mark.append(icon(TOOL_ICONS[name] ?? 'terminal'));
   const status = span('t-state');
   status.append(...stateNodes(state));
-  s.append(mark, span('t-name', TOOL_NAMES[name] ?? name), span('t-sum', summary ?? ''), status, icon('chevron', 't-chev'));
+  const sum = span('t-sum', summary ?? '');
+  // A denied step names its reason where it can be seen without opening the step (the pointer rests on the row).
+  if (state === 'denied' && result) sum.title = result;
+  s.append(mark, span('t-name', TOOL_NAMES[name] ?? name), sum, status, icon('chevron', 't-chev'));
   d.append(s);
   if (result) {
     const out = document.createElement('pre');
@@ -724,12 +731,17 @@ function stateNodes(state) {
   if (state === 'running') return [span('spinner'), 'Running'];
   if (state === 'done') return [icon('check'), span('sr', 'Done')];
   if (state === 'failed') return [icon('x'), 'Failed'];
+  if (state === 'denied') return [icon('x'), 'Denied'];
   return [];
 }
 
 function setToolState(d, state, result) {
   d.className = `tool ${state}`;
   d.querySelector('.t-state').replaceChildren(...stateNodes(state));
+  if (state === 'denied' && result) {
+    const sum = d.querySelector('.t-sum');
+    if (sum) sum.title = result;
+  }
   if (result) {
     let out = d.querySelector('.t-out');
     if (!out) {
@@ -1016,7 +1028,7 @@ function messageNodes(m) {
   if (m.kind === 'council') return [councilEl(councilFromSaved(m))];
   if (m.kind === 'build') return [buildEl(buildFromSaved(m))];
   const nodes = [];
-  const toolRows = (m.tools ?? []).map(tool => toolEl(tool.name, tool.summary, tool.ok ? 'done' : 'failed', tool.result));
+  const toolRows = (m.tools ?? []).map(tool => toolEl(tool.name, tool.summary, tool.ok ? 'done' : tool.denied ? 'denied' : 'failed', tool.result));
   if (m.computerRun) {
     // A finished computer run takes three lines of the transcript: what it did, a way to see the runs, and its steps folded away.
     const run = m.computerRun;
@@ -1166,6 +1178,7 @@ function welcomeProject(p) {
 
 function renderAll() {
   tellPromptsHealth(S.promptsHealth);
+  syncRouteRun();
   renderTop();
   renderProjects();
   renderChat();
@@ -1179,6 +1192,7 @@ function renderAll() {
 // Everything renderAll draws except the transcript, so a reply that is streaming into it is never wiped by a settings change.
 function renderShell() {
   tellPromptsHealth(S.promptsHealth);
+  syncRouteRun();
   renderTop();
   renderProjects();
   renderStatus();
@@ -1266,7 +1280,20 @@ function ensureOption(select, ref) {
   if (ref && ![...select.options].some(o => o.value === ref)) select.append(new Option(modelName(ref) || ref, ref));
 }
 
+// The project list and the status bar are rebuilt on every state event. The node with keyboard focus goes with the old list, so the
+// focused row or status item is found again by its data-focus-key and takes focus back (B-94).
+function keepFocusAcross(container, draw) {
+  const at = document.activeElement;
+  const key = at && container.contains(at) ? at.dataset.focusKey : undefined;
+  draw();
+  if (key) container.querySelector(`[data-focus-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+}
+
 function renderProjects() {
+  keepFocusAcross(el.projects, drawProjects);
+}
+
+function drawProjects() {
   el.projects.replaceChildren();
   if (!S.projects.length) {
     el.projects.append(Object.assign(document.createElement('div'), { className: 'empty-side', textContent: 'No projects yet. Use + to add a folder.' }));
@@ -1278,6 +1305,7 @@ function renderProjects() {
     row.className = `proj-item${active ? ' active' : ''}`;
     row.title = p.path;
     row.tabIndex = 0;
+    row.dataset.focusKey = `project:${p.id}`;
     row.setAttribute('role', 'button');
     if (active) row.setAttribute('aria-current', 'true');
     const tile = span('pi');
@@ -1286,6 +1314,7 @@ function renderProjects() {
     forget.append(icon('x'));
     forget.title = 'Forget this project (files are kept)';
     forget.setAttribute('aria-label', `Forget ${p.name}`);
+    forget.dataset.focusKey = `forget:${p.id}`;
     forget.addEventListener('click', e => { e.stopPropagation(); removeProject(p); });
     row.append(tile, span('pn', p.name), span('pp', parentHint(p.path)));
     // "3 threads" when the project has several (UI-ARCH 2).
@@ -1339,23 +1368,28 @@ function renderChat() {
 }
 
 function renderStatus() {
+  keepFocusAcross(el.statusbar, drawStatus);
+}
+
+function drawStatus() {
   el.statusbar.replaceChildren();
-  const item = (ok, label, title) => {
+  const item = (ok, label, title, key) => {
     const b = button(`st ${ok ? 'ok' : 'bad'}`, label);
     b.prepend(span('dot'));
     b.title = title;
+    b.dataset.focusKey = `status:${key}`;
     b.addEventListener('click', () => openAccounts());
     return b;
   };
   if (providers) {
     el.statusbar.append(
-      item(providers.muse.installed, providers.muse.installed ? 'Muse Code' : 'Muse Code not installed', 'Muse Code: open Accounts'),
-      item(providers.anthropic.credentials, providers.anthropic.credentials ? 'Claude' : providers.anthropic.route === 'cli' ? 'Claude sign-in needed' : 'Claude key needed', 'Claude: open Accounts'),
-      item(providers.codex.installed, providers.codex.installed ? 'Codex' : 'Codex not found', 'Codex: open Accounts'),
+      item(providers.muse.installed, providers.muse.installed ? 'Muse Code' : 'Muse Code not installed', 'Muse Code: open Accounts', 'muse'),
+      item(providers.anthropic.credentials, providers.anthropic.credentials ? 'Claude' : providers.anthropic.route === 'cli' ? 'Claude sign-in needed' : 'Claude key needed', 'Claude: open Accounts', 'claude'),
+      item(providers.codex.installed, providers.codex.installed ? 'Codex' : 'Codex not found', 'Codex: open Accounts', 'codex'),
     );
     const g = providers.gemini;
     if (g) {
-      el.statusbar.append(item(g.installed && g.signedIn, !g.installed ? 'Gemini not installed' : g.signedIn ? 'Gemini' : 'Gemini sign-in needed', `Gemini: open Accounts. ${GEMINI_EDIT}`));
+      el.statusbar.append(item(g.installed && g.signedIn, !g.installed ? 'Gemini not installed' : g.signedIn ? 'Gemini' : 'Gemini sign-in needed', `Gemini: open Accounts. ${GEMINI_EDIT}`, 'gemini'));
     }
   }
   if (S.running || activeRun()) {
@@ -1725,7 +1759,7 @@ function turnRenderer(scope = activeScope()) {
       }
       case 'tool_result': {
         const d = tools.get(ev.id);
-        if (d) setToolState(d, ev.ok ? 'done' : 'failed', ev.summary);
+        if (d) setToolState(d, ev.ok ? 'done' : ev.denied ? 'denied' : 'failed', ev.summary);
         break;
       }
       case 'approval':
@@ -2330,6 +2364,8 @@ function councilHandler(cd, paint) {
         cue('error');
         break;
       case 'done':
+        // The stream's done ends every council, including one that stopped on an error and sent no council-done (B-8).
+        cd.done = true;
         if (ev.timedOut) noteTo(scope, 'The council ran out of time and was stopped.');
         break;
       default:
@@ -2386,6 +2422,14 @@ function seatColEl(cd, s) {
   return col;
 }
 
+// A round with no entry has not run. It is skipped when the round before it failed for this seat, not run when the council has ended,
+// and otherwise it waits for the round before it (B-8).
+function notRunWords(cd, s, r) {
+  if (s.rounds[r - 1]?.state === 'failed') return { label: 'Skipped', text: `Skipped because round ${r - 1} failed` };
+  if (cd.done) return { label: 'Not run', text: 'Not run' };
+  return { label: 'Waiting', text: `Waiting for round ${r - 1} to finish` };
+}
+
 function roundEl(cd, s, r) {
   const data = s.rounds[r] ?? { state: 'waiting', text: '' };
   const d = document.createElement('details');
@@ -2394,7 +2438,8 @@ function roundEl(cd, s, r) {
   trackOpen(cd.open, `${s.id}${r}`, d, r === 1 ? !s.rounds[2] : true);
   const sum = document.createElement('summary');
   const words = { waiting: 'Waiting', running: 'Working', done: 'Done', failed: 'Failed' };
-  let label = words[data.state] ?? '';
+  const unrun = data.state === 'waiting' && r > 1 ? notRunWords(cd, s, r) : null;
+  let label = unrun?.label ?? words[data.state] ?? '';
   if (data.state === 'done' && r > 1 && data.changed) label = data.changed === 'yes' ? 'Changed its view' : 'Kept its view';
   sum.append(span('round-name', `Round ${r}`), span('round-state', label));
   d.append(sum);
@@ -2403,7 +2448,7 @@ function roundEl(cd, s, r) {
   if (data.state === 'failed') {
     body.append(span('seat-err', data.error || 'This seat failed.'));
   } else if (data.state === 'waiting') {
-    body.append(span('round-wait', r === 1 ? 'Waiting to start' : 'Waiting for round 1 to finish'));
+    body.append(span('round-wait', r === 1 ? 'Waiting to start' : unrun.text));
   } else if (!data.text) {
     body.innerHTML = THINKING;
   } else {
@@ -2418,6 +2463,9 @@ function roundEl(cd, s, r) {
   d.append(body);
   return d;
 }
+
+// The words the card uses for a section the moderator left out (its heading keys are capitals in the reply).
+const SECTION_WORDS = { VERDICT: 'the verdict', CONSENSUS: 'the consensus', DISAGREEMENTS: 'the disagreements', RECOMMENDATION: 'the recommendation', CONFIDENCE: 'the confidence', DISSENT: 'the dissent' };
 
 // The consensus card. It stays hidden until the moderator has started, and shows the raw text if the layout did not parse.
 function consensusEl(cd, slot) {
@@ -2440,7 +2488,9 @@ function consensusEl(cd, slot) {
     return box;
   }
   const r = cd.result;
-  if (!r.complete) {
+  // Only a reply that parsed nothing is shown whole. A partial layout keeps every section it has and says which ones it left out (B-6).
+  const parsed = r.consensus?.length || r.disagreements?.length || r.recommendation?.length || r.dissent?.length || r.confidence?.value != null;
+  if (!r.complete && !parsed) {
     box.append(quietNote('The moderator did not use the usual layout. This is its full reply.'), preEl('raw-full', r.verdict ?? ''));
     return box;
   }
@@ -2451,8 +2501,9 @@ function consensusEl(cd, slot) {
   if (r.consensus?.length) box.append(consensusList(r.consensus));
   if (r.disagreements?.length) box.append(disagreementList(cd, r.disagreements));
   if (r.recommendation?.length) box.append(recommendationBlock(cd, r.recommendation, slot));
-  if (r.confidence) box.append(confidenceRow(r.confidence));
+  if (r.confidence && !r.missing?.includes('CONFIDENCE')) box.append(confidenceRow(r.confidence));
   if (r.dissent?.length) box.append(dissentBlock(r.dissent));
+  if (r.missing?.length) box.append(quietNote(`The moderator left out ${r.missing.map(n => SECTION_WORDS[n] ?? n.toLowerCase()).join(', ')}.`));
   return box;
 }
 
@@ -2510,7 +2561,8 @@ function recommendationBlock(cd, steps, slot) {
 function confidenceRow({ value, why }) {
   const row = document.createElement('div');
   row.className = 'conf';
-  const shown = Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Math.round(Number(value)))) : null;
+  // A missing score (null, or an empty string) is not a 0: it reads as not given.
+  const shown = value != null && value !== '' && Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Math.round(Number(value)))) : null;
   row.append(span('conf-value', shown == null ? 'Confidence not given' : `Confidence ${shown} / 100`));
   if (shown != null) {
     const meter = document.createElement('div');
@@ -3281,22 +3333,37 @@ function moderatorPill() {
   };
 }
 
+// Council and relay saves run one after another. Each copies the settings it changes from S, and the server replaces the whole object,
+// so a second edit that copied S before the first save had answered would put the first edit back (B-9). Each task runs after the last.
+let settingsSaves = Promise.resolve();
+function queueSettingsSave(task) {
+  const run = settingsSaves.then(task, task);
+  settingsSaves = run.catch(() => {});
+  return run;
+}
+
 async function editSeat(index, field, value) {
-  const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
-  cfg.seats[index][field] = value;
-  await saveCouncil(cfg);
+  return queueSettingsSave(async () => {
+    const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
+    cfg.seats[index][field] = value;
+    await saveCouncil(cfg);
+  });
 }
 
 async function editMod(field, value) {
-  const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
-  cfg.moderator = { ...(cfg.moderator ?? {}), [field]: value };
-  await saveCouncil(cfg);
+  return queueSettingsSave(async () => {
+    const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
+    cfg.moderator = { ...(cfg.moderator ?? {}), [field]: value };
+    await saveCouncil(cfg);
+  });
 }
 
 async function editRounds(value) {
-  const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
-  cfg.rounds = Number(value);
-  await saveCouncil(cfg);
+  return queueSettingsSave(async () => {
+    const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
+    cfg.rounds = Number(value);
+    await saveCouncil(cfg);
+  });
 }
 
 // Saves the council, then shows the saved config. The server checks it and says why when it is wrong.
@@ -3398,12 +3465,14 @@ function switchRow(label, desc, checked, onChange) {
 }
 
 async function saveRelay(patch) {
-  try {
-    S = await api('/api/settings', { relay: { ...appRelaySettings(), ...patch } });
-  } catch (err) {
-    toast(err.message, 'bad');
-  }
-  if (drawerRender === renderRelayPanel) refreshDrawer();
+  return queueSettingsSave(async () => {
+    try {
+      S = await api('/api/settings', { relay: { ...appRelaySettings(), ...patch } });
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+    if (drawerRender === renderRelayPanel) refreshDrawer();
+  });
 }
 
 // The chain editor: each step is a seat, in order, and no seat appears twice.
@@ -3528,7 +3597,7 @@ function renderRelayPanel(body) {
 
   form.append(switchRow('Stop when a hop fails', 'On: the route stops at the first error. Off: it goes on with the last good reply.', rs.stopOnError, v => saveRelay({ stopOnError: v })));
   form.append(switchRow('Skip repeats', 'Do not send a reply that was already sent in this route. Off by default, since a repeated answer is sometimes the right one.', rs.dedupe, v => saveRelay({ dedupe: v })));
-  form.append(switchRow(`Auto relay is ${rs.autoRoute ? 'on' : 'off'}`, rs.autoRoute ? 'Routes run on their own until a limit, a stop or an error.' : 'Off by default. While it is off, nothing is passed on without you.', rs.autoRoute, v => saveRelay({ autoRoute: v })));
+  form.append(switchRow(`Auto relay is ${rs.autoRoute ? 'on' : 'off'}`, rs.autoRoute ? 'Routes run on their own until a limit, a stop or an error.' : 'Off by default. While it is off, this window will not start a route.', rs.autoRoute, v => saveRelay({ autoRoute: v })));
 
   if (ownRelay) for (const control of [hopSel, custom, range, ...form.querySelectorAll('.switch-row input')]) control.disabled = true;
 
@@ -3593,6 +3662,16 @@ function renderRouteBar() {
   const hop = routeRun.hop ? `Hop ${routeRun.hop}${routeRun.limit ? ` of ${routeRun.limit}` : ''}` : 'Starting';
   el.rbText.textContent = `Relay · ${hop}${routeRun.paused ? ' · paused' : ''}`;
   el.rbToggle.textContent = routeRun.paused ? 'Resume' : 'Pause';
+}
+
+// Takes the route bar from the state (state.relayRun, B-7): a window that joins or reloads while a route runs gets the bar, its hop and
+// Pause from the server, not only from the relay-start event it missed. With no relayRun, the bar goes once the thread is not running;
+// while it runs, the route this window already has (from its own events) stays.
+function syncRouteRun() {
+  const scope = activeScope();
+  if (S.relayRun) routeRuns.set(scope, { limit: S.relayRun.limit ?? null, hop: S.relayRun.hop ?? 0, paused: Boolean(S.relayRun.paused) });
+  else if (!S.running) routeRuns.delete(scope);
+  renderRouteBar();
 }
 
 async function toggleRelayPause() {
@@ -3704,7 +3783,8 @@ function applyState(next, { chat } = {}) {
 // GET /api/events keeps one stream open per window (lib/events.mjs). The server sends every change on it, so nothing here polls
 // while it is up. A lost stream is reopened after 1, 2, 4, 8, then every 10 seconds, and watchRun covers the gap.
 const eventHandlers = new Map();
-let startedAt = 0;
+let startedBuild = null;
+let startedAt = 0; // the server process the page last heard from (hello carries it); it changes on every plain restart
 let reconnecting = false;
 
 function fanOut(ev) {
@@ -3758,14 +3838,29 @@ const events = {
 };
 
 events.on('hello', ev => {
-  // A different startedAt than before means the server restarted (an applied update), so this window loads the new page once.
-  if (startedAt && ev.startedAt !== startedAt) {
+  // A new build (a new version, or an applied update's generation) means this window loads the new page once. A plain restart of the
+  // same build keeps the page as it is, so a typed message and its Retry survive it.
+  const build = `${ev.version}|${ev.generation ?? ''}`;
+  if (startedBuild !== null && build !== startedBuild) {
     location.reload();
     return;
   }
+  const restarted = startedAt !== 0 && ev.startedAt !== startedAt;
   startedAt = ev.startedAt;
+  startedBuild = build;
+  // A plain restart ended every run of the old server process, and no done will come for them. The foreign run this window drew and the
+  // other-window lines are cleared here, so a partial box or a "running in another window" line does not stay on the page.
+  if (restarted) {
+    if (foreign) {
+      foreignDone.add(foreign.runId);
+      dropRunBox(foreign.scope);
+      foreign = null;
+    }
+    for (const id of [...otherLines.keys()]) endOtherRun(id);
+  }
   setConnected(true);
   applyState(ev.state);
+  if (restarted && !activeRun()) refresh();
 });
 
 events.on('state', ev => applyState(ev.state));
@@ -3856,18 +3951,34 @@ function foreignFeed(ev) {
   }
 }
 
+// The line that says a run is going in another window is taken away when that run ends, so it never outlives the run (B-11).
+const otherLines = new Map(); // runId -> its line
+const otherEnded = new Set(); // ids of runs that have ended, at most 60
+function endOtherRun(runId) {
+  otherEnded.add(runId);
+  otherLines.get(runId)?.remove();
+  otherLines.delete(runId);
+  if (otherEnded.size > 60) otherEnded.delete(otherEnded.values().next().value);
+}
+
 function noteOtherRun(ev) {
   if (noted.has(ev.runId) || ev.event?.type === 'done') return;
   noted.add(ev.runId);
   // A panel of this window that started the run claims it from its first event; that arrives a moment after this one.
   setTimeout(() => {
-    if (claimed.has(ev.runId) || ev.project !== S.activeProject || (ev.event?.thread ?? ev.project) !== activeScope() || activeRun()) return;
-    runBox().append(systemTurn(`${KIND_WORDS[ev.kind] ?? 'A run'} is running in another window.`));
+    if (otherEnded.has(ev.runId) || claimed.has(ev.runId) || ev.project !== S.activeProject || (ev.event?.thread ?? ev.project) !== activeScope() || activeRun()) return;
+    const line = systemTurn(`${KIND_WORDS[ev.kind] ?? 'A run'} is running in another window.`);
+    otherLines.set(ev.runId, line);
+    runBox().append(line);
     stickBottom();
   }, 400);
 }
 
 events.on('run', ev => {
+  // The foreign run this window is drawing ends here whatever thread is on screen: its done (or error) drops its box and clears foreign.
+  if (foreign && foreign.runId === ev.runId && (ev.event?.type === 'done' || (ev.event?.type === 'error' && foreign.kind !== 'relay'))) return foreignFeed(ev);
+  // The line for a run in another window goes when its done arrives, on whatever thread is on screen (B-11).
+  if (ev.event?.type === 'done') endOtherRun(ev.runId);
   // Only the run of the thread on screen is drawn here; a run of another thread is in that thread's box, or in another window.
   if (ev.project !== S.activeProject || (ev.event?.thread ?? ev.project) !== activeScope()) return;
   if (ownRunIds.has(ev.runId) || claimed.has(ev.runId)) return;
@@ -3935,6 +4046,8 @@ function takeOverlay(info) {
   if (setAsideNotice(rb)) {
     // Setting old changes aside after a Plenum update is expected, so the notice is not the red one.
     toast(`Changes applied for Plenum ${rb.setAsideFor} were set aside. The Updates panel says why.`, 'ok', 8000);
+  } else if (rb.ignored === true) {
+    toast(IGNORED_ROLLBACK_TEXT, 'bad', 8000);
   } else {
     const why = rb.reason || 'Plenum did not start with it';
     toast(`The last update was rolled back: ${why}.${rb.from !== null ? ' Its files are kept under overlay in the state folder.' : ''}`, 'bad', 8000);
@@ -4048,9 +4161,13 @@ async function removeProject(p) {
   toast(`Forgot ${p.name}. Its files were not touched.`);
 }
 
+// Two projects can share a folder name, so a name that matches more than one is refused, with the paths to choose from (B-4). Both callers
+// run inside runCommand's try, so the message is shown as a toast.
 function findProject(arg) {
   const q = arg.toLowerCase();
-  return S.projects.find(p => p.name.toLowerCase() === q || p.path.toLowerCase() === q || p.id === q);
+  const hits = S.projects.filter(p => p.name.toLowerCase() === q || p.path.toLowerCase() === q || p.id === q);
+  if (hits.length > 1) throw new Error(`More than one project is named "${arg}": ${hits.map(p => p.path).join(' or ')}. Use the full path.`);
+  return hits[0];
 }
 
 function openAddForm() {
@@ -4264,7 +4381,29 @@ function claudeCard(c) {
       show(err.message, false);
     }
   });
-  actions.append(save, test);
+  // Removing deletes the saved key, so it asks first. The card is drawn again from the server after a removal.
+  const remove = button('ghost small', 'Remove key');
+  remove.disabled = !c.connected;
+  remove.addEventListener('click', async () => {
+    const sure = await confirmBox({ title: 'Remove the Anthropic API key?', body: 'Plenum deletes this key from the saved keys and stops using it. To use the Anthropic API again, paste the key again.', action: 'Remove', tone: 'danger', focusCancel: true });
+    if (!sure) return;
+    remove.disabled = true;
+    show('Removing the key…', true);
+    try {
+      const r = await api('/api/accounts/claude/remove', {});
+      show(r.message, r.ok);
+      if (r.ok) {
+        await loadProviders();
+        toast('Claude key removed');
+        refreshDrawer();
+      }
+    } catch (err) {
+      show(err.message, false);
+    } finally {
+      remove.disabled = !c.connected;
+    }
+  });
+  actions.append(save, test, remove);
   card.append(input, actions, result);
   return card;
 }
@@ -4335,7 +4474,7 @@ function geminiCard(g) {
   card.append(para(!g
     ? 'Gemini status is not available yet. Press Refresh.'
     : !g.installed
-      ? GEMINI_INSTALL
+      ? geminiInstall(g.installCommand || 'npm install --prefix "<your Muse Console tools folder>" @google/gemini-cli')
       : g.signedIn
         ? `Gemini has a saved sign-in${g.email ? ` for ${g.email}` : ''}.`
         : 'Sign in to your Google account. A sign-in window opens; choose "Sign in with Google" there, as Google shows it, then press Refresh here.'));
@@ -4473,8 +4612,9 @@ function overlayCard() {
   const active = overlayInfo?.active ?? null;
   const gen = active === null ? null : gens.find(g => g.n === active);
   if (!gen) {
-    card.append(span('um', keptLine(gens)));
-    if (gens.length) {
+    // A history that cannot be read keeps its folders: the reset button is the way to remove them (C-17).
+    card.append(span('um', overlayInfo?.damaged ? 'The applied updates could not be read. Plenum is running its shipped files.' : keptLine(gens)));
+    if (gens.length || overlayInfo?.damaged) {
       const row = document.createElement('div');
       row.className = 'actions';
       row.append(resetButton());
@@ -4527,7 +4667,9 @@ function rollbackStrip(rb) {
   strip.className = 'rollback-strip';
   strip.setAttribute('role', 'status');
   const reason = rb.reason || 'Plenum did not start with it';
-  const text = setAsideNotice(rb) ? reason
+  // An ignored record rolled nothing back: the applied updates could not be read and the shipped files run (C-24).
+  const text = rb.ignored === true ? IGNORED_ROLLBACK_TEXT
+    : setAsideNotice(rb) ? reason
     : rb.from === null
       ? `The last update was rolled back: ${reason}.`
       : `The last update was rolled back: ${reason}. Generation ${rb.from} was replaced by ${rb.to === null ? 'the shipped files' : `generation ${rb.to}`}.`;
@@ -4563,26 +4705,42 @@ function updateCard(u) {
   return card;
 }
 
+// Whether the server runs in the desktop app (it restarts itself after an update) or under npm start (it stops and is started again by
+// hand). The server says so in GET /api/app-updates. A page without the desktop bridge (a phone's copy) asks it; a failed ask means no.
+async function serverIsDesktop() {
+  if (window.plenumShell) return true;
+  try {
+    return (await api('/api/app-updates'))?.desktop === true;
+  } catch {
+    return false;
+  }
+}
+
+// Waits for the server to answer again: 'up' when it does, 'token' when it answers with a token this page does not hold (a plain Node
+// start, which makes a new token and a new link), and 'timeout' after a minute (C-21). A token answer ends the wait at once.
 async function waitForServer() {
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 1000));
     try {
-      await api('/api/status');
-      return true;
+      const res = await request('/api/status');
+      if (res.ok) return 'up';
+      if (tokenRefused(res)) return 'token';
     } catch {
       // still restarting
     }
   }
-  return false;
+  return 'timeout';
 }
 
 async function applyUpdate(u) {
   const names = u.files.map(f => f.path).join(', ');
   // Apply update is one of the two notices that ask in a dialog (UI-ARCH 7); Cancel is focused. The notice's registry id is
   // 'self-update' (apply-update is only its alias on the server), so the page asks by the id: the registry text and "Don't show again" apply.
+  // Plain Node does not restart itself: it stops after the update and is started again by hand (C-21).
+  const restarts = (await serverIsDesktop()) ? 'Plenum restarts.' : 'Plenum stops after the update, and you start it again with npm start.';
   const ok = await window.MuseUI.risk('self-update', {
     title: `Apply "${u.summary}"?`,
-    body: `Files: ${names}. The update is kept beside Plenum's data, and the files Plenum was installed with are not touched. Plenum restarts. If it cannot start with the update, it goes back to the version before.`,
+    body: `Files: ${names}. The update is kept beside Plenum's data, and the files Plenum was installed with are not touched. ${restarts} If it cannot start with the update, it goes back to the version before.`,
     action: 'Apply and restart',
     focusCancel: true,
   });
@@ -4600,14 +4758,21 @@ async function restartWith(path, body = {}) {
   restarting = true;
   setUpdateButtons(true);
   try {
+    // Read before the call: the server that answers now says whether it restarts itself.
+    const desktop = await serverIsDesktop();
     await api(path, body);
-    toast('Applied. Restarting Plenum…');
+    toast(desktop ? 'Applied. Restarting Plenum…' : 'Applied. Start Plenum again with npm start to use the update.');
     const back = await waitForServer();
-    if (back) {
+    if (back === 'up') {
       location.reload();
       return;
     }
-    toast('The server did not come back within a minute. Restart it from the Start menu.', 'bad');
+    if (back === 'token') {
+      showTokenCard();
+      toast('Plenum started again with a new link. Open the link printed where Plenum was started.', 'bad');
+    } else {
+      toast(desktop ? 'The server did not come back within a minute. Restart it from the Start menu.' : 'The server did not come back within a minute. Start Plenum again with npm start, then open the link it prints.', 'bad');
+    }
   } catch (err) {
     toast(err.message, 'bad');
   }
@@ -6268,13 +6433,16 @@ el.form.addEventListener('submit', e => {
   }
   // The text and the images stay in the composer when they cannot be sent as they are.
   const images = pickedImages();
-  const held = text.startsWith('/') ? '' : mode === 'council' ? councilRefusal() : imageRefusal(images);
+  // A saved prompt's text is a message even when it starts with a slash, so it cannot run a command such as /approvals auto (C-39).
+  // ext-prompts.js sets sendingSaved for the one submit a saved prompt makes. A typed /command is unchanged.
+  const command = text.startsWith('/') && window.MuseUI?.sendingSaved !== true;
+  const held = command ? '' : mode === 'council' ? councilRefusal() : imageRefusal(images);
   if (held) return toast(held, 'bad');
   el.input.value = '';
   autosize();
   hidePalette();
   commandHint();
-  if (text.startsWith('/')) runCommand(text);
+  if (command) runCommand(text);
   else if (mode === 'council') askCouncil(text);
   // B-105: the composer was cleared before the send. A send the spend cap refused gets its text back, as a refused relay send
   // does (relayReply), unless the person has typed something new since.
@@ -6686,6 +6854,9 @@ window.MuseUI = {
   // project's run (the active thread's when it runs), or the scope id of a run (a thread's id) to stop exactly that one; a thread id as the
   // second argument names the thread of the project.
   stopRun: (projectId, thread) => (thread ? api('/api/cancel', { project: projectId, thread }) : api('/api/cancel', { project: projectId })),
+  // Sets the model of the thread on screen: Main follows the app's model, any other thread has its own. The API finder and OpenRouter use it,
+  // so Use in Plenum does not change Main's model while a thread that runs its own is open (B-98).
+  setThreadModel,
   // Threads (pro-01; public/ext-threads.js draws the tabs and adds to this object). A thread's id is its scope id.
   threads: {
     scope: activeScope,                       // the id of the thread on screen

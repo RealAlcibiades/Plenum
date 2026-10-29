@@ -89,6 +89,9 @@ describe('routing and copy (Node, no browser)', () => {
     assert.equal(route.screenFor({ computers: [{ id: 'a' }], connection: { status: 'revoked' } }, { screen: 'how' }), 'revoked');
     assert.equal(route.screenFor({ computers: [{ id: 'a' }], connection: { status: 'update-app' } }, {}), 'update-app');
     assert.equal(route.screenFor({ computers: [{ id: 'a' }], connection: { status: 'update-desktop' } }, {}), 'update-desktop');
+    // B-121: three rounds of 'this computer does not know the phone' (not-known) show the revoked screen, with a computer listed.
+    assert.equal(route.screenFor({ computers: [{ id: 'a' }], activeId: 'a', connection: { status: 'not-known' } }, {}), 'revoked');
+    assert.equal(route.screenFor({ computers: [{ id: 'a' }], activeId: 'a', connection: { status: 'reconnecting' } }, {}), 'connecting');
     assert.equal(route.screenFor({ computers: [{ id: 'a' }], activeId: 'a', connection: { status: 'connected' } }, { onboarding: ['paired-lock', 'paired-notify'] }), 'paired-lock');
     assert.equal(route.screenFor({ computers: [{ id: 'a' }], activeId: 'a', connection: { status: 'connecting' } }, {}), 'connecting');
     assert.equal(route.screenFor({ computers: [{ id: 'a' }], activeId: 'a', connection: { status: 'offline' } }, {}), 'failed');
@@ -684,6 +687,21 @@ describe('the router on a fake page (Node, fake core): screen requests, the way 
     const buttons = elementsOf(view).filter(e => e.tagName === 'BUTTON').map(textOf);
     assert.equal(buttons.some(t => /^Unlock with /.test(t)), false, 'no Unlock button');
     assert.ok(buttons.includes('Stop everything'), 'Stop is still there');
+  });
+
+  test('B-130: lock settings that cannot be read and no Stop key to send without them: the line says Stop is at the computer, and there is no Stop button that cannot work', async () => {
+    const doc = fakePage();
+    const core = fakeShell(lockedWith({ ready: false, computerName: '' }, { mode: 'unknown', failures: 0, waitSec: 0 }));
+    main.mountScreens(fakePageEnv(core, { doc }));
+    await settle();
+    const view = doc.getElementById('sh-view');
+    const text = textOf(view);
+    assert.ok(text.includes('This phone cannot send Stop from here. Press Stop on your computer (the Stop bar, or Ctrl+Alt+Esc).'));
+    assert.equal(text.includes('Stop still works'), false, 'the promise is not made when the key cannot be read');
+    const buttons = elementsOf(view).filter(e => e.tagName === 'BUTTON').map(textOf);
+    assert.equal(buttons.some(t => /^Unlock with /.test(t)), false, 'no Unlock button');
+    assert.equal(buttons.includes('Stop everything'), false);
+    assert.equal(buttons.includes('Unlock and stop everything'), false, 'no button promises an unlock that cannot run');
   });
 
   test('a phone whose secure storage did not load says so on the welcome screen (C6d)', async () => {

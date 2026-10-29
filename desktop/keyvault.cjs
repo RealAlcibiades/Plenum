@@ -199,7 +199,46 @@ function createKeyVault({ safeStorage, file, platform = process.platform, fs = n
     return serial(() => saveNow(name, value));
   }
 
-  return { load, save };
+  // Removes one key from the file (or from this session's keys). Nothing is decrypted, so a key the operating system can no longer
+  // unlock is removed as well. Resolves { ok, storage, note } or { ok: false, message }; it does not throw.
+  async function removeNow(name) {
+    try {
+      if (!KEY_NAMES.includes(name)) return { ok: false, message: 'That key name cannot be removed.' };
+      const mode = await storageMode();
+      if (mode.storage === 'unavailable') return { ok: false, storage: 'unavailable', note: mode.note, message: mode.note };
+      if (mode.storage === 'session') {
+        session.delete(name);
+        return { ok: true, storage: 'session', note: mode.note };
+      }
+      const raw = readRaw();
+      // The file is there but cannot be read right now, so the keys in it are unknown. Writing would lose them.
+      if (raw.locked) return { ok: false, message: LOCKED_MESSAGE };
+      if (raw.damaged) {
+        // Nothing in a damaged file can be read, so there is no key in it to remove. It is set aside, as a save would do.
+        try {
+          fs.renameSync(file, setAsideName());
+        } catch {
+          // If it cannot be set aside, it is left where it is.
+        }
+        return { ok: true, storage: 'keychain', note: mode.note };
+      }
+      // A key that is not in the file is already gone, so the file is not written for it (and no file is made when none exists).
+      if (typeof raw.keys[name] === 'string') {
+        delete raw.keys[name];
+        writeRaw(raw.keys);
+      }
+      return { ok: true, storage: 'keychain', note: mode.note };
+    } catch (err) {
+      return { ok: false, message: `The key could not be removed: ${String(err?.message ?? err).slice(0, 200)}` };
+    }
+  }
+
+  // Removes one saved key. Resolves { ok, storage, note } or { ok: false, message }; it does not throw.
+  function remove(name) {
+    return serial(() => removeNow(name));
+  }
+
+  return { load, save, remove };
 }
 
 module.exports = { KEY_NAMES, createKeyVault, stripKeys };

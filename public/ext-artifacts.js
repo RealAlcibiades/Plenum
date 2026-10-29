@@ -452,6 +452,8 @@
 
   function openSave(ui) {
     const project = activeProject();
+    // The project the form names is the one the file goes to, even if another is made active before Save is clicked (B-92).
+    ui.saveProjectId = project?.id ?? null;
     ui.save.hidden = false;
     ui.saveProject.textContent = project ? `Project: ${project.name}` : 'Open a project first. Save writes into the active project.';
     ui.planNote.hidden = !(project && project.chatMode === 'plan');
@@ -465,6 +467,7 @@
     ui.save.hidden = true;
     ui.replace.hidden = true;
     ui.saveError.hidden = true;
+    ui.saveProjectId = null;
   }
 
   function showSaveError(ui, message) {
@@ -480,7 +483,7 @@
   // Cancel focused, and a second request with overwrite replaces it (the server keeps the old copy as a checkpoint).
   async function saveFile(ui, overwrite) {
     const art = ui.art;
-    const project = activeProject();
+    const project = ui.saveProjectId ? (MuseUI.state.projects?.find(p => p.id === ui.saveProjectId) ?? null) : null;
     const path = ui.path.value.trim();
     if (!art) return;
     if (!project) {

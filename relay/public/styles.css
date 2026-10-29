@@ -1358,6 +1358,14 @@ html[data-stop-side="left"] #plenum-stop {
   padding-bottom: 84px;
 }
 
+/* B-29: in a short landscape window the reserve under the content pushes the primary button below the fold. The actions already keep clear of
+   the Stop on the side (.sh-has-stop .sh-actions, padding-right), so the reserve is not needed there. */
+@media (max-height: 500px) {
+  .sh-has-stop .sh-main {
+    padding-bottom: 0;
+  }
+}
+
 .sh-agents {
   margin: 8px 0;
   color: var(--text-2);

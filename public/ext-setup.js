@@ -206,8 +206,8 @@
     const facts = make('ul', 'setup-list');
     facts.append(
       make('li', '', 'Keys are kept in the operating system’s encrypted store on the desktop app.'),
-      make('li', '', 'The network is used only for the providers you set up.'),
-      make('li', '', 'Nothing is sent anywhere else.'),
+      make('li', '', 'The network is used for the providers you set up, a check of GitHub for new versions (at start and every four hours; turn it off in Settings › Updates), and public price lists when you open the API finder.'),
+      make('li', '', 'Nothing goes to Plenum’s developer.'),
       make('li', '', 'The license agreement and privacy notice are under Legal in Settings.'),
     );
     const lead = make('p', 'setup-lead', 'Plenum is a local console for working with Claude, Codex, Gemini, Muse Code, Cursor, Grok Build and per-token API models in your own project folders.');
@@ -494,10 +494,20 @@
     return current && !MuseUI.el.drawer.hidden && MuseUI.el.drawerTitle.textContent === TITLE;
   }
 
+  // Only a close the person makes is a dismissal: the close button, the scrim or Escape (README: Setup wizard). Settings (Ctrl+,), Read the
+  // terms and other panels close the drawer themselves, and that is not a dismissal, so the wizard comes back next time (B-58). The
+  // capture phase runs before the drawer closes, so the flag is set first.
+  function personalClose(e) {
+    if (!onScreen()) return;
+    const byClick = e.type === 'click' && e.target.closest?.('#drawerClose, #scrim');
+    const byEscape = e.type === 'keydown' && e.key === 'Escape' && !MuseUI.dialogOpen?.();
+    if (byClick || byEscape) remember();
+  }
+  document.addEventListener('click', personalClose, true);
+  document.addEventListener('keydown', personalClose, true);
+  // Whatever closes the drawer, the wizard is no longer its content once it is hidden.
   new MutationObserver(() => {
-    if (!current || !MuseUI.el.drawer.hidden || MuseUI.el.drawerTitle.textContent !== TITLE) return;
-    current = false;
-    remember();
+    if (current && MuseUI.el.drawer.hidden) current = false;
   }).observe(MuseUI.el.drawer, { attributes: true, attributeFilter: ['hidden'] });
 
   document.addEventListener('keydown', e => {

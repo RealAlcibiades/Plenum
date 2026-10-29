@@ -639,7 +639,14 @@ export function mountScreens(env = globalThis) {
       paint();
     },
     enableLock: async mode => (fixtureMode ? { ok: true, reason: null } : enableLockFlow(core, mode)),
-    enableNotifications: async () => (fixtureMode ? { ok: true, reason: null } : enableNotificationsFlow(core)),
+    enableNotifications: async () => {
+      if (fixtureMode) return { ok: true, reason: null };
+      const out = await enableNotificationsFlow(core);
+      // B-128: another computer behind this address already holds the browser's one push subscription; the settings line says so.
+      nav.local.notifyNote = out?.reason === 'other-computer' ? C.PUSH_OTHER_COMPUTER : null;
+      paint();
+      return out;
+    },
     unlock: async (method, arg = null) => {
       if (fixtureMode || !core) return { ok: false, reason: 'demo' };
       const result = await unlockFlow(core, method, arg);
@@ -717,7 +724,14 @@ export function mountScreens(env = globalThis) {
     rename: async (id, name) => (replayMode ? { ok: false, reason: 'demo' } : coreCall('rename', id, name)),
     forget: async id => (replayMode ? { ok: false, reason: 'demo' } : forgetFlow(core, id)),
     moveWay: async (id, kind, dir) => (replayMode ? { ok: false, reason: 'demo' } : coreCall('moveWay', id, kind, dir)),
-    testWays: async id => (replayMode ? { ok: false, reason: 'demo' } : coreCall('testWays', id)),
+    testWays: async id => {
+      if (replayMode) return { ok: false, reason: 'demo' };
+      const out = await coreCall('testWays', id);
+      // B-131: the button always answers: which way a connected phone is using, or that the ways are being tried.
+      nav.local.waysNote = out?.reason === 'connected' ? C2.WAYS_CONNECTED(C2.WAYS_CARRIER[out.carrier] ?? 'a way') : out?.ok === true ? C2.WAYS_TRYING : null;
+      paint();
+      return out;
+    },
     setPush: async (key, value) => {
       const patch = S.pushPatch(key, value, snapshot?.approveStored === true);
       return coreCall('setPush', patch);

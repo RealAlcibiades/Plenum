@@ -126,9 +126,23 @@ kbd {
 .app { display: grid; grid-template-columns: var(--side-w, 268px) minmax(0, 1fr) auto; height: 100vh; }
 /* 861 to 1439 px with the pane or Settings open: the sidebar becomes a 56 px icon strip (app.js paneSyncChrome sets data-strip). */
 .app[data-strip] { --side-w: 56px; }
-/* Expand: the pane takes the chat column. The main column leaves the grid, so the pane fills the space the chat had. */
-.app[data-pane-expanded] .main { display: none; }
+/* Expand: the pane takes the chat column, under the title bar. The main column stays (the title bar, its drive pill and the Phone chip
+   are in it, and they are floor items); the pane is laid over the column from below the bar (861 px and up; narrower windows already
+   lay the pane over the chat, see the 860 px rules). The composer's drive bar goes under the pane, as it does on narrow windows. */
+.app[data-pane-expanded] .main { display: flex; }
 .app[data-pane-expanded] .pane { width: auto; max-width: none; min-width: 0; }
+@media (min-width: 861px) {
+  .app[data-pane-expanded] .pane { position: fixed; top: max(var(--win-top), var(--bar-now, var(--bar-h))); left: var(--side-w, 268px); right: 0; bottom: 0; z-index: 19; border-left: 0; background: var(--bg); }
+}
+.app[data-pane-expanded]:not([data-settings-open]) .drivebar { z-index: auto; }
+/* The covered parts of the main column (the chat, the composer and the drive bar under it) leave the tab order and the reading order,
+   as the Settings page does below, so focus does not go from the title bar into them. The title bar (the drive pill, its Stop and the
+   Phone chip) and the drive-live region stay live. */
+@media (min-width: 861px) {
+  .app[data-pane-expanded]:not([data-settings-open]) .main > :not(.topbar):not(.composer-wrap),
+  .app[data-pane-expanded]:not([data-settings-open]) .composer-wrap > :not(.banner-slot),
+  .app[data-pane-expanded]:not([data-settings-open]) .banner-slot > :not(.sr) { visibility: hidden; }
+}
 .app[data-pane-expanded] .pane-expand { color: var(--accent); }
 
 /* ---------- sidebar ---------- */
@@ -316,6 +330,7 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
    Stop beside it keeps its own button. */
 .drive-pill .dp-open { display: flex; align-items: center; gap: 7px; min-width: 24px; min-height: 24px; justify-content: center; flex: 0 1 auto; padding: 0; border: 0; border-radius: 999px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .drive-pill .dp-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drive-pill .dp-open:disabled { cursor: default; }
 /* The fit ladder (app.js fitTitlebar sets data-fit on the bar): the smallest step at which nothing overflows. Step 1 drops the repeated
    words (the path, the pane labels, the last reply); step 2 the long chip words; step 3 wraps the bar onto two rows; step 4 the Phone
    chip's words; step 5 the drive pill's words. The drive pill, its Stop, the Phone chip and the icons never go. */
@@ -328,12 +343,16 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
 #titlebar:is([data-fit="3"],[data-fit="4"],[data-fit="5"]) > .proj-title { flex: 1 1 0; min-height: var(--bar-h); align-items: center; margin-right: var(--win-controls); }
 #titlebar:is([data-fit="3"],[data-fit="4"],[data-fit="5"]) > :is(.titlebar-slot, .controls, .titlebar-space, .pane-buttons) { order: 2; }
 #titlebar:is([data-fit="3"],[data-fit="4"],[data-fit="5"]) > .titlebar-space { min-width: 0; }
-@media (min-width: 861px) { .app:has(> .pane:not([hidden])) #titlebar > .proj-title { margin-right: 0; } }
+@media (min-width: 861px) { .app:not([data-settings-open]):not([data-pane-expanded]):has(> .pane:not([hidden])) #titlebar > .proj-title { margin-right: 0; } }
 /* Step 4: the Phone chip shows its short word (ext-remote.js sets data-short); the full words stay in its accessible name. */
 #titlebar:is([data-fit="4"],[data-fit="5"]) .remote-chip[data-short] { font-size: 0; gap: 0; }
 #titlebar:is([data-fit="4"],[data-fit="5"]) .remote-chip[data-short]::after { content: attr(data-short); margin-left: 6px; font: 600 12px var(--ui); }
 #titlebar[data-fit="5"] { column-gap: 6px; }
 #titlebar[data-fit="5"] .drive-pill :is(.dp-text, .db-kind) { display: none; }
+/* Two pills at the smallest step: each shows its kind icon in place of the dot (its tone still shows the state), so two Stop buttons do not
+   look alike. The "more" pill keeps its dot, since it names no one kind. */
+#titlebar[data-fit="5"] .titlebar-pill:has(> .drive-pill:not([hidden]) ~ .drive-pill:not([hidden])) .drive-pill:not(.more) .db-kind { display: inline-flex; }
+#titlebar[data-fit="5"] .titlebar-pill:has(> .drive-pill:not([hidden]) ~ .drive-pill:not([hidden])) .drive-pill:not(.more) .db-dot { display: none; }
 .pane-buttons { display: flex; align-items: center; gap: 4px; flex: none; }
 .pane-btn {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px; border-radius: 9px;
@@ -683,6 +702,7 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
 .tool .t-state .ic { width: 15px; height: 15px; stroke-width: 2.2; }
 .tool.done .t-state { color: var(--ok); }
 .tool.failed .t-state { color: var(--bad); }
+.tool.denied .t-state { color: var(--muted); }
 .tool .t-chev { color: var(--muted); width: 13px; height: 13px; opacity: 0.7; transition: rotate 0.18s var(--ease); }
 .tool[open] .t-chev { rotate: 90deg; }
 .tool .t-out {
@@ -892,7 +912,8 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
 }
 @keyframes fade { from { opacity: 0; } }
 .drawer {
-  position: fixed; top: calc(var(--win-top) + 12px); right: 12px; bottom: 12px; z-index: 21;
+  /* Below the title bar as measured (the pane's rule), so a drawer does not cover the Phone chip in a plain browser (B-101). */
+  position: fixed; top: calc(max(var(--win-top), var(--bar-now, var(--bar-h))) + 12px); right: 12px; bottom: 12px; z-index: 21;
   width: min(440px, 100vw - 24px); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px;
   box-shadow: var(--shadow-2), inset 0 1px 0 var(--sheen);
@@ -927,7 +948,12 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
    windows keep the pane below the title bar (see the 860 px rules), so these apply only above 860 px. */
 @media (min-width: 861px) {
   .pane-head { padding-right: calc(var(--win-controls) + 8px); }
-  .app:has(> .pane:not([hidden])) .topbar { padding-right: 20px; }
+  /* Expanded, the pane starts below the title bar, so no window button sits over its head. */
+  .app[data-pane-expanded] .pane-head { padding-right: 8px; }
+  /* Settings hides the pane with display (not the hidden attribute), so the test also needs the Settings page to be closed: the title bar
+     keeps the window-controls inset over the Settings page (B-87). Expanded, the pane's buttons are on the bar's right edge, so the bar
+     keeps the inset then too. */
+  .app:not([data-settings-open]):not([data-pane-expanded]):has(> .pane:not([hidden])) .topbar { padding-right: 20px; }
 }
 .pane-tabs { display: flex; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; }
 .pane-tab {
@@ -1018,7 +1044,9 @@ html[data-legal='pending'] #app { display: none; }
 .setting-switch { display: flex; align-items: flex-start; gap: 12px; min-width: 0; cursor: pointer; }
 .setting-switch .switch { margin-top: 1px; flex: none; }
 .setting-text { display: grid; gap: 2px; min-width: 0; }
-.setting-stack select { max-width: 100%; }
+/* The select takes its row, not its widest option: its own width came from the longest label (866 px), which pushed the Roles card and
+   the page sideways (B-59). */
+.setting-stack select { width: 100%; max-width: 100%; min-width: 0; }
 @media (max-width: 860px) {
   .settings-body { grid-template-columns: minmax(0, 1fr); }
   .settings-nav { display: none; }

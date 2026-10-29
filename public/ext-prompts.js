@@ -95,10 +95,14 @@
       const found = saved.find(p => p.name === hit[1].toLowerCase());
       if (found) input.value = expandTemplate(found.template, hit[2].trim());
       passing = true;
+      // A saved prompt's text is sent as a message, even when that text starts with a slash (C-39). The page's submit handler reads this
+      // flag during the requestSubmit call and nothing else. A name that is not saved is typed text, so a typed /command still runs.
+      MuseUI.sendingSaved = Boolean(found);
       try {
         MuseUI.el.form.requestSubmit();
       } finally {
         passing = false;
+        MuseUI.sendingSaved = false;
       }
     } finally {
       lookingUp = false;

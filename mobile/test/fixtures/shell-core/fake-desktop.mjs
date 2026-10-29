@@ -4,7 +4,7 @@
 // approval card, and the pairing decision (Allow, Deny, expiry). Sockets are in memory (createFakeNet); nothing touches a port.
 // Options (createFakeDesktop): protocolMajor (2 makes the phone say update-app, 0 update-desktop), cookieReply (the first message 1 of each
 // connection is answered with a cookie reply, as a desktop under load does, and message 1 must come again with a valid mac2),
-// vapidPublicKey (carried in HELLO, as the Bridge does when it has a pusher), approveStatus (409 answers an approve that carries the notification
+// vapidPublicKey (carried in HELLO, as the Bridge does when it has a pusher), carriers (the ways HELLO lists: [{ kind, url }], B-122), approveStatus (409 answers an approve that carries the notification
 // line the way the Bridge answers a card that changed), ignoreStops, tier. stats.pushes holds every POST /api/phones/push body.
 // Stop without unlocking (plan C3): a first message that isStopOnly is answered before any mac1 or DH check: the signature is checked with the
 // device's Stop key (stopKeys, derived at pairing and again on a session whose message 1 says wantStopKey, which HELLO answers with stopKeyNew),
@@ -97,7 +97,7 @@ const COOKIE = new Uint8Array(16).fill(0x5c);
 
 export function createFakeDesktop({
   net, url = 'ws://fake-pc.local/b/key', carrier = 'lan', name = 'Test PC', tier = 'full', protocolMajor = 1, clock = systemClock(), ignoreStops = false,
-  cookieReply = false, vapidPublicKey = null, approveStatus = 200, uiManifestHash = '', refuseStopOnly = false, silentStopOnly = false, stopCounts = null,
+  cookieReply = false, vapidPublicKey = null, carriers = null, approveStatus = 200, uiManifestHash = '', refuseStopOnly = false, silentStopOnly = false, stopCounts = null,
 } = {}) {
   if (!net) throw new TypeError('createFakeDesktop needs the fake net');
   const keys = generateKeyPair();
@@ -124,6 +124,7 @@ export function createFakeDesktop({
     tier,
     uiManifestHash,
     ...(vapidPublicKey ? { vapidPublicKey } : {}),
+    ...(carriers ? { carriers } : {}),
     caps: ['events', 'chat', 'approvals', 'stop-all', 'ui-manifest'],
     minShell: '1.0.0',
     pending: { approvals: approvalStreams.size, running: running.size },

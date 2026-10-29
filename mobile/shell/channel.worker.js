@@ -28,7 +28,8 @@
 //   stopAck      { sid, ack } | { sid, error }                 ack: { id, cancelled, drivesStopped, agentsStopped, cardsDenied };
 //                                                              error: 'unreachable' | 'closed', and for stopLocked 'unknown'
 //   counter      { rid, id, minimum }                          the page must store a counter >= minimum before any handshake
-//   patch        { id, patch }                                 lastCarrier, lastSeen; stopKey and myDeviceId when HELLO said stopKeyNew
+//   patch        { id, patch }                                 lastCarrier, lastSeen; stopKey and myDeviceId when HELLO said stopKeyNew; carriers when
+//                                                              HELLO lists ways the record does not hold yet (learnWays)
 //   pairState    { state, code?, tried?, reason? }             state: confirm | allowed | denied | expired | mismatch | failed
 //   paired       { computer }                                  pairing allowed: the new record, keys included (page store only)
 //   log          { line }
@@ -47,7 +48,8 @@
 //   - The counter is raised and stored BEFORE every handshake; no handshake is sent until the page confirms the store.
 //   - IK for a known computer (one round trip per connect); IKpsk2 only while pairing, with the offer's psk.
 //   - Reconnect after a drop: 1, 2, 4, 8, then 10 s, trying the carrier used last, then the others.
-//   - Three failed rounds: 'offline'. A relay CLOSE host-offline: 'asleep'. Revoked, update-app and update-desktop stop retries.
+//   - Three failed rounds: 'offline'. A relay close 4001 host-offline (or a CLOSE frame with that reason): 'asleep'. Revoked, update-app and
+//     update-desktop stop retries.
 //   - Three rounds in which every carrier closes with 4401 (the computer does not know this phone, e.g. removed while it was away):
 //     'not-known', which the screens show as revoked. Retried every 60 s and never given up: the close code is not authenticated.
 //   - STOP: the same 16-byte id is sent until its STOP_ACK arrives, on every reconnect, for 60 s at most.
@@ -58,9 +60,9 @@
 import {
   NoiseError, bytesToHex, deviceId, generateKeyPair, handshakeInitiator, parseCookieReply, prologue, pushKey, sas, sealMessage1, stopKey,
 } from '../../lib/remote/noise.mjs';
-import { FrameSession, systemClock } from '../../lib/remote/frames.mjs';
+import { FrameSession, systemClock, WIRE_BUDGET_BYTES_PER_SECOND } from '../../lib/remote/frames.mjs';
 import { decodeStopAck, encodeStopOnly } from '../../lib/remote/stop-only.mjs';
-import { carrierUrlOk, usableCarriers } from './carriers.js';
+import { MAX_URLS_PER_KIND, carrierUrlOk, usableCarriers } from './carriers.js';
 
 export const PROTOCOL = '1.0';
 export const DELAYS_MS = Object.freeze([1000, 2000, 4000, 8000]);
@@ -79,6 +81,7 @@ export const NOT_KNOWN_ROUNDS = 3;
 export const NOT_KNOWN_RETRY_MS = 60000;
 export const PING_INTERVAL_MS = 25000;
 export const PING_MISSES = 2;
+export const PROBE_MS = 3000;   // a session that is up is probed with a PING when the app resumes or a Stop is pressed; no PONG in this time closes it
 export const DEFAULT_CAPS = Object.freeze(['ui-from-desktop', 'artifacts-iframe', 'push-none', 'share', 'save']);
 const CARRIERS = Object.freeze(['lan', 'tailscale', 'relay']);
 export const STOP_ONLY_WAIT_MS = 6000;
@@ -121,8 +124,9 @@ function asKey(value) {
 // anyway) and never a key.
 // The close codes the listener sends before any Noise session exists (lib/remote/listener.mjs CLOSE_CODES). They are not
 // authenticated, so they only choose the retry rule; they never end the retries.
-const CLOSE_CODE_FAILURES = Object.freeze({ 4400: 'replay', 4401: 'unknown', 4429: 'rate' });
-const CODED_FAILURES = Object.freeze(['unknown', 'replay', 'rate']);
+// 4001 is the relay's close when the computer is not connected to it (relay/src/limits.mjs CLOSE.hostOffline).
+const CLOSE_CODE_FAILURES = Object.freeze({ 4001: 'host-offline', 4400: 'replay', 4401: 'unknown', 4429: 'rate' });
+const CODED_FAILURES = Object.freeze(['host-offline', 'unknown', 'replay', 'rate']);
 
 function closeCodeError(err, sock) {
   const name = CLOSE_CODE_FAILURES[sock.closed?.code];
@@ -379,6 +383,7 @@ export function createChannelCore(options = {}) {
       closed: false,
       retired: false,
       drainTimer: null,
+      probe: null,
       hello: null,
     };
     s.frames = new FrameSession({
@@ -392,6 +397,9 @@ export function createChannelCore(options = {}) {
         close: (code, reason) => sock.close(code, reason),
       },
       bufferedAmount: () => sock.bufferedAmount,
+      // The relay closes a phone that sends more than 2 MiB in one second, so a session over the relay paces its non-priority frames under that
+      // (B-123). LAN and Tailscale carry no such limit.
+      wireBytesPerSecond: kind === 'relay' ? WIRE_BUDGET_BYTES_PER_SECOND : Infinity,
       handlers: {
         hello: value => onSessionHello(s, value),
         res: (id, value, fin) => onRes(s, id, value, fin),
@@ -414,8 +422,9 @@ export function createChannelCore(options = {}) {
       s.messages += 1;
       s.frames.receive(plain);
     };
-    sock.onClose = () => {
-      if (!s.frames.isClosed) s.frames.close('transport');
+    sock.onClose = info => {
+      // The relay closes a phone with 4001 when the computer is not connected to it: the computer is asleep or its Plenum is not running.
+      if (!s.frames.isClosed) s.frames.close(info?.code === 4001 ? 'host-offline' : 'transport');
     };
     return s;
   }
@@ -519,6 +528,8 @@ export function createChannelCore(options = {}) {
   function onSessionClosed(s, reason) {
     if (s.closed) return;
     s.closed = true;
+    clock.clearTimeout(s.probe);
+    s.probe = null;
     if (s.retired) return;
     if (pairing && pairing.session === s) {
       pairing.resolve?.({ ok: false, reason: pairing.cancelled ?? `closed:${reason}` });
@@ -535,6 +546,7 @@ export function createChannelCore(options = {}) {
     lastSeen = clock.now();
     for (const entry of pendingStops.values()) post({ op: 'stopState', sid: entry.sid, state: 'queued' });
     lastFailure = String(reason ?? 'lost');
+    if (reason === 'host-offline') transition('asleep');
     if (closedByPage) {
       emitState();
       return;
@@ -628,8 +640,10 @@ export function createChannelCore(options = {}) {
       // Every carrier answered 4401 in this round: the computer does not know this phone (removed while the phone was away).
       unknownRounds = reasons.length > 0 && reasons.every(r => r === 'unknown') ? unknownRounds + 1 : 0;
       failedRounds += 1;
+      // includes, not every: LAN plus relay is the normal set of ways, and the LAN refusal must not hide the relay's host-offline.
       if (unknownRounds >= NOT_KNOWN_ROUNDS) transition('not-known');
-      else if (phase === 'not-known') transition('reconnecting');
+      else if (reasons.includes('host-offline')) transition('asleep');
+      else if (phase === 'not-known' || phase === 'asleep') transition('reconnecting');
       scheduleRetry();
     } finally {
       attempting = false;
@@ -655,6 +669,7 @@ export function createChannelCore(options = {}) {
     transition('connected');
     computer.lastCarrier = s.carrier;
     topUpStopKey(s);
+    learnWays(s.hello);
     post({ op: 'hello', hello: s.hello });
     post({ op: 'patch', id: computer.id, patch: { lastCarrier: s.carrier, lastSeen } });
     s.frames.startLiveness({ intervalMs: PING_INTERVAL_MS, misses: PING_MISSES });
@@ -673,10 +688,57 @@ export function createChannelCore(options = {}) {
     computer.hasStopKey = true;
   }
 
+  // B-122: the ways the computer lists in HELLO.carriers [{ kind, url }]. A way turned on after this phone was paired (Tailscale, the relay, a new
+  // address) is kept in the record, so the next connection can use it without pairing again. For each kind HELLO lists, the addresses HELLO
+  // gives come first, then the addresses the record already held for that kind that HELLO does not list (an address that worked stays a
+  // fallback; a HELLO that names another address for the same kind does not drop it), at most MAX_URLS_PER_KIND. Kinds HELLO does not list
+  // stay as they are. Every URL still has to pass carriers.js. Only the kinds are logged.
+  function learnWays(hello) {
+    if (!computer || !Array.isArray(hello?.carriers)) return;
+    const listed = new Map();
+    for (const entry of hello.carriers) {
+      if (!entry || typeof entry !== 'object' || !CARRIERS.includes(entry.kind)) continue;
+      const urls = Array.isArray(entry.urls) ? entry.urls : entry.url ? [entry.url] : [];
+      listed.set(entry.kind, [...(listed.get(entry.kind) ?? []), ...urls]);
+    }
+    const learned = usableCarriers([...listed].map(([kind, urls]) => ({ kind, urls })));
+    if (!learned.length) return;
+    const held = usableCarriers(computer.carriers);
+    const merged = learned.map(l => {
+      const kept = held.find(c => c.kind === l.kind)?.urls ?? [];
+      return { kind: l.kind, urls: [...l.urls, ...kept.filter(url => !l.urls.includes(url))].slice(0, MAX_URLS_PER_KIND) };
+    });
+    const next = held.map(c => merged.find(l => l.kind === c.kind) ?? c);
+    for (const l of merged) if (!next.some(c => c.kind === l.kind)) next.push(l);
+    if (JSON.stringify(next) === JSON.stringify(held)) return;
+    computer.carriers = next;
+    post({ op: 'patch', id: computer.id, patch: { carriers: next } });
+    post({ op: 'log', line: `ways: ${learned.map(l => l.kind).join(', ')}` });
+  }
+
+  // B-118: an immediate attempt (the app resumed, or a Stop was pressed). With no session it dials now. With a session it cannot tell a live
+  // socket from one that died silently (a phone that slept, a network that changed), so it asks: a PING, and a session that has not answered
+  // in PROBE_MS is closed and dialled again at once. A live session answers in a moment and nothing else happens.
   function reconnectNow() {
-    if (!computer || closedByPage || session || attempting || TERMINAL.includes(phase)) return;
+    if (!computer || closedByPage || attempting || TERMINAL.includes(phase)) return;
+    if (session) {
+      probeSession(session);
+      return;
+    }
     clearRetry();
     attempt().catch(() => {});
+  }
+
+  function probeSession(s) {
+    if (s.probe || s.closed || s.frames.isClosed) return;
+    s.frames.ping();
+    s.probe = clock.setTimeout(() => {
+      s.probe = null;
+      if (session === s && !s.frames.isClosed && s.frames.pingOutstanding) {
+        s.frames.close('timeout');
+        reconnectNow();
+      }
+    }, PROBE_MS);
   }
 
   // ----- session renewal -----
@@ -720,6 +782,7 @@ export function createChannelCore(options = {}) {
       made = makeSession({ sock, cs, kind: old.kind, url: old.url });
       made.hello = JSON.parse(utf8Decode.decode(message2));
       topUpStopKey(made);
+      learnWays(made.hello);
       if (session !== old || closedByPage || made.hello?.protocol?.major !== 1) {
         made.retired = true;
         made.frames.close('normal');
@@ -788,8 +851,8 @@ export function createChannelCore(options = {}) {
       emitState();
     }, STOP_WINDOW_MS);
     sendStop(entry);
-    // A Stop pressed while the phone is away does not wait for the retry timer: it tries to reconnect now.
-    if (!session) reconnectNow();
+    // A Stop pressed while the phone is away does not wait for the retry timer: it tries to reconnect now (or checks that the session is alive).
+    reconnectNow();
     emitState();
   }
 

@@ -98,6 +98,11 @@ const PERSON_KEYS = Object.freeze({ ...KEYS, Backspace: 'Backspace', Delete: 'De
 const ACT_ACTIONS = new Set(['click', 'type', 'type-secret', 'select', 'press', 'scroll', 'focus-info']);
 const NEEDS_REF = new Set(['click', 'type', 'select']);
 const SECRET_REFUSAL = 'This looks like a password, code or payment field. Plenum never types those.';
+const FOCUS_MOVED = 'The page moved the focus to another field. Take a new snapshot and try again.';
+const FOCUS_MOVED_WHILE_TYPING = 'The page moved the focus while the text was being typed, so it may not be in that field. Take a new snapshot to see where it went.';
+// The same two, for the person's Type it for me: they cannot take a snapshot, they click the field in the pane.
+const FOCUS_MOVED_PERSON = 'The page moved the focus to another field, so nothing was typed. Click the field in the browser pane and try again.';
+const FOCUS_MOVED_PERSON_TYPING = 'The page moved the focus while the text was being typed, so it may be in another field. Look at the browser pane, clear it from any field it reached, click the right field and try again.';
 const HIDDEN_WINDOW = 'The Plenum window is hidden, so taps cannot be sent. Show the window on the computer.';
 const MODEL_USING = 'The model is using this browser. Pause it first.';
 
@@ -239,6 +244,15 @@ const sleepUnref = (ms, fn) => {
 // nothing that is not in the shape below comes through. `line` keeps one line; `block` keeps line breaks and tabs.
 const line = (v, n) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n) : '');
 const block = (v, n) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ').slice(0, n) : '');
+// The refusal for a password, code or card field. When the page moved the focus onto the secret field, the reply names that field (the
+// page's answer `at`, cut and checked) so the hand-over to the person points at the field that was reached and not at the one aimed at.
+// A field the snapshot did not list (inside a shadow root, past the element limit, or added later) has no ref: it is named with an empty
+// ref, and the hand-over then waits for the person to click it in the pane.
+function secretRefusal(reply) {
+  const at = reply && typeof reply === 'object' ? reply.at : null;
+  const field = at && typeof at === 'object' ? { ref: REF_RE.test(String(at.ref)) ? String(at.ref) : '', role: line(at.role, 24), name: line(at.name, 80) } : null;
+  return { ok: false, secret: true, message: SECRET_REFUSAL, ...(field ? { field } : {}) };
+}
 const whole = v => (Number.isFinite(v) ? Math.max(-1_000_000, Math.min(1_000_000, Math.round(v))) : 0);
 const clampInt = (v, min, max, fallback) => (Number.isFinite(v) ? Math.max(min, Math.min(max, Math.floor(v))) : fallback);
 
@@ -1321,15 +1335,50 @@ function createBrowser(options = {}) {
             } else {
               const focus = await runScript(tab, 'act', { action: 'focus', ref, expect });
               if (!focus || focus.ok !== true) return scriptFail(focus, 'That control is not a text field.');
-              // The model never types into a password, code or card field: this is checked here too, whatever the server said.
-              if (focus.secret === true && !secretWanted) return { ok: false, secret: true, message: SECRET_REFUSAL };
+              // The model never types into a password, code or card field: this is checked here too, whatever the server said. The page
+              // has run its focus handlers by now, so `secret` also covers a field the page moved the focus to.
+              if (focus.secret === true && !secretWanted) return secretRefusal(focus);
+              // Text goes where the focus is: when the page moved it, neither the model's text nor the person's secret is typed.
+              if (focus.moved === true && text !== '') return fail(secretWanted ? FOCUS_MOVED_PERSON : FOCUS_MOVED);
             }
             let how = 'keys';
+            let guardSaw = null; // what the page's guard saw when the text landed in the ref but the page then moved the focus on
             if (text === '') {
               await runScript(tab, 'act', { action: 'set-value', ref, text: '' });
               how = 'cleared';
-            } else {
+            } else if (ref === undefined) {
+              // The person's secret into the field they clicked: there is no ref to watch.
               await tab.wc.insertText(text);
+            } else {
+              // Right before the insert the focus is looked at again, and a listener in the page keeps watch until the insert is done: a
+              // page timer or a focus handler can move the focus in the gap, and the insert goes to whatever has it. This covers the
+              // person's secret too, so a page cannot send it into a field the model can read.
+              const armed = await runScript(tab, 'act', { action: 'guard-on', ref });
+              const guardOff = () => runScript(tab, 'act', { action: 'guard-off' }).catch(() => null);
+              if (!armed || armed.ok !== true) return scriptFail(armed, 'That control is not a text field.');
+              if (armed.secret === true && !secretWanted) {
+                await guardOff();
+                return secretRefusal(armed);
+              }
+              if (armed.moved === true) {
+                await guardOff();
+                return fail(secretWanted ? FOCUS_MOVED_PERSON : FOCUS_MOVED);
+              }
+              let seen = null;
+              try {
+                await tab.wc.insertText(text);
+              } finally {
+                seen = await guardOff();
+              }
+              if (seen) {
+                // The text did not land in the ref when it never came from the ref (no input event) and the focus is elsewhere, or when
+                // the page's guard had to cancel an insert aimed elsewhere. Then it is not read back and not set into the ref either: it
+                // may be in another field, and writing it here too would copy it.
+                const gone = seen.landed !== true && seen.moved === true;
+                if (!secretWanted && (seen.secret === true || (seen.landed !== true && seen.secretNow === true))) return secretRefusal(seen);
+                if (gone || seen.strayed === true) return fail(secretWanted ? FOCUS_MOVED_PERSON_TYPING : FOCUS_MOVED_WHILE_TYPING);
+                guardSaw = seen;
+              }
               if (!secretWanted) {
                 const read = await runScript(tab, 'act', { action: 'read-value', ref });
                 const norm = v => String(v).replace(/\r\n?/g, '\n');
@@ -1341,6 +1390,14 @@ function createBrowser(options = {}) {
               }
             }
             if (message.submit === true && !secretWanted) {
+              // Enter goes to whatever has the focus when it arrives, so it is not sent when the page moved the focus after the text went
+              // in (a password field it moved to is for the person), and the check the press tool makes is made here too.
+              if (guardSaw && guardSaw.moved === true) {
+                if (guardSaw.secretNow === true) return secretRefusal(guardSaw);
+                return fail('The page moved the focus after the text was typed, so Enter was not sent. Take a new snapshot.');
+              }
+              const now = await runScript(tab, 'act', { action: 'focus-info' }).catch(() => null);
+              if (now && now.ok === true && now.secret === true) return secretRefusal({ at: now });
               if (!canSendInput() || (await pressKey(tab, 'Enter')) === 'lost') await runScript(tab, 'act', { action: 'submit-form' }, { gesture: true });
               await settle(tab);
               return where(tab, { how, submitted: true });

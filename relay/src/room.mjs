@@ -8,7 +8,7 @@
 //   host -> room   [conn u32 big-endian][frame]   conn 0 is control, JSON in the frame
 //   room -> host   [conn u32 big-endian][frame]   frame came from phone conn; conn 0 is control, JSON in the frame
 //                  ({ op:'open', conn, ip } when a phone joins and the Worker passed its address; { op:'closed', conn } when a
-//                  phone's socket went away)
+//                  phone's socket went away, or this room closed it for a limit: a text frame, a frame too big or the rate limit)
 //   room -> phone  [frame]                        plain frame, no prefix
 import { DurableObject } from 'cloudflare:workers';
 import { CLOSE, LIMITS } from './limits.mjs';
@@ -164,7 +164,8 @@ export class Room extends DurableObject {
   async webSocketMessage(ws, message) {
     const att = ws.deserializeAttachment();
     if (typeof message === 'string') {
-      if (att?.role === 'host' || att?.role === 'phone') closeSocket(ws, CLOSE.unsupported, 'binary-only');
+      if (att?.role === 'phone') this.dropPhone(ws, att.conn, CLOSE.unsupported, 'binary-only');
+      else if (att?.role === 'host') closeSocket(ws, CLOSE.unsupported, 'binary-only');
       return;
     }
     if (att?.role === 'host') return this.fromHost(ws, message);
@@ -173,8 +174,8 @@ export class Room extends DurableObject {
 
   fromPhone(ws, conn, message) {
     const size = message.byteLength;
-    if (size > LIMITS.maxPhoneFrameBytes) return closeSocket(ws, CLOSE.tooBig, 'frame-too-big');
-    if (!this.admitPhoneFrame(conn, size)) return closeSocket(ws, CLOSE.policy, 'rate-limit');
+    if (size > LIMITS.maxPhoneFrameBytes) return this.dropPhone(ws, conn, CLOSE.tooBig, 'frame-too-big');
+    if (!this.admitPhoneFrame(conn, size)) return this.dropPhone(ws, conn, CLOSE.policy, 'rate-limit');
     const host = this.liveHosts()[0];
     if (!host) return closeSocket(ws, CLOSE.hostOffline, 'host-offline');
     const framed = new Uint8Array(4 + size);
@@ -219,6 +220,15 @@ export class Room extends DurableObject {
     for (const host of this.liveHosts()) trySend(host, framed);
   }
 
+  // Closes a phone this room drops for a limit (a text frame, a frame too big, the rate limit). The hosts hear { op: 'closed' } for it first,
+  // as they do when a phone hangs up, so the desktop stops listing the phone at once instead of after its liveness check (B-28). The notice
+  // goes out before the close and the socket is marked closed, so the close event that follows sends no second notice.
+  dropPhone(ws, conn, code, reason) {
+    this.rates.delete(conn);
+    this.tellHosts({ op: 'closed', conn });
+    closeSocket(ws, code, reason);
+  }
+
   // Admits one phone frame of this connection: the message count and the byte budget are both per phone connection (plan D9),
   // so a phone over its budget never makes another phone's frame fail.
   admitPhoneFrame(conn, size) {
@@ -250,7 +260,8 @@ export class Room extends DurableObject {
     if (att?.role === 'phone') {
       this.rates.delete(att.conn);
       // A phone that hung up or whose network dropped is reported to the host, so the desktop does not keep showing it as connected
-      // until its own liveness check gives up. A phone this room closed itself (a kick, a reset, a limit) already has role 'closed'.
+      // until its own liveness check gives up. A phone this room closed itself already has role 'closed' here: a limit was reported by
+      // dropPhone before its close, and a kick or a host reset is not reported (the host did that itself).
       this.tellHosts({ op: 'closed', conn: att.conn });
     }
     if (att?.role === 'host' && this.liveHosts().length === 0) {

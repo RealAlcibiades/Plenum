@@ -247,15 +247,49 @@ function createLinuxNative({
         pid: lib.func('uint32 atspi_accessible_get_process_id(void *obj, void *error)'),
         unref: gobject.func('void g_object_unref(void *object)'),
       };
+      atspi.lib = lib;
+      atspi.gobject = gobject;
     } catch {
       atspi = null;
     }
     return atspi;
   }
 
+  // The functions that read an element's name and description (g_malloc'd strings, freed with g_free, which libgobject pulls in), declared
+  // on the first focusedLabel() call and not before: the password question does not need them. -> a function (node) => text, or null.
+  let labelOf;
+  function loadLabelReader(a) {
+    if (labelOf !== undefined) return labelOf;
+    labelOf = null;
+    try {
+      const k = koffi ?? (process.platform === 'linux' ? loadKoffi() : null);
+      if (!k) return labelOf;
+      const free = a.gobject.func('void g_free(void *mem)');
+      const text = fn => node => {
+        const ptr = fn(node, null);
+        if (!ptr) return '';
+        try {
+          return String(k.decode(ptr, 'char', -1));
+        } finally {
+          free(ptr);
+        }
+      };
+      const nameOf = text(a.lib.func('void *atspi_accessible_get_name(void *obj, void *error)'));
+      const descriptionOf = text(a.lib.func('void *atspi_accessible_get_description(void *obj, void *error)'));
+      labelOf = node => [nameOf(node), descriptionOf(node)].map(t => String(t ?? '').trim()).filter(Boolean).join(' | ').slice(0, 600);
+    } catch {
+      labelOf = null;
+    }
+    return labelOf;
+  }
+
+  // Whether the last walk of the desktop found an element with the keyboard focus, and when.
+  let lastWalk = null;
+
   // true: the element with keyboard focus is a password field. false: it is something else. null: cannot tell.
-  function focusedIsPassword(a) {
+  function focusedIsPassword(a, onFocused = null) {
     const deadline = now() + ATSPI_BUDGET.ms;
+    lastWalk = { at: now(), focused: false };
     let nodes = 0;
     let exhausted = false;
     const spent = () => {
@@ -295,6 +329,8 @@ function createLinuxNative({
       let found;
       if (s.focused) {
         found = a.role(node, null) === ATSPI.ROLE_PASSWORD_TEXT;
+        lastWalk.focused = true;
+        if (onFocused) onFocused(node);
         if (found) return true;
       } else if (depth > 0 && !s.showing) {
         return undefined;
@@ -359,6 +395,33 @@ function createLinuxNative({
         atspiStarted = true;
       }
       return focusedIsPassword(a);
+    } catch {
+      return null;
+    }
+  }
+
+  // The name and description of the focused element (a one-time code or CVV box says so there), or null. A walk that has just found no
+  // element with the focus is not made again.
+  async function focusedLabel() {
+    try {
+      const a = loadAtspi();
+      if (!a) return null;
+      if (lastWalk && !lastWalk.focused && now() - lastWalk.at < 2000) return null;
+      const read = loadLabelReader(a);
+      if (!read) return null;
+      if (!atspiStarted) {
+        a.init();
+        atspiStarted = true;
+      }
+      let label = null;
+      focusedIsPassword(a, node => {
+        try {
+          label = read(node) || null;
+        } catch {
+          label = null;
+        }
+      });
+      return label;
     } catch {
       return null;
     }
@@ -515,6 +578,7 @@ function createLinuxNative({
     },
 
     isSecureField,
+    focusedLabel,
 
     async userInput() {
       const here = await cursor().catch(() => null);

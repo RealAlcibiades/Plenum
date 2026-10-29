@@ -186,13 +186,15 @@
   const pillOf = r => make('span', r.kind === 'edit' ? 'pill warn' : 'pill', r.label);
 
   // The head's words count what the pane lists: the agents, the board's runs and the cards that wait on the person.
+  // A run that waits on a card is counted once, as waiting (the sidebar does the same), and a queued agent is listed under Running, so it is
+  // counted as running (B-13, B-14). The board's cards already include the agents' own waiting cards, so with a board those are counted there.
   function countText(live, board) {
-    const agentsOn = live.filter(r => r.state === 'running').length;
+    const waitingScopes = new Set((board?.approvals ?? []).map(c => c.scope));
+    const runsOn = board ? board.runs.filter(r => !waitingScopes.has(r.scope)).length : 0;
+    const agentsOn = live.filter(r => r.state !== 'approval').length;
     const asking = live.filter(r => r.state === 'approval').length;
-    const running = (board ? board.runs.length : 0) + agentsOn;
-    // The board's cards already include the agents' own waiting cards, so with a board those are counted once, there.
-    const queued = live.length - agentsOn - asking;
-    const waiting = queued + (board ? board.approvals.length : asking);
+    const running = runsOn + agentsOn;
+    const waiting = board ? board.approvals.length : asking;
     if (!running && !waiting) return 'Nothing is running.';
     return waiting ? `${running} running · ${waiting} waiting` : `${running} running`;
   }
@@ -611,11 +613,17 @@
     if (expanded && node && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => node.focus?.({ preventScroll: true }));
   }
 
+  // The runs that are not model replies, by kind, and the word the pane uses for them. A restore, a rewind and a merge have no model to stop (B-16).
+  const NON_REPLY_WORDS = { restore: 'restore', rewind: 'rewind', 'worktree-merge': 'merge' };
+
   // Stops the run of a project after a confirmation. The model is stopped and its agents stop with it.
   async function stopRun(run) {
+    const word = NON_REPLY_WORDS[run.kind];
     const yes = await MuseUI.confirm({
       title: 'Stop this run?',
-      body: `Stop the run in ${run.projectName || 'this project'}? The model that is running is stopped, and its agents stop with it. Files it has already changed stay as they are.`,
+      body: word
+        ? `Stop this ${word} in ${run.projectName || 'this project'}? It stops, and a card it waits on is denied. Files it has already changed stay as they are.`
+        : `Stop the run in ${run.projectName || 'this project'}? The model that is running is stopped, and its agents stop with it. Files it has already changed stay as they are.`,
       action: 'Stop run',
       tone: 'danger',
       focusCancel: true,
@@ -730,15 +738,17 @@
       focusCancel: true,
     });
     if (!yes) return;
+    // The runs that are not replies are counted before the stop, so the server's count of cancelled runs does not pass them off as replies (B-16).
+    const others = (boardView()?.runs ?? []).filter(r => NON_REPLY_WORDS[r.kind]).length;
     try {
       const d = await MuseUI.api('/api/stop-all', {});
       const words = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-      const replies = Number(d?.cancelled) || 0;
+      const replies = Math.max(0, (Number(d?.cancelled) || 0) - others);
       const drives = Number(d?.drivesStopped) || 0;
       const agents = Number(d?.agentsStopped) || 0;
       const cards = Number(d?.cardsDenied) || 0;
-      if (!replies && !drives && !agents && !cards) MuseUI.toast('Nothing was running.');
-      else MuseUI.toast(`Stopped. ${words(replies, 'reply', 'replies')}, ${words(drives, 'computer or browser run', 'computer or browser runs')}, ${words(agents, 'agent', 'agents')}. ${words(cards, 'waiting card', 'waiting cards')} denied.`);
+      if (!replies && !drives && !agents && !cards && !others) MuseUI.toast('Nothing was running.');
+      else MuseUI.toast(`Stopped. ${words(replies, 'reply', 'replies')}, ${words(drives, 'computer or browser run', 'computer or browser runs')}, ${words(agents, 'agent', 'agents')}${others ? `, ${words(others, 'restore, rewind or merge run', 'restore, rewind or merge runs')}` : ''}. ${words(cards, 'waiting card', 'waiting cards')} denied.`);
     } catch (err) {
       MuseUI.toast(err?.message || 'Stop did not answer.', 'bad');
     }

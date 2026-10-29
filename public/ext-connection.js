@@ -50,7 +50,8 @@
     const local = isLocalApi(input);
     try {
       const res = await real(input, init);
-      if (local) markUp();
+      // The token refusal of a server that started again with a new token is not a sign that this page's server is up (C-21).
+      if (local && !(res.status === 401 && res.headers?.get?.('x-plenum-auth') === 'token')) markUp();
       return res;
     } catch (err) {
       if (local && err instanceof TypeError) markDown();

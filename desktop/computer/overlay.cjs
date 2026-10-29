@@ -43,6 +43,14 @@ function cleanText(value, max) {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f\s]+/g, ' ').trim().slice(0, max);
 }
 
+// A bar position kept inside the display (DIP): the person's drag, or one the model's pointer made, can never leave the bar where Pause and
+// Stop cannot be reached.
+function clampBar(at, area, size) {
+  const x = Math.min(Math.max(at.x, area.x), Math.max(area.x, area.x + area.width - size.width));
+  const y = Math.min(Math.max(at.y, area.y), Math.max(area.y, area.y + area.height - size.height));
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
 const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
 // The stop key's usual name on a system (the person can change it in Settings; the server's page names the key in force).
@@ -361,9 +369,10 @@ function createOverlay({ electron, space, overlayUrl = () => null, getToken = ()
     // A bar that is not where this module last put it has been dragged by the person, and stays where they left it.
     if (barActual && !userPlaced) {
       const at = wins.bar.getBounds?.();
-      if (at && (Math.abs(at.x - barActual.x) > 2 || Math.abs(at.y - barActual.y) > 2)) userPlaced = { x: at.x, y: at.y };
+      if (at && (Math.abs(at.x - barActual.x) > 2 || Math.abs(at.y - barActual.y) > 2)) userPlaced = clampBar({ x: at.x, y: at.y }, display.dipBounds, geometry.BAR_SIZE);
     }
     const placed = geometry.barPlacement({ target, display: display.dipBounds, size: geometry.BAR_SIZE, gap: 8, clearance: FRAME_DIP });
+    if (userPlaced) userPlaced = clampBar(userPlaced, display.dipBounds, geometry.BAR_SIZE);
     barDip = userPlaced ? { x: userPlaced.x, y: userPlaced.y, width: placed.width, height: placed.height } : { x: placed.x, y: placed.y, width: placed.width, height: placed.height };
     state.where = userPlaced ? 'moved' : placed.where;
     setBounds(wins.bar, barDip);
@@ -398,6 +407,16 @@ function createOverlay({ electron, space, overlayUrl = () => null, getToken = ()
       } catch {
         // A window that is already gone changes nothing.
       }
+    }
+  }
+
+  // Puts a window that was faded out back at full opacity without showing it. A Stop that lands while the bar or the frame is out of sight
+  // hides them for good (hideAll), and a window left at opacity 0 would come back invisible with the next run.
+  function restoreLook(key) {
+    try {
+      if (canOpacity) wins[key].setOpacity(1);
+    } catch {
+      // A window that is already gone changes nothing.
     }
   }
 
@@ -442,7 +461,11 @@ function createOverlay({ electron, space, overlayUrl = () => null, getToken = ()
       fade(keys, false);
       await wait(SETTLE_MS);
       return async () => {
-        if (wins) fade(keys.filter(key => shown[key]), true);
+        if (!wins) return;
+        for (const key of keys) {
+          if (shown[key]) fade([key], true);
+          else restoreLook(key);
+        }
       };
     },
 
@@ -457,9 +480,16 @@ function createOverlay({ electron, space, overlayUrl = () => null, getToken = ()
         return await fn();
       } finally {
         await wait(BAR_RESTORE_MS);
-        if (wins && shown.bar) {
-          fade(['bar'], true);
-          bar.setIgnoreMouseEvents(false);
+        // Stop can land while the bar is out of sight: hideAll() then clears shown.bar and the window stays hidden, but it must not stay
+        // at opacity 0 and click-through for the run after.
+        if (wins) {
+          if (shown.bar) fade(['bar'], true);
+          else restoreLook('bar');
+          try {
+            bar.setIgnoreMouseEvents(false);
+          } catch {
+            // The window is gone.
+          }
         }
       }
     },

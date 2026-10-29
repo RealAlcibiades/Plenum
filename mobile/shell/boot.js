@@ -56,6 +56,11 @@ export const LOCK_STOP_READY_LABEL = 'Stop everything';
 export const LOCK_STOP_UNLOCK_LABEL = 'Unlock and stop everything';
 // Shown in place of the Unlock button and the PIN pad when the lock settings could not be read (the app stays locked; Stop still works).
 export const LOCK_UNKNOWN_NOTE = 'Plenum could not read its lock settings, so it stays locked. Stop still works. Close Plenum and open it again.';
+// B-130: the same, when this phone has no Stop key it can read either (the key is kept in the store that could not be read): it cannot send Stop
+// from here, and nothing on this screen can unlock it, so the note says where Stop is.
+export const LOCK_UNKNOWN_NO_STOP_NOTE = 'Plenum could not read its lock settings, so it stays locked. This phone cannot send Stop from here. Press Stop on your computer (the Stop bar, or Ctrl+Alt+Esc). Close Plenum and open it again.';
+// B-132: the strip that says Reconnecting waits this long, so a first connect or a quick hop does not flash it (the UI's own strip waits as long).
+export const RECONNECT_STRIP_MS = 1500;
 const utf8 = new TextEncoder();
 
 // ----- small helpers -----
@@ -205,6 +210,8 @@ export function installShim(options = {}) {
   // ----- drive state -----
   const drives = new Map(); // id -> the drive summary, for drives the model is running now
   let helloDriving = null;  // HELLO.pending.driving, or null
+  let helloKey = null;      // the driving value of the last HELLO taken, as JSON: a snapshot that repeats it does not bring the ring back (B-125)
+  let reconnectSince = null; // when the connection state became 'reconnecting' (B-132)
   let connState = { status: 'idle' };
   let locked = false;
   let stopView = { state: 'idle', text: '', seq: 0 };
@@ -239,8 +246,21 @@ export function installShim(options = {}) {
     if (!event || event.type !== 'drive' || !event.drive || typeof event.drive !== 'object') return;
     const d = event.drive;
     if (typeof d.id !== 'string') return;
-    if (d.state === 'running') drives.set(d.id, d);
-    else drives.delete(d.id);
+    // Only a stopped drive leaves the ring: a paused one (the model asked for a step, or the person paused it) is still the model's to resume.
+    if (d.state === 'stopped') drives.delete(d.id);
+    else drives.set(d.id, d);
+    // The stream is the authority from here on; the HELLO's snapshot of the drive only covered the moment it was taken.
+    helloDriving = null;
+    paint();
+  }
+
+  // B-125: the stream's own hello and state events list every live drive. A drive that started before the stream opened is in the ring, and a
+  // stop missed while the link was down is out of it.
+  function syncDrives(list) {
+    if (!Array.isArray(list)) return;
+    drives.clear();
+    for (const d of list) if (d && typeof d === 'object' && typeof d.id === 'string' && d.state !== 'stopped') drives.set(d.id, d);
+    helloDriving = null;
     paint();
   }
 
@@ -248,7 +268,9 @@ export function installShim(options = {}) {
   function noteTierEvent(event) {
     if (event?.type !== 'phone' || event.kind !== 'tier') return;
     if (typeof event.tier !== 'string' || !helloInfo || (helloInfo.deviceId && event.id !== helloInfo.deviceId)) return;
-    helloInfo = { ...helloInfo, tier: event.tier };
+    // The caps come with the tier (the same list HELLO carries): lowering a phone takes the controls away as well, and a later snapshot does not
+    // bring them back with the old list.
+    helloInfo = { ...helloInfo, tier: event.tier, ...(Array.isArray(event.caps) ? { caps: event.caps.filter(c => typeof c === 'string') } : {}) };
     paint();
   }
 
@@ -261,7 +283,7 @@ export function installShim(options = {}) {
         const event = JSON.parse(text);
         noteDriveEvent(event);
         noteTierEvent(event);
-        if (event && event.type === 'hello') helloDriving = event.state?.pending?.driving ?? helloDriving;
+        if (event && (event.type === 'hello' || event.type === 'state')) syncDrives(event.state?.drives);
       } catch {
         // A line that is not JSON is not an event.
       }
@@ -876,7 +898,15 @@ export function installShim(options = {}) {
       : conn.state === 'offline' ? `Can't reach ${name}.${when}`
         : conn.state === 'asleep' ? `${name} is asleep or Plenum is closed.${when} Plenum reconnects when it wakes.`
           : '';
-    els.strip.hidden = text === '' || connState.status === 'idle';
+    // B-132: 'Reconnecting' shows only once the phone has been reconnecting for RECONNECT_STRIP_MS, so a first connect does not open on it.
+    const reconnecting = conn.state === 'reconnecting';
+    if (!reconnecting) reconnectSince = null;
+    else if (reconnectSince === null) {
+      reconnectSince = Date.now();
+      later(paint, RECONNECT_STRIP_MS + 10);
+    }
+    const waited = !reconnecting || Date.now() - reconnectSince >= RECONNECT_STRIP_MS;
+    els.strip.hidden = text === '' || connState.status === 'idle' || !waited;
     els.strip.setAttribute('data-state', conn.state);
     els.stripText.textContent = text;
     paintLock();
@@ -913,11 +943,12 @@ export function installShim(options = {}) {
     for (const cell of els.lockKeys) cell.disabled = pinBusy;
     if (pinMode && stopArmed) els.unlockStop.setAttribute('aria-pressed', 'true');
     else els.unlockStop.removeAttribute('aria-pressed');
-    els.unlockStop.hidden = !hadSession;
+    // B-130: with the lock unreadable and no Stop key to send without it, no button promises a Stop that cannot go out.
+    els.unlockStop.hidden = !hadSession || (unknown && !lockStop.ready);
     els.unlockStop.textContent = lockStop.ready ? LOCK_STOP_READY_LABEL : LOCK_STOP_UNLOCK_LABEL;
     // The Stop result shows under the button while it is on its way or has ended; else the unknown-lock line, else the PIN note.
     const stopShown = locked && ['sending', 'queued', 'done', 'failed'].includes(stopView.state) && Boolean(stopView.text);
-    els.lockNote.textContent = stopShown ? stopView.text : unknown ? LOCK_UNKNOWN_NOTE : lockNote;
+    els.lockNote.textContent = stopShown ? stopView.text : unknown ? (lockStop.ready ? LOCK_UNKNOWN_NOTE : LOCK_UNKNOWN_NO_STOP_NOTE) : lockNote;
   }
 
   // The toast and the sheet (F2): the result of a Stop is on screen where the person is looking, not only inside the button.
@@ -949,7 +980,18 @@ export function installShim(options = {}) {
       connState = snapshot.connection ?? connState;
       locked = Boolean(snapshot.locked);
       stopView = snapshot.stop ?? stopView;
-      helloDriving = snapshot.hello?.pending?.driving ?? null;
+      // B-125: the HELLO's driving value is taken once, when it is new. The same value in the next snapshot is not the drive coming back after the
+      // stream said it stopped; no HELLO (the connection is down or locked) leaves nothing to take.
+      if (!snapshot.hello) {
+        helloDriving = null;
+        helloKey = null;
+      } else {
+        const key = JSON.stringify(snapshot.hello.pending?.driving ?? null);
+        if (key !== helloKey) {
+          helloKey = key;
+          helloDriving = snapshot.hello.pending?.driving ?? null;
+        }
+      }
       lockInfo = snapshot.lock ?? lockInfo;
       lockStop = snapshot.lockStop ?? lockStop;
       hadSession = Boolean(snapshot.activeId) || (Array.isArray(snapshot.computers) && snapshot.computers.length > 0) || hadSession;

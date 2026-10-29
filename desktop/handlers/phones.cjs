@@ -12,7 +12,7 @@
 //    main takes an answer only from that window, only in the states where it means something, and passes it to the server as
 //    phones-pair-answer { offer, action }. The window checks once for screen capture that is not excluded: a magenta square at its
 //    top-left corner is read from a screen grab (the check in desktop/computer/capture.cjs). If the square shows, the code is hidden
-//    and only Copy link remains.
+//    and only Copy link remains. On Linux Electron cannot exclude the window, so the code is hidden from the start and no grab is made.
 //  - phones-indicator: an OS notification on the first phone connection of each launch.
 //  - phones-presence: whether the desktop window has focus, and the system idle time in seconds, for the push rules.
 //  - phones-clipboard: copies the link the server gives, and clears the clipboard when its time is up if it still holds that text.
@@ -552,8 +552,9 @@ function createPhones(options = {}) {
   }
 
   // Checks once per window for capture that is not excluded. A check that reads the square as visible hides the code from then on.
+  // A window already marked visible (Linux, see windowFor) is not grabbed at all (B-112).
   function maybeCheck(p) {
-    if (p.checked || !p.loaded || p.shown !== 'offer') return;
+    if (p.checked || p.captureVisible || !p.loaded || p.shown !== 'offer') return;
     p.checked = true;
     const timer = setTimeout(async () => {
       let visible = null;
@@ -651,6 +652,9 @@ function createPhones(options = {}) {
       seq: 0,
     };
     pair = p;
+    // Electron keeps a window out of screen capture only on macOS and Windows (setContentProtection), so on Linux the code is hidden
+    // from the start, and no screen grab is made there (B-112). Copy link still pairs.
+    if (platform === 'linux') p.captureVisible = true;
     lockDown(api, win);
     try {
       win.setMenu(null);
@@ -786,8 +790,8 @@ function createPhones(options = {}) {
   // ----- a picture of an artifact (POST /api/artifacts/picture; MOBILE.json powers.adapters) -----
 
   // The picture is drawn in a window nobody sees: opacity 0, not focusable, no taskbar entry, and no mouse events, so it cannot take a
-  // click from the person. It loads the staged artifact from this computer's own server through a session that lives in memory and is
-  // shared with no other window. That session adds the launch token to the one loopback request for the artifact and cancels every
+  // click from the person. Electron ignores opacity on Linux, so there the window is never shown at all (B-111). It loads the staged
+  // artifact from this computer's own server through a session that lives in memory and is shared with no other window. That session adds the launch token to the one loopback request for the artifact and cancels every
   // other request the page makes (the artifact's policy allows no network in the first place). One picture is drawn at a time.
   let pictureQueue = Promise.resolve();
   let picturesPending = 0;
@@ -915,7 +919,7 @@ function createPhones(options = {}) {
             };
             let image = await shot();
             if (image.isEmpty() && !win.isDestroyed()) {
-              win.showInactive();
+              if (platform !== 'linux') win.showInactive();
               await delay(300);
               image = await shot();
             }
@@ -937,7 +941,9 @@ function createPhones(options = {}) {
         });
         waitTimer = setTimeout(() => { void capture(); }, waitMs);
         hardTimer = setTimeout(() => finish({ ok: false, message: PICTURE_FAILED }), totalMs);
-        win.showInactive();
+        // opacity is a no-op on Linux, so a shown picture window would be seen on screen: there the window is never shown, and the page
+        // is still loaded and drawn from the window's own buffer (B-111). A picture that comes out empty then ends in the sentence.
+        if (platform !== 'linux') win.showInactive();
         Promise.resolve(win.loadURL(url)).catch(() => finish({ ok: false, message: PICTURE_FAILED }));
       });
     } catch {

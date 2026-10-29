@@ -15,20 +15,23 @@
 //   foreground()               -> { id, title, exe, pid, elevated, bounds, own } | null
 //   capture({ scope, target, maxEdge }) -> { png: Uint8Array, width, height, physical, scale } | { ok: false, reason, message }
 //   input(action)              -> { ok: true } | { ok: false, reason: 'elevated'|'blocked'|'unsupported'|'no-focus', message }
-//   cursor() -> { x, y }       userInput() -> { mouse, keys }        focus(windowId) -> { ok }
-//   isSecureField() -> true|false|null     release()      overlay({ show, displayId, rect, state, model, label })
+//   cursor() -> { x, y } | null (null: the pointer could not be read)       userInput() -> { mouse, keys }        focus(windowId) -> { ok }
+//   isSecureField() -> true|false|null     focusedLabel() -> string|null (the focused field's name, help text and id)
+//   release()      overlay({ show, displayId, rect, state, model, label })
 //
-// input() refuses before it sends anything when the window in front, or the window under any point of the action, is elevated.
+// input() refuses before it sends anything when the window in front, or the window under any point of the action, is elevated. A click,
+// scroll or button press without x and y lands where the pointer is, so the pointer is that action's point: the same check and the
+// overlay bar's hit test use it, and when the pointer cannot be read the action is not sent.
 // An action is parsed again here by normalizeAction (actions.cjs), so only fields that module knows ever reach the injector.
 // Text of more than 64 characters is typed in pieces; between pieces the program in front is read again, and typing stops there
 // ({ ok: false, reason: 'no-focus' }, or 'elevated') when it is no longer the program the typing began in.
 //
 // The wire protocol (handle): a message { type: 'computer-<method>', id, ...arguments } is answered with
 // { type: 'computer-<method>-result', id, ...result }. <method> is the kebab-case of the method name above (computer-user-input,
-// computer-is-secure-field; computer-secure-field is accepted too). Arguments are the fields of the message: windows { all },
+// computer-is-secure-field; computer-secure-field is accepted too; computer-focused-label answers { label }). Arguments are the fields of the message: windows { all },
 // capture { scope, target, maxEdge }, input { action }, focus { windowId }, overlay { show, displayId, rect, state, model, label }.
 // A result that is not an object, or that has an id or type of its own, travels under a name: windows -> { windows }, foreground ->
-// { foreground }, isSecureField -> { secure }. Nothing from a message is logged here, and typed text exists only in the call.
+// { foreground }, isSecureField -> { secure }, cursor (when unreadable) -> { value: null }. Nothing from a message is logged here, and typed text exists only in the call.
 const geometry = require('./geometry.cjs');
 const { normalizeAction, pointsOf } = require('./actions.cjs');
 const { createSpace, createCapture } = require('./capture.cjs');
@@ -38,13 +41,16 @@ const { createFakeBackend } = require('./fake.cjs');
 const ELEVATED_MESSAGE = 'The window in front belongs to a program running as administrator. Plenum cannot control it.';
 const ELEVATED_POINT_MESSAGE = 'That spot belongs to a program running as administrator. Plenum cannot control it.';
 const NOT_AVAILABLE = 'Computer use is not available on this computer.';
+const POINTER_UNKNOWN_MESSAGE = 'Plenum could not tell where the pointer is, so it did not act at the pointer.';
+// The actions that land at the pointer when they carry no x and y.
+const POINTER_KINDS = new Set(['click', 'scroll', 'down', 'up']);
 const FOCUS_CHANGED_MESSAGE = 'The program in front changed while the text was being typed, so the rest of it was not typed.';
 // Text is typed in pieces of this many characters, and the program in front is looked at again between pieces.
 const TYPE_PIECE = 64;
 
 const METHODS = Object.freeze({
   probe: 'probe', windows: 'windows', foreground: 'foreground', capture: 'capture', input: 'input', cursor: 'cursor',
-  userInput: 'userInput', focus: 'focus', isSecureField: 'isSecureField', secureField: 'isSecureField', release: 'release',
+  userInput: 'userInput', focus: 'focus', isSecureField: 'isSecureField', secureField: 'isSecureField', focusedLabel: 'focusedLabel', release: 'release',
   overlay: 'overlay', requestAccess: 'requestAccess',
 });
 
@@ -89,6 +95,8 @@ function withProtocol(backend) {
         return backend.focus(message.windowId ?? message.target);
       case 'isSecureField':
         return { secure: await backend.isSecureField() };
+      case 'focusedLabel':
+        return { label: backend.focusedLabel ? await backend.focusedLabel() : null };
       case 'release':
         return backend.release();
       case 'overlay':
@@ -311,6 +319,12 @@ function createComputerBackend(options = {}) {
           const front = await s.native.foreground();
           if (front && front.elevated) return { ok: false, reason: 'elevated', message: ELEVATED_MESSAGE };
           const points = pointsOf(action);
+          // No x and y: the action lands where the pointer is. A pointer that cannot be read is not guessed at.
+          if (!points.length && POINTER_KINDS.has(action.kind)) {
+            const here = await s.native.cursor();
+            if (!here || !Number.isFinite(here.x) || !Number.isFinite(here.y)) return { ok: false, reason: 'blocked', message: POINTER_UNKNOWN_MESSAGE };
+            points.push({ x: here.x, y: here.y });
+          }
           if (points.length) {
             const stack = await s.native.windows({ all: true });
             const usable = Array.isArray(stack) ? stack.filter(w => !s.overlay.isOverlayWindow(w)) : null;
@@ -335,11 +349,12 @@ function createComputerBackend(options = {}) {
 
     async cursor() {
       const s = build();
-      if (s.error) return { x: 0, y: 0 };
+      if (s.error) return null;
       try {
-        return await s.native.cursor();
+        const at = await s.native.cursor();
+        return at && Number.isFinite(at.x) && Number.isFinite(at.y) ? at : null;
       } catch {
-        return { x: 0, y: 0 };
+        return null;
       }
     },
 
@@ -371,6 +386,18 @@ function createComputerBackend(options = {}) {
       try {
         const answer = await s.native.isSecureField();
         return answer === true || answer === false ? answer : null;
+      } catch {
+        return null;
+      }
+    },
+
+    // The name, help text and id of the focused field, which say that it takes a one-time code or a CVV (the field type alone does not).
+    async focusedLabel() {
+      const s = build();
+      if (s.error || typeof s.native.focusedLabel !== 'function') return null;
+      try {
+        const label = await s.native.focusedLabel();
+        return typeof label === 'string' && label ? label.slice(0, 600) : null;
       } catch {
         return null;
       }

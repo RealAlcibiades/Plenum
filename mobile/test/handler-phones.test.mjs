@@ -917,6 +917,22 @@ describe('the capture check', () => {
       assert.ok(win.webContents.last.qrPng.startsWith('data:image/png'), `${c.label}: the code stays up`);
     }
   });
+
+  test('on Linux the code is never shown and no grab is made, and Copy link still reaches the server (B-112)', async () => {
+    FakeWindow.all.length = 0;
+    const sampler = fixedSampler(false);
+    const { phones, fe } = handlerWith({ sampleMarker: sampler, platform: 'linux' });
+    const shell = fakeShell(freshFolder('linux-capture'));
+    await phones.messages['phones-pair-show'](offerMessage(), shell);
+    const win = FakeWindow.all[0];
+    win.webContents.emit('did-finish-load');
+    await sleep(10);
+    assert.equal(sampler.calls, 0, 'no screen grab, which on Wayland would open the screen-share picker');
+    assert.equal(win.webContents.last.captureVisible, true);
+    assert.equal(win.webContents.last.qrPng, '', 'the code is not drawn on Linux');
+    fe.ipcMain.emit('phones-pair:answer', { sender: win.webContents }, 'copy');
+    assert.deepEqual(shell.tells, [{ type: 'phones-pair-answer', offer: 'OFFER-ID-000001', action: 'copy' }]);
+  });
 });
 
 describe('the other messages', () => {

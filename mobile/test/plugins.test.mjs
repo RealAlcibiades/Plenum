@@ -643,6 +643,13 @@ describe('the Android project: manifest, network security, resources and Gradle'
     assert.deepEqual(keystores, [], 'no signing material in mobile/');
   });
 
+  test('the release Gradle line passes the version from the tag, so a store upload never repeats versionCode 1', () => {
+    const release = fs.readFileSync(path.join(MOBILE, '..', '.github', 'workflows', 'release.yml'), 'utf8');
+    assert.match(release, /PLENUM_VERSION: \$\{\{ needs\.prepare\.outputs\.version \}\}/, 'the version comes from the tag check');
+    assert.match(release, /\.\/gradlew --no-daemon -PplenumVersionName="\$PLENUM_VERSION" -PplenumVersionCode="\$code" assembleRelease bundleRelease/, 'the release gradlew line carries both -P flags');
+    assert.match(release, /code=\$\(\( major \* 10000 \+ minor \* 100 \+ patch \)\)/, 'versionCode is major*10000 + minor*100 + patch');
+  });
+
   test('every Gradle file has balanced brackets', () => {
     const gradleFiles = walk(MOBILE).filter(f => f.endsWith('.gradle'));
     assert.ok(gradleFiles.length >= 8, `found ${gradleFiles.length} Gradle files`);
@@ -983,6 +990,81 @@ describe('Android push through UnifiedPush and local notifications (M15)', () =>
     assert.equal(accepted.kind, 'unifiedpush');
     assert.equal(accepted.endpoint, 'https://ntfy.example.net/up/abc123');
     assert.equal((await push.state()).registered, true);
+  });
+
+  test('an endpoint the computer did not get (no channel, or a refusal) is sent again at the next HELLO, once, and never after turning notifications off (B-129)', async () => {
+    const { createAndroidPush } = await import('../shell/push.js');
+    const f = fakePlugins();
+    const { posted, request } = requestRecorder();
+    let live = null;
+    const kept = { value: undefined };
+    const pendingStore = {
+      load: async () => kept.value,
+      save: async body => { kept.value = body; },
+      clear: async () => { kept.value = undefined; },
+    };
+    const make = fake => createAndroidPush({ native: { UnifiedPush: fake.up, LocalNotifications: fake.localNotifications }, requestOf: () => live, pendingStore });
+    const push = make(f);
+    await push.start();
+    const keys = keyPair();
+    // The push app gives its endpoint while the phone has no channel to a computer.
+    await f.handlers.get('endpoint')({ instance: 'default', url: 'https://ntfy.example.net/up/abc123', temporary: false, pubKeySet: { pubKey: keys.pubKey, auth: keys.auth } });
+    assert.equal(posted.length, 0);
+    assert.deepEqual(await push.state(), { supported: true, distributor: null, registered: false, endpoint: true, failure: null });
+    assert.equal(kept.value?.subscription?.endpoint, 'https://ntfy.example.net/up/abc123', 'the key set waits in the phone\x27s own store');
+    assert.deepEqual(await push.resend(), { ok: false, reason: 'failed' }, 'still no channel');
+    live = request;
+    assert.deepEqual(await push.resend(), { ok: true, reason: null });
+    assert.equal(posted.length, 1);
+    assert.deepEqual(posted[0].body, { subscription: { kind: 'unifiedpush', endpoint: 'https://ntfy.example.net/up/abc123', keys: { p256dh: keys.pubKey, auth: keys.auth } } });
+    assert.equal(kept.value, undefined, 'nothing waits once the computer has it');
+    assert.equal((await push.state()).registered, true);
+    assert.deepEqual(await push.resend(), { ok: true, reason: null });
+    assert.equal(posted.length, 1, 'a second HELLO sends nothing more');
+    // Turning notifications off forgets a waiting endpoint, so a later HELLO does not subscribe the phone again.
+    live = null;
+    const g = fakePlugins();
+    const again = make(g);
+    await again.start();
+    await g.handlers.get('endpoint')({ instance: 'default', url: 'https://ntfy.example.net/up/def456', temporary: false, pubKeySet: { pubKey: keys.pubKey, auth: keys.auth } });
+    assert.ok(kept.value);
+    live = request;
+    await again.disable();
+    assert.equal(kept.value, undefined);
+    const before = posted.length;
+    await again.resend();
+    assert.equal(posted.length, before, 'only the turn-off (a null subscription) was sent');
+    assert.deepEqual(posted.at(-1).body, { subscription: null });
+  });
+
+  test('an endpoint left by the last run is picked up at start and sent at the first HELLO of this run (B-129)', async () => {
+    const { createAndroidPush } = await import('../shell/push.js');
+    const f = fakePlugins();
+    const { posted, request } = requestRecorder();
+    const keys = keyPair();
+    const body = { subscription: { kind: 'unifiedpush', endpoint: 'https://ntfy.example.net/up/left1', keys: { p256dh: keys.pubKey, auth: keys.auth } } };
+    let kept = body;
+    const pendingStore = { load: async () => kept, save: async b => { kept = b; }, clear: async () => { kept = undefined; } };
+    const push = createAndroidPush({ native: { UnifiedPush: f.up, LocalNotifications: f.localNotifications }, requestOf: () => request, pendingStore });
+    await push.start();
+    assert.deepEqual(await push.resend(), { ok: true, reason: null });
+    assert.deepEqual(posted.map(p => p.body), [body]);
+    assert.equal(kept, undefined);
+  });
+
+  test('a notification action carries the computer that sent it to the link handler (B-117)', async () => {
+    const { createAndroidPush } = await import('../shell/push.js');
+    const f = fakePlugins();
+    const links = [];
+    const push = createAndroidPush({ native: { UnifiedPush: f.up, LocalNotifications: f.localNotifications }, requestOf: () => null, onLink: (link, computer) => links.push([link, computer]) });
+    await push.start();
+    const id = 'ab'.repeat(32);
+    const extra = { tap: '/#waiting=ap1', routes: { deny: '/#deny=ap1', stop: '/#stop' }, line: '', computer: id };
+    const fire = actionId => f.local.listeners.get('localNotificationActionPerformed')({ actionId, notification: { extra } });
+    fire('tap');
+    fire('deny');
+    fire('stop');
+    assert.deepEqual(links, [['#waiting=ap1', ''], ['#deny=ap1', id], ['#stop', id]]);
   });
 
   test('no push app installed, a denied permission and an endpoint with no key set each answer a reason and send nothing', async () => {

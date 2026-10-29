@@ -814,6 +814,7 @@ describe('sw.js: the UI, the artifact iframe, push and notifications', () => {
       kind: 'approval',
       id: '4f6f2c1e-8d6a-4a1e-9b1d-5d3c9a7a0b11',
       project: 'p1',
+      computer: 'c1',
       tap: '/#waiting=4f6f2c1e-8d6a-4a1e-9b1d-5d3c9a7a0b11',
       line: 'Run: npm test -- --watch=false',
       routes: { deny: '/#deny=4f6f2c1e-8d6a-4a1e-9b1d-5d3c9a7a0b11', stop: '/#stop', approve: '/#approve=4f6f2c1e-8d6a-4a1e-9b1d-5d3c9a7a0b11' },

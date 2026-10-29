@@ -24,6 +24,9 @@
 //   - A protocol error sends CLOSE { reason: 'protocol' }, closes the transport, and nothing after it is processed.
 //   - Liveness: a PING goes out at start and at every interval. A PING still unanswered at the next tick is one miss;
 //     at PING_MISSES_TO_CLOSE misses the session closes with reason 'timeout'.
+//   - Wire budget (opt-in, options.wireBytesPerSecond): a token bucket for the non-priority frames, so a session over the relay stays under
+//     the relay's per-phone limit (relay/src/limits.mjs phoneBytesPerSecond, 2 MiB a second counted at the encrypted size of each message).
+//     Priority frames never wait for it. The default is no budget, which is what LAN and Tailscale sessions and every test use.
 //
 // Buffer ownership: a body or data chunk is held by reference until it is written, so the caller must not reuse
 // the buffer after handing it over. Small DATA chunks are copied when they are coalesced.
@@ -45,6 +48,10 @@ export const MAX_BODY_BYTES = 40000000;
 export const PING_INTERVAL_MS = 25000;
 export const PING_MISSES_TO_CLOSE = 2;
 export const POLL_MS = 10;
+// The relay budget of a phone session (B-123): under the relay's 2 MiB a second with room for the priority frames and the Noise tag of each message.
+export const WIRE_BUDGET_BYTES_PER_SECOND = 1536 * 1024;
+export const WIRE_BUDGET_BURST_BYTES = 128 * 1024;
+export const NOISE_TAG_BYTES = 16;   // lib/remote/noise.mjs TAG_LEN, added to every transport message
 
 const { HELLO, REQ, BODY, RES, DATA, CANCEL, STOP, STOP_ACK, PING, PONG, EVENT, CLOSE, COOKIE } = TYPE;
 const NAMES = new Map(Object.entries(TYPE).map(([name, code]) => [code, name]));
@@ -243,6 +250,9 @@ export class FrameSession {
     this.coalesce = new Map();
     this.pollTimer = null;
     this.live = { intervalMs: 0, limit: 0, outstanding: null, misses: 0, timer: null };
+    const rate = Number(options.wireBytesPerSecond ?? Infinity);
+    const burst = Number(options.wireBurstBytes ?? WIRE_BUDGET_BURST_BYTES);
+    this.budget = { rate: rate > 0 ? rate : Infinity, burst, tokens: burst, last: this.clock.now() };
     this.closed = false;
     this.closeReason = null;
     this.counts = { written: 0, dropped: 0 };
@@ -254,6 +264,11 @@ export class FrameSession {
 
   get openStreams() {
     return this.streams.size;
+  }
+
+  // True while a PING has been sent and its PONG has not come back (the phone's probe of a session that may have died silently).
+  get pingOutstanding() {
+    return this.live.outstanding !== null;
   }
 
   // Takes one transport message in. Returns false once the session is closed.
@@ -559,10 +574,28 @@ export class FrameSession {
     this.#pump();
   }
 
-  // Writes queued frames round robin while the socket's buffer is under the cap. When it is not, retries on a timer.
+  // Takes the wire bytes of one non-priority frame from the budget. False while the budget is spent; it refills with the clock.
+  #admitWire(payloadBytes) {
+    const b = this.budget;
+    if (!Number.isFinite(b.rate)) return true;
+    const now = this.clock.now();
+    b.tokens = Math.min(b.burst, b.tokens + (Math.max(0, now - b.last) * b.rate) / 1000);
+    b.last = now;
+    const cost = HEADER_BYTES + payloadBytes + NOISE_TAG_BYTES;
+    if (b.tokens < cost) return false;
+    b.tokens -= cost;
+    return true;
+  }
+
+  // Writes queued frames round robin while the socket's buffer is under the cap and the wire budget has room. When either is not, retries on a timer.
   #pump() {
     while (!this.closed && this.ready.length > 0) {
       if (this.#buffered() >= BUFFER_CAP) {
+        this.#schedulePoll();
+        return;
+      }
+      const head = this.ready[0];
+      if (!this.#admitWire(head.frames[head.head].payload.byteLength)) {
         this.#schedulePoll();
         return;
       }

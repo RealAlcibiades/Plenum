@@ -24,16 +24,27 @@
     const head = document.createElement('p');
     head.className = 'ext-store-head';
     // missing: the file was not there at start, but a backup was (it was deleted or moved while Plenum was not running).
+    // chats: one saved chat was not a list of messages, so that chat starts empty and its old value is kept beside the state file.
     head.textContent = health.missing
-      ? 'Plenum could not find its saved state file, so it loaded the last backup.'
-      : health.recovered === 'backup' || health.recovered === 'backup-readonly'
-        ? 'Plenum could not read its saved state file, so it loaded the last backup.'
-        : 'Plenum could not read its saved state file, so it started fresh.';
+      ? health.recovered === 'defaults'
+        ? 'Plenum could not find its saved state file, and its backup could not be used, so it started fresh.'
+        : 'Plenum could not find its saved state file, so it loaded the last backup.'
+      : health.recovered === 'chats'
+        ? 'Plenum could not read a saved chat, so that chat starts empty.'
+        : health.recovered === 'backup' || health.recovered === 'backup-readonly'
+          ? 'Plenum could not read its saved state file, so it loaded the last backup.'
+          : 'Plenum could not read its saved state file, so it started fresh.';
     const note = document.createElement('p');
     note.className = 'ext-store-note';
     // unread: the file could not be opened (another program may have held it), so it is not known to be damaged.
     note.textContent = health.missing
-      ? `The file may have been deleted or moved while Plenum was not running. The next save writes a new one in ${health.home}.`
+      ? health.recovered === 'defaults'
+        ? health.corruptFile
+          ? `The damaged backup was kept as ${fileName(health.corruptFile)} in ${health.home}. The next save writes a new state file.`
+          : `The backup could not be read, so it was not changed. The next save writes a new state file in ${health.home}.`
+        : `The file may have been deleted or moved while Plenum was not running. The next save writes a new one in ${health.home}.`
+      : health.recovered === 'chats' && health.corruptFile
+        ? `The old messages were kept as ${fileName(health.corruptFile)} in ${health.home}.`
       : health.unread
         ? `The file may have been in use by another program. It was left as it was, and before Plenum next saves, it is copied to state.json.unread-<time> in ${health.home}.`
         : health.corruptFile

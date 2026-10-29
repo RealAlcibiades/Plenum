@@ -8,7 +8,8 @@
 //
 // Units: every rectangle that crosses the backend's interface is in PHYSICAL screen pixels (what the monitors really have). Electron
 // positions windows in device-independent pixels (DIP); createSpace converts between the two with each display's scale factor, one
-// display at a time, which is how Windows lays out a mixed-DPI desktop.
+// display at a time, which is how Windows lays out a mixed-DPI desktop. On macOS the displays' physical origins all use the largest
+// scale factor of the set (the display sizes keep their own), so that a 2x display next to a 1x one does not overlap it.
 //
 // Display scope takes desktopCapturer's screen source for the display (thumbnailSize = its physical size) and scales the long edge
 // down to maxEdge. Window scope on Windows and macOS takes the same display capture and crops it to the window, so the menus,
@@ -101,8 +102,9 @@ function matchMonitor(approx, monitors) {
 
 // `monitors` (optional) is a function that answers the exact physical rectangles of the monitors ([{ x, y, width, height }]) or null.
 function createSpace({ screen, platform = process.platform, monitors = null } = {}) {
-  function physicalOrigin(d) {
-    const scale = d.scaleFactor || 1;
+  // k: the factor that turns a display's DIP position into its physical one when the system gives none (its own scale factor, or on
+  // macOS the largest one of all displays: one physical space, in which a 2x display on the left of a 1x display ends where the 1x begins).
+  function physicalOrigin(d, k) {
     try {
       if (platform !== 'darwin' && typeof screen.dipToScreenPoint === 'function') {
         const p = screen.dipToScreenPoint({ x: d.bounds.x, y: d.bounds.y });
@@ -111,7 +113,7 @@ function createSpace({ screen, platform = process.platform, monitors = null } = 
     } catch {
       // Fall through to the plain scale below.
     }
-    return { x: Math.round(d.bounds.x * scale), y: Math.round(d.bounds.y * scale) };
+    return { x: Math.round(d.bounds.x * k), y: Math.round(d.bounds.y * k) };
   }
 
   // [{ id, label, bounds (physical), dipBounds, scaleFactor, physical: { width, height }, primary }]
@@ -130,9 +132,10 @@ function createSpace({ screen, platform = process.platform, monitors = null } = 
     } catch {
       exact = null;
     }
+    const common = platform === 'darwin' ? Math.max(1, ...list.map(x => x.scaleFactor || 1)) : null;
     return list.map((d, i) => {
       const scale = d.scaleFactor || 1;
-      const origin = physicalOrigin(d);
+      const origin = physicalOrigin(d, common ?? scale);
       let rect = { x: origin.x, y: origin.y, width: Math.round(d.bounds.width * scale), height: Math.round(d.bounds.height * scale) };
       const real = matchMonitor(rect, exact);
       if (real) rect = { x: real.x, y: real.y, width: real.width, height: real.height };

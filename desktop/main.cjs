@@ -308,23 +308,42 @@ async function onServerMessage(child, message) {
 // Resolves when it answered, or after SHUTDOWN_WAIT_MS when it did not; stopServer below then ends the process either way.
 const SHUTDOWN_WAIT_MS = 4000;
 let shutdownDone = null;
+// Whether the server answered the last shutdown message (stopServer reads it).
+let serverAnswered = false;
 function askServerToStop() {
   const child = server;
   if (!child) return Promise.resolve();
   return new Promise(resolve => {
-    const timer = setTimeout(finish, SHUTDOWN_WAIT_MS);
-    function finish() {
+    const timer = setTimeout(() => finish(false), SHUTDOWN_WAIT_MS);
+    function finish(answered) {
       clearTimeout(timer);
       shutdownDone = null;
+      serverAnswered = answered === true;
       resolve();
     }
-    shutdownDone = finish;
+    shutdownDone = () => finish(true);
     try {
       child.postMessage({ type: 'shutdown' });
     } catch {
-      finish();
+      finish(false);
     }
   });
+}
+
+// The pids of the server's direct children, from ps. On macOS and Linux an agent run is started detached (lib/proc.mjs), so it leads its
+// own process group, and the server's own signal does not reach it. A listing that fails gives none: the server is ended as before.
+function serverChildPids(pid) {
+  let out = '';
+  try {
+    out = execFileSync('ps', ['-A', '-o', 'pid=', '-o', 'ppid='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return [];
+  }
+  return out
+    .split('\n')
+    .map(line => line.trim().split(/\s+/).map(Number))
+    .filter(([childPid, parentPid]) => childPid > 1 && parentPid === pid)
+    .map(([childPid]) => childPid);
 }
 
 function stopServer() {
@@ -332,6 +351,19 @@ function stopServer() {
   const child = server;
   server = null;
   setPhonesConnected([]);
+  // B-109: on macOS and Linux the agents' groups get SIGTERM first, so a server that cannot read its shutdown message does not leave them
+  // running. A group that is already gone (ESRCH) is not an error, and a child that never led a group is simply skipped.
+  // Only when the server did not answer shutdown: a server that answered has already stopped its runs through killTree, and a detached
+  // child meant to outlive the app (the sign-in terminal, lib/platform/terminal.mjs) is left alone.
+  if (process.platform !== 'win32' && !serverAnswered) {
+    for (const childPid of serverChildPids(child.pid)) {
+      try {
+        process.kill(-childPid, 'SIGTERM');
+      } catch {
+        // The group has already ended.
+      }
+    }
+  }
   try {
     // taskkill /t also ends anything the server started (for example a run_command process).
     execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
@@ -425,10 +457,11 @@ function createWindow() {
   });
   win.once('ready-to-show', () => win.show());
   // The page publishes its background as its theme colour. The window buttons follow it, so they
-  // stay readable when Windows changes theme or the Theme button overrides it.
+  // stay readable when Windows changes theme or the Theme button overrides it. Electron has the overlay on Windows and Linux only
+  // (B-106): on macOS the window keeps its own buttons, so the call is skipped there and the background still follows the theme.
   win.webContents.on('did-change-theme-color', (_event, color) => {
     if (!win || !/^#[0-9a-f]{6}$/i.test(color ?? '')) return;
-    win.setTitleBarOverlay(windowButtons(isDark(color) ? CHROME.dark : CHROME.light));
+    win.setTitleBarOverlay?.(windowButtons(isDark(color) ? CHROME.dark : CHROME.light));
     win.setBackgroundColor(color);
   });
   // Links that open a new window go to the browser; the app itself stays in this window.
@@ -647,8 +680,15 @@ function ensureTray() {
   try {
     const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'icon.png'));
     if (icon.isEmpty()) return false;
-    // Windows draws the tray icon at 16 to 32 px, so a 512 px image is scaled down once here.
-    tray = new Tray(icon.resize({ width: 32, height: 32 }));
+    // Windows draws the tray icon at 16 to 32 px, so a 512 px image is scaled down once here. The macOS menu bar is about 22 pt high,
+    // so there the icon is 16 pt, with its 32 px version as the @2x representation for Retina screens (B-115).
+    let image = icon.resize({ width: 32, height: 32 });
+    if (process.platform === 'darwin') {
+      const small = icon.resize({ width: 16, height: 16 });
+      small.addRepresentation({ scaleFactor: 2, buffer: image.toPNG() });
+      image = small;
+    }
+    tray = new Tray(image);
   } catch {
     tray = null;
     return false;

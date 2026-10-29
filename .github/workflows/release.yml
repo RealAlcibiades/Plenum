@@ -38,8 +38,15 @@ permissions:
   contents: write
 
 jobs:
+  # The phone tests (phone-tests.yml, the same workflow mobile.yml calls). prepare waits for them, so no draft is created and
+  # nothing is built for a tag whose suites fail. The Electron suites stay outside CI (see mobile.yml).
+  suites:
+    name: Phone tests
+    uses: ./.github/workflows/phone-tests.yml
+
   prepare:
     name: Create the draft release
+    needs: suites
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.check.outputs.tag }}
@@ -59,6 +66,12 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
+          # The tag must point at a clean checkout: anything untracked or changed would not be what the tag names.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::The tagged commit has untracked or changed files. Commit or remove them, then tag again."
+            git status --short
+            exit 1
+          fi
           version=$(node -e 'process.stdout.write(String(require("./package.json").version))')
           owner=$(node -e 'process.stdout.write(String(require("./package.json").build?.publish?.owner ?? ""))')
           repo=$(node -e 'process.stdout.write(String(require("./package.json").build?.publish?.repo ?? ""))')
@@ -188,6 +201,11 @@ jobs:
             echo "APPLE_API_ISSUER=$ASC_ISSUER"
           } >> "$GITHUB_ENV"
 
+      # The phone packages come first: the notices (npm run legal) list the licences of the packages that ship in the app.
+      - name: Install the phone packages
+        shell: bash
+        run: (cd mobile && npm ci --ignore-scripts --no-audit --no-fund)
+
       # The legal texts are built first, as every pack and dist script does. The build fails while a placeholder remains.
       - name: Build the legal texts
         run: npm run legal
@@ -196,9 +214,7 @@ jobs:
       # and dist script does locally.
       - name: Build the phone shell
         shell: bash
-        run: |
-          (cd mobile && npm ci --ignore-scripts --no-audit --no-fund)
-          npm run mobile:build
+        run: npm run mobile:build
 
       # Each platform sees only its own certificate secrets. WIN_CSC_LINK would otherwise fall back to CSC_LINK.
       # forceCodeSigning is added only when that platform's certificate secret is set, so a broken certificate
@@ -244,7 +260,7 @@ jobs:
           fi
           missing=0
           for dir in "${apps[@]}"; do
-            for file in LICENSE.txt THIRD-PARTY-NOTICES.txt LICENSE.electron.txt LICENSES.chromium.html; do
+            for file in LICENSE.txt THIRD-PARTY-NOTICES.txt EULA.txt LICENSE.electron.txt LICENSES.chromium.html; do
               found=""
               if [ "$PLATFORM" = "macos" ]; then
                 found=$(find "$dir" -name "$file" -print -quit)
@@ -355,8 +371,8 @@ jobs:
   #                   checks out no code and runs no build step.
   # The signing jobs start only when mobile-check has passed with their secrets set, so a missing set skips them without a
   # reviewer being asked. Owner: create the environment release-signing (Settings > Environments) with required reviewers. The
-  # secrets stay repository secrets, because mobile-check reads them before any environment is reached. The tag jobs of mobile.yml
-  # (android-release and ios-archive) are separate and are not held by this environment.
+  # secrets stay repository secrets, because mobile-check reads them before any environment is reached. This workflow is the only
+  # signing path on a tag: mobile.yml runs no signing job for a tag, and its Apple archive runs only when started by hand.
   mobile-check:
     name: Check the phone signing secrets (all or none)
     needs: prepare
@@ -520,15 +536,21 @@ jobs:
           echo "ANDROID_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
 
       # The passwords reach Gradle as environment variables, and the build reads ANDROID_KEYSTORE_PATH (app/build.gradle).
+      # The version comes from the tag (checked by prepare). versionCode is major*10000 + minor*100 + patch, with any -beta
+      # suffix dropped (0.6.0 gives 600). The store refuses an upload whose code is not higher than the last one.
       - name: Build the signed APK and AAB
         working-directory: mobile/android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLENUM_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon assembleRelease bundleRelease
+          base="${PLENUM_VERSION%%-*}"
+          IFS=. read -r major minor patch <<< "$base"
+          code=$(( major * 10000 + minor * 100 + patch ))
+          ./gradlew --no-daemon -PplenumVersionName="$PLENUM_VERSION" -PplenumVersionCode="$code" assembleRelease bundleRelease
 
       - name: Check that the APK is signed
         shell: bash
@@ -626,25 +648,36 @@ jobs:
           FASTLANE_DISABLE_COLORS: "1"
         run: fastlane match appstore --readonly --app_identifier "$APP_BUNDLE_ID"
 
+      # The team comes from the repository variable APPLE_TEAM_ID (the Apple Developer team ID; the project file keeps no team).
+      # The version is package.json's without any -beta suffix, which the App Store refuses; the build number is this run's number.
       - name: Archive the iOS app
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          IOS_BUILD: ${{ github.run_number }}
         run: |
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::error::Set the APPLE_TEAM_ID repository variable."
+            exit 1
+          fi
+          IOS_VERSION="$(node -e 'process.stdout.write(String(require("./package.json").version).split("-")[0])')"
           xcodebuild -project mobile/ios/App/App.xcodeproj -scheme App -sdk iphoneos -configuration Release \
             -archivePath "$RUNNER_TEMP/archive/Plenum.xcarchive" -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_ISSUER" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CURRENT_PROJECT_VERSION="$IOS_BUILD" MARKETING_VERSION="$IOS_VERSION" \
             archive
 
       - name: Export the IPA for the App Store
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<'PLIST'
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -655,6 +688,8 @@ jobs:
             <string>automatic</string>
             <key>destination</key>
             <string>export</string>
+            <key>teamID</key>
+            <string>$APPLE_TEAM_ID</string>
           </dict>
           </plist>
           PLIST
@@ -698,6 +733,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       REPO: ${{ needs.prepare.outputs.repo }}
       GH_TOKEN: ${{ github.token }}
+      ANDROID_RESULT: ${{ needs.mobile-android.result }}
     steps:
       - name: Download the phone builds
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -717,8 +753,16 @@ jobs:
             exit 1
           fi
           files=("$shell_zip")
+          # upload-artifact keeps the common folder of the files it was given, so the APK and AAB sit under apk/release and
+          # bundle/release, not at the top. They are searched for by name. A missing file fails the release when Android succeeded.
           for name in app-release.apk app-release.aab; do
-            if [ -f "$out/$name" ]; then files+=("$out/$name"); fi
+            found="$(find "$out" -type f -name "$name" -print -quit)"
+            if [ -n "$found" ]; then
+              files+=("$found")
+            elif [ "${ANDROID_RESULT:-}" = "success" ]; then
+              echo "::error::$name is missing from the phone builds, although the Android job succeeded."
+              exit 1
+            fi
           done
           shopt -s nullglob
           for ipa in "$out"/*.ipa; do files+=("$ipa"); done

@@ -89,13 +89,6 @@
   // A run in this window (the send button shows Stop) or in the page state. Anything that would write waits for it.
   const busy = () => MuseUI.el.send.classList.contains('stop') || MuseUI.state.running === true;
 
-  function inTextField(e) {
-    const t = e.target;
-    if (!t || t === MuseUI.el.input) return false;
-    if (t.isContentEditable) return true;
-    return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
-  }
-
   // ---------- browser storage: viewed ticks and unsent comments (per-viewer conveniences only) ----------
 
   function readStore() {
@@ -594,7 +587,9 @@
   }
 
   // Takes the answer of an action (the server sends the whole changes list back), so nothing is read twice.
-  function applyChanges(changes) {
+  // An answer for a project that is no longer on screen is dropped, so one project's changes never paint into another (B-97).
+  function applyChanges(changes, project) {
+    if (project !== view.project || project !== activeId()) return;
     view.data = {
       source: 'git',
       branch: changes?.branch ?? null,
@@ -636,12 +631,17 @@
     setStatus(TEXT.working, '');
     try {
       const out = await MuseUI.api('/api/review/hunk', { project, group, path: file.path, hunk, diffHash: file.diffHash, action });
-      applyChanges(out.changes);
+      applyChanges(out.changes, project);
       const msg = action === 'revert' ? `Reverted the change in ${file.path}. Checkpoints can put it back.`
         : action === 'stage' ? `Staged the change in ${file.path}.` : `Unstaged the change in ${file.path}.`;
-      setStatus(msg, 'ok');
+      // The status line belongs to the project on screen, so it is written only while the action's project is still that one (B-97).
+      if (activeId() === project) setStatus(msg, 'ok');
       MuseUI.toast(msg);
     } catch (err) {
+      if (activeId() !== project) {
+        MuseUI.toast(err.message, 'bad');
+        return;
+      }
       if (err.message === TEXT.changed) reload();
       setStatus(err.message, 'bad');
     }
@@ -699,17 +699,9 @@
     controls.insertBefore(b, controls.firstElementChild);
   }
 
-  // Ctrl+Shift+D (Cmd on macOS) opens the pane from anywhere except a text field other than the composer.
-  document.addEventListener('keydown', e => {
-    if (e.isComposing || e.altKey || e.repeat) return;
-    const mod = MAC ? e.metaKey : e.ctrlKey;
-    if (!mod || !e.shiftKey || String(e.key).toLowerCase() !== 'd') return;
-    if (inTextField(e)) return;
-    e.preventDefault();
-    openPane();
-  });
-
-  (window.MuseShortcutRows = window.MuseShortcutRows || []).push({ keys: [MOD, 'Shift', 'D'], action: 'Open the review pane.' });
+  // Ctrl+Shift+D (Cmd on macOS) is the shell's shortcut (app.js), which toggles this pane. It is not handled here too: a second handler
+  // would open the pane again straight after the shell hid it, so the key could never close Review (B-96).
+  (window.MuseShortcutRows = window.MuseShortcutRows || []).push({ keys: [MOD, 'Shift', 'D'], action: 'Show or hide the review pane.' });
 
   // A button for the newest reply. Each function in this list is called with the reply's element and draws what it returns.
   (window.MuseTurnExtras = window.MuseTurnExtras || []).push(function reviewTurnExtra(turn) {

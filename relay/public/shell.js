@@ -1,7 +1,7 @@
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __esm = (fn, res, err) => function __init() {
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: !0, configurable: !0, writable: !0, value }) : obj[key] = value;
+var __esm = (fn, res, err) => function() {
   if (err) throw err[0];
   try {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
@@ -11,65 +11,58 @@ var __esm = (fn, res, err) => function __init() {
 };
 var __export = (target, all) => {
   for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+    __defProp(target, name, { get: all[name], enumerable: !0 });
 };
-var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key != "symbol" ? key + "" : key, value);
 
 // mobile/plugins/unifiedpush/src/core.js
 function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return value !== null && typeof value == "object" && !Array.isArray(value);
 }
 function cleanText(value, max) {
-  if (typeof value !== "string") return "";
-  return value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
+  return typeof value != "string" ? "" : value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
 }
 function isRoute(value) {
-  return typeof value === "string" && ROUTE_RE.test(value);
+  return typeof value == "string" && ROUTE_RE.test(value);
 }
 function normaliseInstance(value) {
-  if (value === void 0 || value === null || value === "") return DEFAULT_INSTANCE;
-  if (typeof value !== "string" || !INSTANCE_RE.test(value)) {
+  if (value == null || value === "") return DEFAULT_INSTANCE;
+  if (typeof value != "string" || !INSTANCE_RE.test(value))
     throw new UnifiedPushError("bad-instance", "A registration name is 1 to 64 letters, digits, dots, dashes or underscores.");
-  }
   return value;
 }
 function decodeBase64(text) {
-  if (typeof text !== "string" || text.length > Math.ceil(MAX_MESSAGE_BYTES * 4 / 3) + 8) {
+  if (typeof text != "string" || text.length > Math.ceil(MAX_MESSAGE_BYTES * 4 / 3) + 8)
     throw new UnifiedPushError("bad-message", "The push message is not base64 text.");
-  }
-  const standard = text.replace(/-/g, "+").replace(/_/g, "/");
-  if (!BASE64_RE.test(standard)) {
+  let standard = text.replace(/-/g, "+").replace(/_/g, "/");
+  if (!BASE64_RE.test(standard))
     throw new UnifiedPushError("bad-message", "The push message is not base64 text.");
-  }
-  const unpadded = standard.replace(/=+$/, "");
-  if (unpadded.length % 4 === 1) {
+  let unpadded = standard.replace(/=+$/, "");
+  if (unpadded.length % 4 === 1)
     throw new UnifiedPushError("bad-message", "The push message is not base64 text.");
-  }
-  const padded = unpadded + "=".repeat((4 - unpadded.length % 4) % 4);
-  let binary;
+  let padded = unpadded + "=".repeat((4 - unpadded.length % 4) % 4), binary;
   try {
     binary = atob(padded);
   } catch {
     throw new UnifiedPushError("bad-message", "The push message is not base64 text.");
   }
-  if (binary.length > MAX_MESSAGE_BYTES) {
+  if (binary.length > MAX_MESSAGE_BYTES)
     throw new UnifiedPushError("message-too-large", "The push message is larger than the 256 KB limit.");
-  }
-  const bytes = new Uint8Array(binary.length);
+  let bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
 function decodeUtf8(bytes) {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: !0 }).decode(bytes);
   } catch {
     return null;
   }
 }
 function parseJsonObject(text) {
-  if (typeof text !== "string" || text.trimStart()[0] !== "{") return null;
+  if (typeof text != "string" || text.trimStart()[0] !== "{") return null;
   try {
-    const value = JSON.parse(text);
+    let value = JSON.parse(text);
     return isPlainObject(value) ? value : null;
   } catch {
     return null;
@@ -77,21 +70,13 @@ function parseJsonObject(text) {
 }
 function parsePushPayload(value) {
   if (!isPlainObject(value) || value.v !== 1 || !PUSH_KINDS.includes(value.kind)) return null;
-  const title = cleanText(value.title, 120) || "Plenum";
-  const body = cleanText(value.body, 240) || "Plenum has an update.";
-  const tag = typeof value.tag === "string" && TAG_RE.test(value.tag) ? value.tag : "plenum";
-  const tap = isRoute(value.tap) ? value.tap : "/#home";
-  const firstLine = cleanText(value.firstLine, 200);
-  const actions = [];
-  if (Array.isArray(value.actions)) {
-    for (const entry of value.actions) {
+  let title = cleanText(value.title, 120) || "Plenum", body = cleanText(value.body, 240) || "Plenum has an update.", tag = typeof value.tag == "string" && TAG_RE.test(value.tag) ? value.tag : "plenum", tap = isRoute(value.tap) ? value.tap : "/#home", firstLine = cleanText(value.firstLine, 200), actions = [];
+  if (Array.isArray(value.actions))
+    for (let entry of value.actions) {
       if (actions.length >= 3) break;
-      if (isPlainObject(entry) && PUSH_ACTIONS.includes(entry.action) && isRoute(entry.route)) {
-        actions.push({ action: entry.action, title: cleanText(entry.title, 40) || entry.action, route: entry.route });
-      }
+      isPlainObject(entry) && PUSH_ACTIONS.includes(entry.action) && isRoute(entry.route) && actions.push({ action: entry.action, title: cleanText(entry.title, 40) || entry.action, route: entry.route });
     }
-  }
-  const ids = isPlainObject(value.ids) ? value.ids : {};
+  let ids = isPlainObject(value.ids) ? value.ids : {};
   return {
     v: 1,
     kind: value.kind,
@@ -109,198 +94,109 @@ function parsePushPayload(value) {
   };
 }
 function routeForAction(action, firstLine) {
-  if (action.action !== "approve" || !firstLine) return action.route;
-  return `${action.route}&line=${encodeURIComponent(firstLine)}`;
+  return action.action !== "approve" || !firstLine ? action.route : `${action.route}&line=${encodeURIComponent(firstLine)}`;
 }
 function channelForKind(kind) {
-  if (kind === "approval" || kind === "handover") return NOTIFICATION_CHANNELS.approvals;
-  if (kind === "limit") return NOTIFICATION_CHANNELS.limits;
-  return NOTIFICATION_CHANNELS.finished;
+  return kind === "approval" || kind === "handover" ? NOTIFICATION_CHANNELS.approvals : kind === "limit" ? NOTIFICATION_CHANNELS.limits : NOTIFICATION_CHANNELS.finished;
 }
 function parseMessageEvent(event) {
   if (!isPlainObject(event)) throw new UnifiedPushError("bad-event", "The push event is not an object.");
-  const instance = normaliseInstance(event.instance);
-  const decrypted = event.decrypted === true;
-  const bytes = decodeBase64(event.content);
-  const text = decrypted ? decodeUtf8(bytes) : null;
-  const payload = text === null ? null : parsePushPayload(parseJsonObject(text));
+  let instance = normaliseInstance(event.instance), decrypted = event.decrypted === !0, bytes = decodeBase64(event.content), text = decrypted ? decodeUtf8(bytes) : null, payload = text === null ? null : parsePushPayload(parseJsonObject(text));
   return { instance, decrypted, bytes, text, payload };
 }
 function parseEndpointEvent(event) {
   if (!isPlainObject(event)) throw new UnifiedPushError("bad-event", "The endpoint event is not an object.");
-  const instance = normaliseInstance(event.instance);
-  if (typeof event.url !== "string" || !HTTPS_URL_RE.test(event.url)) {
+  let instance = normaliseInstance(event.instance);
+  if (typeof event.url != "string" || !HTTPS_URL_RE.test(event.url))
     throw new UnifiedPushError("endpoint-not-https", "The push app gave an address that is not https.");
-  }
-  const keys = isPlainObject(event.pubKeySet) && typeof event.pubKeySet.pubKey === "string" && BASE64URL_RE.test(event.pubKeySet.pubKey) && typeof event.pubKeySet.auth === "string" && BASE64URL_RE.test(event.pubKeySet.auth) ? { pubKey: event.pubKeySet.pubKey, auth: event.pubKeySet.auth } : null;
-  return { instance, url: event.url, temporary: event.temporary === true, keys };
+  let keys = isPlainObject(event.pubKeySet) && typeof event.pubKeySet.pubKey == "string" && BASE64URL_RE.test(event.pubKeySet.pubKey) && typeof event.pubKeySet.auth == "string" && BASE64URL_RE.test(event.pubKeySet.auth) ? { pubKey: event.pubKeySet.pubKey, auth: event.pubKeySet.auth } : null;
+  return { instance, url: event.url, temporary: event.temporary === !0, keys };
 }
-var UNIFIEDPUSH_EVENTS, FAILED_REASONS, DEFAULT_INSTANCE, MAX_MESSAGE_BYTES, PUSH_KINDS, PUSH_ACTIONS, NOTIFICATION_CHANNELS, INSTANCE_RE, BASE64URL_RE, BASE64_RE, HTTPS_URL_RE, TAG_RE, ROUTE_RE, UnifiedPushError;
-var init_core = __esm({
+var UNIFIEDPUSH_EVENTS, FAILED_REASONS, DEFAULT_INSTANCE, MAX_MESSAGE_BYTES, PUSH_KINDS, PUSH_ACTIONS, NOTIFICATION_CHANNELS, INSTANCE_RE, BASE64URL_RE, BASE64_RE, HTTPS_URL_RE, TAG_RE, ROUTE_RE, UnifiedPushError, init_core = __esm({
   "mobile/plugins/unifiedpush/src/core.js"() {
-    UNIFIEDPUSH_EVENTS = Object.freeze(["endpoint", "registrationFailed", "unregistered", "tempUnavailable", "message"]);
-    FAILED_REASONS = Object.freeze(["INTERNAL_ERROR", "NETWORK", "ACTION_REQUIRED", "VAPID_REQUIRED"]);
-    DEFAULT_INSTANCE = "default";
-    MAX_MESSAGE_BYTES = 256 * 1024;
-    PUSH_KINDS = Object.freeze(["approval", "handover", "finished", "failed", "limit", "test"]);
-    PUSH_ACTIONS = Object.freeze(["deny", "stop", "approve"]);
-    NOTIFICATION_CHANNELS = Object.freeze({
+    UNIFIEDPUSH_EVENTS = Object.freeze(["endpoint", "registrationFailed", "unregistered", "tempUnavailable", "message"]), FAILED_REASONS = Object.freeze(["INTERNAL_ERROR", "NETWORK", "ACTION_REQUIRED", "VAPID_REQUIRED"]), DEFAULT_INSTANCE = "default", MAX_MESSAGE_BYTES = 256 * 1024, PUSH_KINDS = Object.freeze(["approval", "handover", "finished", "failed", "limit", "test"]), PUSH_ACTIONS = Object.freeze(["deny", "stop", "approve"]), NOTIFICATION_CHANNELS = Object.freeze({
       approvals: "plenum-approvals",
       finished: "plenum-finished",
       limits: "plenum-limits"
-    });
-    INSTANCE_RE = /^[A-Za-z0-9._-]{1,64}$/;
-    BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
-    BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
-    HTTPS_URL_RE = /^https:\/\/\S{1,2000}$/;
-    TAG_RE = /^plenum-[0-9a-f]{32}$/;
-    ROUTE_RE = /^\/#[\x21-\x7e]{1,200}$/;
-    UnifiedPushError = class extends Error {
+    }), INSTANCE_RE = /^[A-Za-z0-9._-]{1,64}$/, BASE64URL_RE = /^[A-Za-z0-9_-]+$/, BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/, HTTPS_URL_RE = /^https:\/\/\S{1,2000}$/, TAG_RE = /^plenum-[0-9a-f]{32}$/, ROUTE_RE = /^\/#[\x21-\x7e]{1,200}$/, UnifiedPushError = class extends Error {
       constructor(code, message) {
-        super(message);
-        this.name = "UnifiedPushError";
-        this.code = code;
+        super(message), this.name = "UnifiedPushError", this.code = code;
       }
     };
   }
 });
 
 // mobile/node_modules/@capacitor/core/dist/index.js
-var ExceptionCode, CapacitorException, getPlatformId, createCapacitor, initCapacitorGlobal, Capacitor, registerPlugin, WebPlugin, WebView, encode, decode, CapacitorCookiesPluginWeb, CapacitorCookies, readBlobAsBase64, normalizeHttpHeaders, buildUrlParams, buildRequestInit, CapacitorHttpPluginWeb, CapacitorHttp, SystemBarsStyle, SystemBarType, SystemBarsPluginWeb, SystemBars;
-var init_dist = __esm({
+var ExceptionCode, CapacitorException, getPlatformId, createCapacitor, initCapacitorGlobal, Capacitor, registerPlugin, WebPlugin, WebView, encode, decode, CapacitorCookiesPluginWeb, CapacitorCookies, readBlobAsBase64, normalizeHttpHeaders, buildUrlParams, buildRequestInit, CapacitorHttpPluginWeb, CapacitorHttp, SystemBarsStyle, SystemBarType, SystemBarsPluginWeb, SystemBars, init_dist = __esm({
   "mobile/node_modules/@capacitor/core/dist/index.js"() {
     (function(ExceptionCode2) {
-      ExceptionCode2["Unimplemented"] = "UNIMPLEMENTED";
-      ExceptionCode2["Unavailable"] = "UNAVAILABLE";
+      ExceptionCode2.Unimplemented = "UNIMPLEMENTED", ExceptionCode2.Unavailable = "UNAVAILABLE";
     })(ExceptionCode || (ExceptionCode = {}));
     CapacitorException = class extends Error {
       constructor(message, code, data) {
-        super(message);
-        this.message = message;
-        this.code = code;
-        this.data = data;
+        super(message), this.message = message, this.code = code, this.data = data;
       }
-    };
-    getPlatformId = (win) => {
+    }, getPlatformId = (win) => {
       var _a, _b;
-      if (win === null || win === void 0 ? void 0 : win.androidBridge) {
-        return "android";
-      } else if ((_b = (_a = win === null || win === void 0 ? void 0 : win.webkit) === null || _a === void 0 ? void 0 : _a.messageHandlers) === null || _b === void 0 ? void 0 : _b.bridge) {
-        return "ios";
-      } else {
-        return "web";
-      }
-    };
-    createCapacitor = (win) => {
-      const capCustomPlatform = win.CapacitorCustomPlatform || null;
-      const cap = win.Capacitor || {};
-      const Plugins = cap.Plugins = cap.Plugins || {};
-      const getPlatform = () => {
-        return capCustomPlatform !== null ? capCustomPlatform.name : getPlatformId(win);
-      };
-      const isNativePlatform = () => getPlatform() !== "web";
-      const isPluginAvailable = (pluginName) => {
-        const plugin = registeredPlugins.get(pluginName);
-        if (plugin === null || plugin === void 0 ? void 0 : plugin.platforms.has(getPlatform())) {
-          return true;
-        }
-        if (getPluginHeader(pluginName)) {
-          return true;
-        }
-        return false;
-      };
-      const getPluginHeader = (pluginName) => {
+      return win?.androidBridge ? "android" : !((_b = (_a = win?.webkit) === null || _a === void 0 ? void 0 : _a.messageHandlers) === null || _b === void 0) && _b.bridge ? "ios" : "web";
+    }, createCapacitor = (win) => {
+      let capCustomPlatform = win.CapacitorCustomPlatform || null, cap = win.Capacitor || {}, Plugins = cap.Plugins = cap.Plugins || {}, getPlatform = () => capCustomPlatform !== null ? capCustomPlatform.name : getPlatformId(win), isNativePlatform = () => getPlatform() !== "web", isPluginAvailable = (pluginName) => {
+        let plugin = registeredPlugins.get(pluginName);
+        return !!(plugin?.platforms.has(getPlatform()) || getPluginHeader(pluginName));
+      }, getPluginHeader = (pluginName) => {
         var _a;
         return (_a = cap.PluginHeaders) === null || _a === void 0 ? void 0 : _a.find((h) => h.name === pluginName);
-      };
-      const handleError = (err) => win.console.error(err);
-      const registeredPlugins = /* @__PURE__ */ new Map();
-      const registerPlugin2 = (pluginName, jsImplementations = {}) => {
-        const registeredPlugin = registeredPlugins.get(pluginName);
-        if (registeredPlugin) {
-          console.warn(`Capacitor plugin "${pluginName}" already registered. Cannot register plugins twice.`);
-          return registeredPlugin.proxy;
-        }
-        const platform = getPlatform();
-        const pluginHeader = getPluginHeader(pluginName);
-        let jsImplementation;
-        const loadPluginImplementation = async () => {
-          if (!jsImplementation && platform in jsImplementations) {
-            jsImplementation = typeof jsImplementations[platform] === "function" ? jsImplementation = await jsImplementations[platform]() : jsImplementation = jsImplementations[platform];
-          } else if (capCustomPlatform !== null && !jsImplementation && "web" in jsImplementations) {
-            jsImplementation = typeof jsImplementations["web"] === "function" ? jsImplementation = await jsImplementations["web"]() : jsImplementation = jsImplementations["web"];
-          }
-          return jsImplementation;
-        };
-        const createPluginMethod = (impl, prop) => {
+      }, handleError = (err) => win.console.error(err), registeredPlugins = /* @__PURE__ */ new Map(), registerPlugin2 = (pluginName, jsImplementations = {}) => {
+        let registeredPlugin = registeredPlugins.get(pluginName);
+        if (registeredPlugin)
+          return console.warn(`Capacitor plugin "${pluginName}" already registered. Cannot register plugins twice.`), registeredPlugin.proxy;
+        let platform = getPlatform(), pluginHeader = getPluginHeader(pluginName), jsImplementation, loadPluginImplementation = async () => (!jsImplementation && platform in jsImplementations ? jsImplementation = typeof jsImplementations[platform] == "function" ? jsImplementation = await jsImplementations[platform]() : jsImplementation = jsImplementations[platform] : capCustomPlatform !== null && !jsImplementation && "web" in jsImplementations && (jsImplementation = typeof jsImplementations.web == "function" ? jsImplementation = await jsImplementations.web() : jsImplementation = jsImplementations.web), jsImplementation), createPluginMethod = (impl, prop) => {
           var _a, _b;
           if (pluginHeader) {
-            const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
-            if (methodHeader) {
-              if (methodHeader.rtype === "promise") {
-                return (options) => cap.nativePromise(pluginName, prop.toString(), options);
-              } else {
-                return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
-              }
-            } else if (impl) {
+            let methodHeader = pluginHeader?.methods.find((m) => prop === m.name);
+            if (methodHeader)
+              return methodHeader.rtype === "promise" ? (options) => cap.nativePromise(pluginName, prop.toString(), options) : (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
+            if (impl)
               return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
-            }
-          } else if (impl) {
-            return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
           } else {
+            if (impl)
+              return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
             throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
           }
-        };
-        const createPluginMethodWrapper = (prop) => {
-          let remove;
-          const wrapper = (...args) => {
-            const p = loadPluginImplementation().then((impl) => {
-              const fn = createPluginMethod(impl, prop);
+        }, createPluginMethodWrapper = (prop) => {
+          let remove, wrapper = (...args) => {
+            let p = loadPluginImplementation().then((impl) => {
+              let fn = createPluginMethod(impl, prop);
               if (fn) {
-                const p2 = fn(...args);
-                remove = p2 === null || p2 === void 0 ? void 0 : p2.remove;
-                return p2;
-              } else {
+                let p2 = fn(...args);
+                return remove = p2?.remove, p2;
+              } else
                 throw new CapacitorException(`"${pluginName}.${prop}()" is not implemented on ${platform}`, ExceptionCode.Unimplemented);
-              }
             });
-            if (prop === "addListener") {
-              p.remove = async () => remove();
-            }
-            return p;
+            return prop === "addListener" && (p.remove = async () => remove()), p;
           };
-          wrapper.toString = () => `${prop.toString()}() { [capacitor code] }`;
-          Object.defineProperty(wrapper, "name", {
+          return wrapper.toString = () => `${prop.toString()}() { [capacitor code] }`, Object.defineProperty(wrapper, "name", {
             value: prop,
-            writable: false,
-            configurable: false
-          });
-          return wrapper;
-        };
-        const addListener = createPluginMethodWrapper("addListener");
-        const removeListener = createPluginMethodWrapper("removeListener");
-        const addListenerNative = (eventName, callback) => {
-          const call = addListener({ eventName }, callback);
-          const remove = async () => {
-            const callbackId = await call;
+            writable: !1,
+            configurable: !1
+          }), wrapper;
+        }, addListener = createPluginMethodWrapper("addListener"), removeListener = createPluginMethodWrapper("removeListener"), addListenerNative = (eventName, callback) => {
+          let call = addListener({ eventName }, callback), remove = async () => {
+            let callbackId = await call;
             removeListener({
               eventName,
               callbackId
             }, callback);
-          };
-          const p = new Promise((resolve) => call.then(() => resolve({ remove })));
-          p.remove = async () => {
-            console.warn(`Using addListener() without 'await' is deprecated.`);
-            await remove();
-          };
-          return p;
-        };
-        const proxy3 = new Proxy({}, {
+          }, p = new Promise((resolve) => call.then(() => resolve({ remove })));
+          return p.remove = async () => {
+            console.warn("Using addListener() without 'await' is deprecated."), await remove();
+          }, p;
+        }, proxy3 = new Proxy({}, {
           get(_, prop) {
             switch (prop) {
               // https://github.com/facebook/react/issues/20030
               case "$$typeof":
-                return void 0;
+                return;
               case "toJSON":
                 return () => ({});
               case "addListener":
@@ -312,72 +208,37 @@ var init_dist = __esm({
             }
           }
         });
-        Plugins[pluginName] = proxy3;
-        registeredPlugins.set(pluginName, {
+        return Plugins[pluginName] = proxy3, registeredPlugins.set(pluginName, {
           name: pluginName,
           proxy: proxy3,
           platforms: /* @__PURE__ */ new Set([...Object.keys(jsImplementations), ...pluginHeader ? [platform] : []])
-        });
-        return proxy3;
+        }), proxy3;
       };
-      if (!cap.convertFileSrc) {
-        cap.convertFileSrc = (filePath) => filePath;
-      }
-      cap.getPlatform = getPlatform;
-      cap.handleError = handleError;
-      cap.isNativePlatform = isNativePlatform;
-      cap.isPluginAvailable = isPluginAvailable;
-      cap.registerPlugin = registerPlugin2;
-      cap.Exception = CapacitorException;
-      cap.DEBUG = !!cap.DEBUG;
-      cap.isLoggingEnabled = !!cap.isLoggingEnabled;
-      return cap;
-    };
-    initCapacitorGlobal = (win) => win.Capacitor = createCapacitor(win);
-    Capacitor = /* @__PURE__ */ initCapacitorGlobal(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : {});
-    registerPlugin = Capacitor.registerPlugin;
-    WebPlugin = class {
+      return cap.convertFileSrc || (cap.convertFileSrc = (filePath) => filePath), cap.getPlatform = getPlatform, cap.handleError = handleError, cap.isNativePlatform = isNativePlatform, cap.isPluginAvailable = isPluginAvailable, cap.registerPlugin = registerPlugin2, cap.Exception = CapacitorException, cap.DEBUG = !!cap.DEBUG, cap.isLoggingEnabled = !!cap.isLoggingEnabled, cap;
+    }, initCapacitorGlobal = (win) => win.Capacitor = createCapacitor(win), Capacitor = /* @__PURE__ */ initCapacitorGlobal(typeof globalThis < "u" ? globalThis : typeof self < "u" ? self : typeof window < "u" ? window : typeof global < "u" ? global : {}), registerPlugin = Capacitor.registerPlugin, WebPlugin = class {
       constructor() {
-        this.listeners = {};
-        this.retainedEventArguments = {};
-        this.windowListeners = {};
+        this.listeners = {}, this.retainedEventArguments = {}, this.windowListeners = {};
       }
       addListener(eventName, listenerFunc) {
-        let firstListener = false;
-        const listeners = this.listeners[eventName];
-        if (!listeners) {
-          this.listeners[eventName] = [];
-          firstListener = true;
-        }
-        this.listeners[eventName].push(listenerFunc);
-        const windowListener = this.windowListeners[eventName];
-        if (windowListener && !windowListener.registered) {
-          this.addWindowListener(windowListener);
-        }
-        if (firstListener) {
-          this.sendRetainedArgumentsForEvent(eventName);
-        }
-        const remove = async () => this.removeListener(eventName, listenerFunc);
-        const p = Promise.resolve({ remove });
-        return p;
+        let firstListener = !1;
+        this.listeners[eventName] || (this.listeners[eventName] = [], firstListener = !0), this.listeners[eventName].push(listenerFunc);
+        let windowListener = this.windowListeners[eventName];
+        windowListener && !windowListener.registered && this.addWindowListener(windowListener), firstListener && this.sendRetainedArgumentsForEvent(eventName);
+        let remove = async () => this.removeListener(eventName, listenerFunc);
+        return Promise.resolve({ remove });
       }
       async removeAllListeners() {
         this.listeners = {};
-        for (const listener in this.windowListeners) {
+        for (let listener in this.windowListeners)
           this.removeWindowListener(this.windowListeners[listener]);
-        }
         this.windowListeners = {};
       }
       notifyListeners(eventName, data, retainUntilConsumed) {
-        const listeners = this.listeners[eventName];
+        let listeners = this.listeners[eventName];
         if (!listeners) {
           if (retainUntilConsumed) {
             let args = this.retainedEventArguments[eventName];
-            if (!args) {
-              args = [];
-            }
-            args.push(data);
-            this.retainedEventArguments[eventName] = args;
+            args || (args = []), args.push(data), this.retainedEventArguments[eventName] = args;
           }
           return;
         }
@@ -385,11 +246,11 @@ var init_dist = __esm({
       }
       hasListeners(eventName) {
         var _a;
-        return !!((_a = this.listeners[eventName]) === null || _a === void 0 ? void 0 : _a.length);
+        return !!(!((_a = this.listeners[eventName]) === null || _a === void 0) && _a.length);
       }
       registerWindowListener(windowEventName, pluginEventName) {
         this.windowListeners[pluginEventName] = {
-          registered: false,
+          registered: !1,
           windowEventName,
           pluginEventName,
           handler: (event) => {
@@ -404,64 +265,37 @@ var init_dist = __esm({
         return new Capacitor.Exception(msg, ExceptionCode.Unavailable);
       }
       async removeListener(eventName, listenerFunc) {
-        const listeners = this.listeners[eventName];
-        if (!listeners) {
+        let listeners = this.listeners[eventName];
+        if (!listeners)
           return;
-        }
-        const index = listeners.indexOf(listenerFunc);
-        if (index !== -1) {
-          this.listeners[eventName].splice(index, 1);
-        }
-        if (!this.listeners[eventName].length) {
-          this.removeWindowListener(this.windowListeners[eventName]);
-        }
+        let index = listeners.indexOf(listenerFunc);
+        index !== -1 && this.listeners[eventName].splice(index, 1), this.listeners[eventName].length || this.removeWindowListener(this.windowListeners[eventName]);
       }
       addWindowListener(handle) {
-        window.addEventListener(handle.windowEventName, handle.handler);
-        handle.registered = true;
+        window.addEventListener(handle.windowEventName, handle.handler), handle.registered = !0;
       }
       removeWindowListener(handle) {
-        if (!handle) {
-          return;
-        }
-        window.removeEventListener(handle.windowEventName, handle.handler);
-        handle.registered = false;
+        handle && (window.removeEventListener(handle.windowEventName, handle.handler), handle.registered = !1);
       }
       sendRetainedArgumentsForEvent(eventName) {
-        const args = this.retainedEventArguments[eventName];
-        if (!args) {
-          return;
-        }
-        delete this.retainedEventArguments[eventName];
-        args.forEach((arg) => {
+        let args = this.retainedEventArguments[eventName];
+        args && (delete this.retainedEventArguments[eventName], args.forEach((arg) => {
           this.notifyListeners(eventName, arg);
-        });
+        }));
       }
-    };
-    WebView = /* @__PURE__ */ registerPlugin("WebView");
-    encode = (str) => encodeURIComponent(str).replace(/%(2[346B]|5E|60|7C)/g, decodeURIComponent).replace(/[()]/g, escape);
-    decode = (str) => str.replace(/(%[\dA-F]{2})+/gi, decodeURIComponent);
-    CapacitorCookiesPluginWeb = class extends WebPlugin {
+    }, WebView = /* @__PURE__ */ registerPlugin("WebView"), encode = (str) => encodeURIComponent(str).replace(/%(2[346B]|5E|60|7C)/g, decodeURIComponent).replace(/[()]/g, escape), decode = (str) => str.replace(/(%[\dA-F]{2})+/gi, decodeURIComponent), CapacitorCookiesPluginWeb = class extends WebPlugin {
       async getCookies() {
-        const cookies = document.cookie;
-        const cookieMap = {};
-        cookies.split(";").forEach((cookie) => {
+        let cookies = document.cookie, cookieMap = {};
+        return cookies.split(";").forEach((cookie) => {
           if (cookie.length <= 0)
             return;
           let [key, value] = cookie.replace(/=/, "CAP_COOKIE").split("CAP_COOKIE");
-          key = decode(key).trim();
-          value = decode(value).trim();
-          cookieMap[key] = value;
-        });
-        return cookieMap;
+          key = decode(key).trim(), value = decode(value).trim(), cookieMap[key] = value;
+        }), cookieMap;
       }
       async setCookie(options) {
         try {
-          const encodedKey = encode(options.key);
-          const encodedValue = encode(options.value);
-          const expires = options.expires ? `; expires=${options.expires.replace("expires=", "")}` : "";
-          const path = (options.path || "/").replace("path=", "");
-          const domain = options.url != null && options.url.length > 0 ? `domain=${options.url}` : "";
+          let encodedKey = encode(options.key), encodedValue = encode(options.value), expires = options.expires ? `; expires=${options.expires.replace("expires=", "")}` : "", path = (options.path || "/").replace("path=", ""), domain = options.url != null && options.url.length > 0 ? `domain=${options.url}` : "";
           document.cookie = `${encodedKey}=${encodedValue || ""}${expires}; path=${path}; ${domain};`;
         } catch (error) {
           return Promise.reject(error);
@@ -476,10 +310,9 @@ var init_dist = __esm({
       }
       async clearCookies() {
         try {
-          const cookies = document.cookie.split(";") || [];
-          for (const cookie of cookies) {
+          let cookies = document.cookie.split(";") || [];
+          for (let cookie of cookies)
             document.cookie = cookie.replace(/^ +/, "").replace(/=.*/, `=;expires=${(/* @__PURE__ */ new Date()).toUTCString()};path=/`);
-          }
         } catch (error) {
           return Promise.reject(error);
         }
@@ -491,118 +324,69 @@ var init_dist = __esm({
           return Promise.reject(error);
         }
       }
-    };
-    CapacitorCookies = registerPlugin("CapacitorCookies", {
+    }, CapacitorCookies = registerPlugin("CapacitorCookies", {
       web: () => new CapacitorCookiesPluginWeb()
-    });
-    readBlobAsBase64 = async (blob) => new Promise((resolve, reject) => {
-      const reader = new FileReader();
+    }), readBlobAsBase64 = async (blob) => new Promise((resolve, reject) => {
+      let reader = new FileReader();
       reader.onload = () => {
-        const base64String = reader.result;
+        let base64String = reader.result;
         resolve(base64String.indexOf(",") >= 0 ? base64String.split(",")[1] : base64String);
-      };
-      reader.onerror = (error) => reject(error);
-      reader.readAsDataURL(blob);
-    });
-    normalizeHttpHeaders = (headers = {}) => {
-      const originalKeys = Object.keys(headers);
-      const loweredKeys = Object.keys(headers).map((k) => k.toLocaleLowerCase());
-      const normalized = loweredKeys.reduce((acc, key, index) => {
-        acc[key] = headers[originalKeys[index]];
-        return acc;
-      }, {});
-      return normalized;
-    };
-    buildUrlParams = (params, shouldEncode = true) => {
-      if (!params)
-        return null;
-      const output = Object.entries(params).reduce((accumulator, entry) => {
-        const [key, value] = entry;
-        let encodedValue;
-        let item;
-        if (Array.isArray(value)) {
-          item = "";
-          value.forEach((str) => {
-            encodedValue = shouldEncode ? encodeURIComponent(str) : str;
-            item += `${key}=${encodedValue}&`;
-          });
-          item.slice(0, -1);
-        } else {
-          encodedValue = shouldEncode ? encodeURIComponent(value) : value;
-          item = `${key}=${encodedValue}`;
-        }
-        return `${accumulator}&${item}`;
-      }, "");
-      return output.substr(1);
-    };
-    buildRequestInit = (options, extra = {}) => {
-      const output = Object.assign({ method: options.method || "GET", headers: options.headers }, extra);
-      const headers = normalizeHttpHeaders(options.headers);
-      const type = headers["content-type"] || "";
-      if (typeof options.data === "string") {
+      }, reader.onerror = (error) => reject(error), reader.readAsDataURL(blob);
+    }), normalizeHttpHeaders = (headers = {}) => {
+      let originalKeys = Object.keys(headers);
+      return Object.keys(headers).map((k) => k.toLocaleLowerCase()).reduce((acc, key, index) => (acc[key] = headers[originalKeys[index]], acc), {});
+    }, buildUrlParams = (params, shouldEncode = !0) => params ? Object.entries(params).reduce((accumulator, entry) => {
+      let [key, value] = entry, encodedValue, item;
+      return Array.isArray(value) ? (item = "", value.forEach((str) => {
+        encodedValue = shouldEncode ? encodeURIComponent(str) : str, item += `${key}=${encodedValue}&`;
+      }), item.slice(0, -1)) : (encodedValue = shouldEncode ? encodeURIComponent(value) : value, item = `${key}=${encodedValue}`), `${accumulator}&${item}`;
+    }, "").substr(1) : null, buildRequestInit = (options, extra = {}) => {
+      let output = Object.assign({ method: options.method || "GET", headers: options.headers }, extra), type = normalizeHttpHeaders(options.headers)["content-type"] || "";
+      if (typeof options.data == "string")
         output.body = options.data;
-      } else if (type.includes("application/x-www-form-urlencoded")) {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(options.data || {})) {
+      else if (type.includes("application/x-www-form-urlencoded")) {
+        let params = new URLSearchParams();
+        for (let [key, value] of Object.entries(options.data || {}))
           params.set(key, value);
-        }
         output.body = params.toString();
       } else if (type.includes("multipart/form-data") || options.data instanceof FormData) {
-        const form = new FormData();
-        if (options.data instanceof FormData) {
+        let form = new FormData();
+        if (options.data instanceof FormData)
           options.data.forEach((value, key) => {
             form.append(key, value);
           });
-        } else {
-          for (const key of Object.keys(options.data)) {
+        else
+          for (let key of Object.keys(options.data))
             form.append(key, options.data[key]);
-          }
-        }
         output.body = form;
-        const headers2 = new Headers(output.headers);
-        headers2.delete("content-type");
-        output.headers = headers2;
-      } else if (type.includes("application/json") || typeof options.data === "object") {
-        output.body = JSON.stringify(options.data);
-      }
+        let headers2 = new Headers(output.headers);
+        headers2.delete("content-type"), output.headers = headers2;
+      } else (type.includes("application/json") || typeof options.data == "object") && (output.body = JSON.stringify(options.data));
       return output;
-    };
-    CapacitorHttpPluginWeb = class extends WebPlugin {
+    }, CapacitorHttpPluginWeb = class extends WebPlugin {
       /**
        * Perform an Http request given a set of options
        * @param options Options to build the HTTP request
        */
       async request(options) {
-        const requestInit = buildRequestInit(options, options.webFetchExtra);
-        const urlParams = buildUrlParams(options.params, options.shouldEncodeUrlParams);
-        const url = urlParams ? `${options.url}?${urlParams}` : options.url;
-        const response = await fetch(url, requestInit);
-        const contentType = response.headers.get("content-type") || "";
-        let { responseType = "text" } = response.ok ? options : {};
-        if (contentType.includes("application/json")) {
-          responseType = "json";
-        }
-        let data;
-        let blob;
+        let requestInit = buildRequestInit(options, options.webFetchExtra), urlParams = buildUrlParams(options.params, options.shouldEncodeUrlParams), url = urlParams ? `${options.url}?${urlParams}` : options.url, response = await fetch(url, requestInit), contentType = response.headers.get("content-type") || "", { responseType = "text" } = response.ok ? options : {};
+        contentType.includes("application/json") && (responseType = "json");
+        let data, blob;
         switch (responseType) {
           case "arraybuffer":
           case "blob":
-            blob = await response.blob();
-            data = await readBlobAsBase64(blob);
+            blob = await response.blob(), data = await readBlobAsBase64(blob);
             break;
           case "json":
             data = await response.json();
             break;
-          case "document":
-          case "text":
           default:
             data = await response.text();
         }
-        const headers = {};
-        response.headers.forEach((value, key) => {
+        let headers = {};
+        return response.headers.forEach((value, key) => {
           headers[key] = value;
-        });
-        return {
+        }), {
           data,
           headers,
           status: response.status,
@@ -644,18 +428,14 @@ var init_dist = __esm({
       async delete(options) {
         return this.request(Object.assign(Object.assign({}, options), { method: "DELETE" }));
       }
-    };
-    CapacitorHttp = registerPlugin("CapacitorHttp", {
+    }, CapacitorHttp = registerPlugin("CapacitorHttp", {
       web: () => new CapacitorHttpPluginWeb()
     });
     (function(SystemBarsStyle2) {
-      SystemBarsStyle2["Dark"] = "DARK";
-      SystemBarsStyle2["Light"] = "LIGHT";
-      SystemBarsStyle2["Default"] = "DEFAULT";
+      SystemBarsStyle2.Dark = "DARK", SystemBarsStyle2.Light = "LIGHT", SystemBarsStyle2.Default = "DEFAULT";
     })(SystemBarsStyle || (SystemBarsStyle = {}));
     (function(SystemBarType2) {
-      SystemBarType2["StatusBar"] = "StatusBar";
-      SystemBarType2["NavigationBar"] = "NavigationBar";
+      SystemBarType2.StatusBar = "StatusBar", SystemBarType2.NavigationBar = "NavigationBar";
     })(SystemBarType || (SystemBarType = {}));
     SystemBarsPluginWeb = class extends WebPlugin {
       async setStyle() {
@@ -670,36 +450,24 @@ var init_dist = __esm({
       async hide() {
         this.unavailable("not available for web");
       }
-    };
-    SystemBars = registerPlugin("SystemBars", {
+    }, SystemBars = registerPlugin("SystemBars", {
       web: () => new SystemBarsPluginWeb()
     });
   }
 });
 
 // mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/definitions.js
-var StorageErrorType, KeychainAccess, StorageError;
-var init_definitions = __esm({
+var StorageErrorType, KeychainAccess, StorageError, init_definitions = __esm({
   "mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/definitions.js"() {
     (function(StorageErrorType2) {
-      StorageErrorType2["missingKey"] = "missingKey";
-      StorageErrorType2["invalidData"] = "invalidData";
-      StorageErrorType2["osError"] = "osError";
-      StorageErrorType2["unknownError"] = "unknownError";
-      StorageErrorType2["missingPrefix"] = "missingPrefix";
+      StorageErrorType2.missingKey = "missingKey", StorageErrorType2.invalidData = "invalidData", StorageErrorType2.osError = "osError", StorageErrorType2.unknownError = "unknownError", StorageErrorType2.missingPrefix = "missingPrefix";
     })(StorageErrorType || (StorageErrorType = {}));
     (function(KeychainAccess2) {
-      KeychainAccess2[KeychainAccess2["whenUnlocked"] = 0] = "whenUnlocked";
-      KeychainAccess2[KeychainAccess2["whenUnlockedThisDeviceOnly"] = 1] = "whenUnlockedThisDeviceOnly";
-      KeychainAccess2[KeychainAccess2["afterFirstUnlock"] = 2] = "afterFirstUnlock";
-      KeychainAccess2[KeychainAccess2["afterFirstUnlockThisDeviceOnly"] = 3] = "afterFirstUnlockThisDeviceOnly";
-      KeychainAccess2[KeychainAccess2["whenPasscodeSetThisDeviceOnly"] = 4] = "whenPasscodeSetThisDeviceOnly";
+      KeychainAccess2[KeychainAccess2.whenUnlocked = 0] = "whenUnlocked", KeychainAccess2[KeychainAccess2.whenUnlockedThisDeviceOnly = 1] = "whenUnlockedThisDeviceOnly", KeychainAccess2[KeychainAccess2.afterFirstUnlock = 2] = "afterFirstUnlock", KeychainAccess2[KeychainAccess2.afterFirstUnlockThisDeviceOnly = 3] = "afterFirstUnlockThisDeviceOnly", KeychainAccess2[KeychainAccess2.whenPasscodeSetThisDeviceOnly = 4] = "whenPasscodeSetThisDeviceOnly";
     })(KeychainAccess || (KeychainAccess = {}));
     StorageError = class extends Error {
       constructor(message, code) {
-        super(message);
-        this.name = "StorageError";
-        this.code = code;
+        super(message), this.name = "StorageError", this.code = code;
       }
     };
   }
@@ -710,37 +478,24 @@ function isStorageErrorType(value) {
   return value !== void 0 && Object.keys(StorageErrorType).includes(value);
 }
 function parseISODate(isoDate) {
-  const match = isoDateRE.exec(isoDate);
+  let match = isoDateRE.exec(isoDate);
   if (match) {
-    const year = Number.parseInt(match[1], 10);
-    const month = Number.parseInt(match[2], 10) - 1;
-    const day = Number.parseInt(match[3], 10);
-    const hour = Number.parseInt(match[4], 10);
-    const minute = Number.parseInt(match[5], 10);
-    const second = Number.parseInt(match[6], 10);
-    const millis = Number.parseInt(match[7], 10);
-    const epochTime = Date.UTC(year, month, day, hour, minute, second, millis);
+    let year = Number.parseInt(match[1], 10), month = Number.parseInt(match[2], 10) - 1, day = Number.parseInt(match[3], 10), hour = Number.parseInt(match[4], 10), minute = Number.parseInt(match[5], 10), second = Number.parseInt(match[6], 10), millis = Number.parseInt(match[7], 10), epochTime = Date.UTC(year, month, day, hour, minute, second, millis);
     return new Date(epochTime);
   }
   return null;
 }
-var SecureStorageBase, isoDateRE;
-var init_base = __esm({
+var SecureStorageBase, isoDateRE, init_base = __esm({
   "mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/base.js"() {
     init_dist();
     init_definitions();
     SecureStorageBase = class _SecureStorageBase extends WebPlugin {
       constructor() {
-        super(...arguments);
-        this.prefix = "capacitor-storage_";
-        this.sync = false;
-        this.access = KeychainAccess.whenUnlocked;
+        super(...arguments), this.prefix = "capacitor-storage_", this.sync = !1, this.access = KeychainAccess.whenUnlocked;
       }
       async setSynchronize(sync) {
-        this.sync = sync;
-        if (Capacitor.getPlatform() === "ios") {
+        if (this.sync = sync, Capacitor.getPlatform() === "ios")
           return this.setSynchronizeKeychain({ sync });
-        }
       }
       async getSynchronize() {
         return this.sync;
@@ -752,30 +507,25 @@ var init_base = __esm({
         try {
           return await operation();
         } catch (error) {
-          if (error instanceof CapacitorException && isStorageErrorType(error.code)) {
-            throw new StorageError(error.message, error.code);
-          }
-          throw error;
+          throw error instanceof CapacitorException && isStorageErrorType(error.code) ? new StorageError(error.message, error.code) : error;
         }
       }
-      async get(key, convertDate = true, sync) {
+      async get(key, convertDate = !0, sync) {
         if (key) {
-          const { data } = await this.tryOperation(async () => this.internalGetItem({
+          let { data } = await this.tryOperation(async () => this.internalGetItem({
             prefixedKey: this.prefixedKey(key),
-            sync: sync !== null && sync !== void 0 ? sync : this.sync
+            sync: sync ?? this.sync
           }));
-          if (data === null) {
+          if (data === null)
             return null;
-          }
           if (convertDate) {
-            const date = parseISODate(data);
-            if (date) {
+            let date = parseISODate(data);
+            if (date)
               return date;
-            }
           }
           try {
             return JSON.parse(data);
-          } catch (_a) {
+          } catch {
             throw new StorageError("Invalid data", StorageErrorType.invalidData);
           }
         }
@@ -783,7 +533,7 @@ var init_base = __esm({
       }
       async getItem(key) {
         if (key) {
-          const { data } = await this.tryOperation(async () => this.internalGetItem({
+          let { data } = await this.tryOperation(async () => this.internalGetItem({
             prefixedKey: this.prefixedKey(key),
             sync: this.sync
           }));
@@ -791,37 +541,31 @@ var init_base = __esm({
         }
         return null;
       }
-      async set(key, data, convertDate = true, sync, access) {
+      async set(key, data, convertDate = !0, sync, access) {
         if (key) {
           let convertedData = data;
-          if (convertDate && data instanceof Date) {
-            convertedData = data.toISOString();
-          }
-          return this.tryOperation(async () => this.internalSetItem({
+          return convertDate && data instanceof Date && (convertedData = data.toISOString()), this.tryOperation(async () => this.internalSetItem({
             prefixedKey: this.prefixedKey(key),
             data: JSON.stringify(convertedData),
-            sync: sync !== null && sync !== void 0 ? sync : this.sync,
-            access: access !== null && access !== void 0 ? access : this.access
+            sync: sync ?? this.sync,
+            access: access ?? this.access
           }));
         }
         return _SecureStorageBase.missingKey();
       }
       async setItem(key, value) {
-        if (key) {
-          return this.tryOperation(async () => this.internalSetItem({
-            prefixedKey: this.prefixedKey(key),
-            data: value,
-            sync: this.sync,
-            access: this.access
-          }));
-        }
-        return _SecureStorageBase.missingKey();
+        return key ? this.tryOperation(async () => this.internalSetItem({
+          prefixedKey: this.prefixedKey(key),
+          data: value,
+          sync: this.sync,
+          access: this.access
+        })) : _SecureStorageBase.missingKey();
       }
       async remove(key, sync) {
         if (key) {
-          const { success } = await this.tryOperation(async () => this.internalRemoveItem({
+          let { success } = await this.tryOperation(async () => this.internalRemoveItem({
             prefixedKey: this.prefixedKey(key),
-            sync: sync !== null && sync !== void 0 ? sync : this.sync
+            sync: sync ?? this.sync
           }));
           return success;
         }
@@ -838,24 +582,22 @@ var init_base = __esm({
         _SecureStorageBase.missingKey();
       }
       async clearItemsWithPrefix(options) {
-        const prefix = this.checkPrefix(options.prefix);
+        let prefix = this.checkPrefix(options.prefix);
         await this.tryOperation(async () => this.internalClearItemsWithPrefix({
           prefix,
           sync: this.sync
         }));
       }
       checkPrefix(prefix) {
-        if (prefix.trim().length === 0) {
+        if (prefix.trim().length === 0)
           throw new StorageError("Non-blank prefix provided", StorageErrorType.missingPrefix);
-        }
         return prefix;
       }
       async keys(sync) {
-        const { keys } = await this.tryOperation(async () => this.internalGetPrefixedKeys({
+        let { keys } = await this.tryOperation(async () => this.internalGetPrefixedKeys({
           prefix: this.prefix,
-          sync: sync !== null && sync !== void 0 ? sync : this.sync
-        }));
-        const prefixLength = this.prefix.length;
+          sync: sync ?? this.sync
+        })), prefixLength = this.prefix.length;
         return keys.map((key) => key.slice(prefixLength));
       }
       async getKeyPrefix() {
@@ -870,8 +612,7 @@ var init_base = __esm({
       static missingKey() {
         throw new StorageError("No key provided", StorageErrorType.missingKey);
       }
-    };
-    isoDateRE = /^"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}).(\d{3})Z"$/u;
+    }, isoDateRE = /^"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2}).(\d{3})Z"$/u;
   }
 });
 
@@ -880,8 +621,7 @@ var web_exports = {};
 __export(web_exports, {
   SecureStorageWeb: () => SecureStorageWeb
 });
-var SecureStorageWeb;
-var init_web = __esm({
+var SecureStorageWeb, init_web = __esm({
   "mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/web.js"() {
     init_base();
     SecureStorageWeb = class extends SecureStorageBase {
@@ -901,18 +641,12 @@ var init_web = __esm({
       // @native
       // eslint-disable-next-line @typescript-eslint/require-await
       async internalRemoveItem(options) {
-        const item = localStorage.getItem(options.prefixedKey);
-        if (item !== null) {
-          localStorage.removeItem(options.prefixedKey);
-          return { success: true };
-        }
-        return { success: false };
+        return localStorage.getItem(options.prefixedKey) !== null ? (localStorage.removeItem(options.prefixedKey), { success: !0 }) : { success: !1 };
       }
       async clear() {
-        const { keys } = await this.internalGetPrefixedKeys({ prefix: this.prefix });
-        for (const key of keys) {
+        let { keys } = await this.internalGetPrefixedKeys({ prefix: this.prefix });
+        for (let key of keys)
           localStorage.removeItem(key);
-        }
       }
       // @native
       // eslint-disable-next-line @typescript-eslint/require-await
@@ -922,12 +656,10 @@ var init_web = __esm({
       // @native
       // eslint-disable-next-line @typescript-eslint/require-await
       async internalGetPrefixedKeys(options) {
-        const keys = [];
+        let keys = [];
         for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key === null || key === void 0 ? void 0 : key.startsWith(options.prefix)) {
-            keys.push(key);
-          }
+          let key = localStorage.key(i);
+          key?.startsWith(options.prefix) && keys.push(key);
         }
         return { keys };
       }
@@ -940,20 +672,14 @@ var native_exports = {};
 __export(native_exports, {
   SecureStorageNative: () => SecureStorageNative
 });
-var SecureStorageNative;
-var init_native = __esm({
+var SecureStorageNative, init_native = __esm({
   "mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/native.js"() {
     init_base();
     SecureStorageNative = class extends SecureStorageBase {
       constructor(capProxy) {
         super();
-        const proxy3 = capProxy;
-        this.setSynchronizeKeychain = proxy3.setSynchronizeKeychain;
-        this.internalGetItem = proxy3.internalGetItem;
-        this.internalSetItem = proxy3.internalSetItem;
-        this.internalRemoveItem = proxy3.internalRemoveItem;
-        this.internalClearItemsWithPrefix = proxy3.internalClearItemsWithPrefix;
-        this.internalGetPrefixedKeys = proxy3.internalGetPrefixedKeys;
+        let proxy3 = capProxy;
+        this.setSynchronizeKeychain = proxy3.setSynchronizeKeychain, this.internalGetItem = proxy3.internalGetItem, this.internalSetItem = proxy3.internalSetItem, this.internalRemoveItem = proxy3.internalRemoveItem, this.internalClearItemsWithPrefix = proxy3.internalClearItemsWithPrefix, this.internalGetPrefixedKeys = proxy3.internalGetPrefixedKeys;
       }
       // @native
       async setSynchronizeKeychain(_options) {
@@ -967,12 +693,12 @@ var init_native = __esm({
       }
       // @native
       async internalRemoveItem(_options) {
-        return { success: true };
+        return { success: !0 };
       }
       async clear(sync) {
         return this.tryOperation(async () => this.clearItemsWithPrefix({
           prefix: this.prefix,
-          sync: sync !== null && sync !== void 0 ? sync : this.sync
+          sync: sync ?? this.sync
         }));
       }
       // @native
@@ -987,22 +713,21 @@ var init_native = __esm({
 });
 
 // mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/index.js
-var proxy;
-var init_esm = __esm({
+var proxy, init_esm = __esm({
   "mobile/node_modules/@aparajita/capacitor-secure-storage/dist/esm/index.js"() {
     init_dist();
     init_definitions();
     proxy = registerPlugin("SecureStorage", {
       web: async () => {
-        const module = await Promise.resolve().then(() => (init_web(), web_exports));
+        let module = await Promise.resolve().then(() => (init_web(), web_exports));
         return new module.SecureStorageWeb();
       },
       ios: async () => {
-        const module = await Promise.resolve().then(() => (init_native(), native_exports));
+        let module = await Promise.resolve().then(() => (init_native(), native_exports));
         return new module.SecureStorageNative(proxy);
       },
       android: async () => {
-        const module = await Promise.resolve().then(() => (init_native(), native_exports));
+        let module = await Promise.resolve().then(() => (init_native(), native_exports));
         return new module.SecureStorageNative(proxy);
       }
     });
@@ -1011,45 +736,23 @@ var init_esm = __esm({
 
 // mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/definitions.js
 function isBiometryErrorType(value) {
-  return typeof value === "string" && // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  return typeof value == "string" && // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   Object.values(BiometryErrorType).includes(value);
 }
-var BiometryType, AndroidBiometryStrength, BiometryErrorType, BiometryError;
-var init_definitions2 = __esm({
+var BiometryType, AndroidBiometryStrength, BiometryErrorType, BiometryError, init_definitions2 = __esm({
   "mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/definitions.js"() {
     (function(BiometryType2) {
-      BiometryType2[BiometryType2["none"] = 0] = "none";
-      BiometryType2[BiometryType2["touchId"] = 1] = "touchId";
-      BiometryType2[BiometryType2["faceId"] = 2] = "faceId";
-      BiometryType2[BiometryType2["fingerprintAuthentication"] = 3] = "fingerprintAuthentication";
-      BiometryType2[BiometryType2["faceAuthentication"] = 4] = "faceAuthentication";
-      BiometryType2[BiometryType2["irisAuthentication"] = 5] = "irisAuthentication";
+      BiometryType2[BiometryType2.none = 0] = "none", BiometryType2[BiometryType2.touchId = 1] = "touchId", BiometryType2[BiometryType2.faceId = 2] = "faceId", BiometryType2[BiometryType2.fingerprintAuthentication = 3] = "fingerprintAuthentication", BiometryType2[BiometryType2.faceAuthentication = 4] = "faceAuthentication", BiometryType2[BiometryType2.irisAuthentication = 5] = "irisAuthentication";
     })(BiometryType || (BiometryType = {}));
     (function(AndroidBiometryStrength2) {
-      AndroidBiometryStrength2[AndroidBiometryStrength2["weak"] = 0] = "weak";
-      AndroidBiometryStrength2[AndroidBiometryStrength2["strong"] = 1] = "strong";
+      AndroidBiometryStrength2[AndroidBiometryStrength2.weak = 0] = "weak", AndroidBiometryStrength2[AndroidBiometryStrength2.strong = 1] = "strong";
     })(AndroidBiometryStrength || (AndroidBiometryStrength = {}));
     (function(BiometryErrorType2) {
-      BiometryErrorType2["none"] = "";
-      BiometryErrorType2["appCancel"] = "appCancel";
-      BiometryErrorType2["authenticationFailed"] = "authenticationFailed";
-      BiometryErrorType2["invalidContext"] = "invalidContext";
-      BiometryErrorType2["notInteractive"] = "notInteractive";
-      BiometryErrorType2["passcodeNotSet"] = "passcodeNotSet";
-      BiometryErrorType2["systemCancel"] = "systemCancel";
-      BiometryErrorType2["userCancel"] = "userCancel";
-      BiometryErrorType2["userFallback"] = "userFallback";
-      BiometryErrorType2["biometryLockout"] = "biometryLockout";
-      BiometryErrorType2["biometryNotAvailable"] = "biometryNotAvailable";
-      BiometryErrorType2["biometryNotEnrolled"] = "biometryNotEnrolled";
-      BiometryErrorType2["noDeviceCredential"] = "noDeviceCredential";
+      BiometryErrorType2.none = "", BiometryErrorType2.appCancel = "appCancel", BiometryErrorType2.authenticationFailed = "authenticationFailed", BiometryErrorType2.invalidContext = "invalidContext", BiometryErrorType2.notInteractive = "notInteractive", BiometryErrorType2.passcodeNotSet = "passcodeNotSet", BiometryErrorType2.systemCancel = "systemCancel", BiometryErrorType2.userCancel = "userCancel", BiometryErrorType2.userFallback = "userFallback", BiometryErrorType2.biometryLockout = "biometryLockout", BiometryErrorType2.biometryNotAvailable = "biometryNotAvailable", BiometryErrorType2.biometryNotEnrolled = "biometryNotEnrolled", BiometryErrorType2.noDeviceCredential = "noDeviceCredential";
     })(BiometryErrorType || (BiometryErrorType = {}));
     BiometryError = class _BiometryError extends Error {
       constructor(message, code) {
-        super(message);
-        this.code = code;
-        this.name = "BiometryError";
-        Object.setPrototypeOf(this, _BiometryError.prototype);
+        super(message), this.code = code, this.name = "BiometryError", Object.setPrototypeOf(this, _BiometryError.prototype);
       }
     };
   }
@@ -1059,8 +762,7 @@ var init_definitions2 = __esm({
 function getBiometryName(type) {
   return kBiometryTypeNameMap[type] || "";
 }
-var kBiometryTypeNameMap;
-var init_web_utils = __esm({
+var kBiometryTypeNameMap, init_web_utils = __esm({
   "mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/web-utils.js"() {
     init_definitions2();
     kBiometryTypeNameMap = {
@@ -1085,25 +787,17 @@ var web_exports2 = {};
 __export(web_exports2, {
   AppWeb: () => AppWeb
 });
-var AppWeb;
-var init_web2 = __esm({
+var AppWeb, init_web2 = __esm({
   "mobile/node_modules/@capacitor/app/dist/esm/web.js"() {
     init_dist();
     AppWeb = class extends WebPlugin {
       constructor() {
-        super();
-        this.handleVisibilityChange = () => {
-          const data = {
-            isActive: document.hidden !== true
+        super(), this.handleVisibilityChange = () => {
+          let data = {
+            isActive: document.hidden !== !0
           };
-          this.notifyListeners("appStateChange", data);
-          if (document.hidden) {
-            this.notifyListeners("pause", null);
-          } else {
-            this.notifyListeners("resume", null);
-          }
-        };
-        document.addEventListener("visibilitychange", this.handleVisibilityChange, false);
+          this.notifyListeners("appStateChange", data), document.hidden ? this.notifyListeners("pause", null) : this.notifyListeners("resume", null);
+        }, document.addEventListener("visibilitychange", this.handleVisibilityChange, !1);
       }
       exitApp() {
         throw this.unimplemented("Not implemented on web.");
@@ -1115,7 +809,7 @@ var init_web2 = __esm({
         return { url: "" };
       }
       async getState() {
-        return { isActive: document.hidden !== true };
+        return { isActive: document.hidden !== !0 };
       }
       async minimizeApp() {
         throw this.unimplemented("Not implemented on web.");
@@ -1133,8 +827,7 @@ var init_web2 = __esm({
 });
 
 // mobile/node_modules/@capacitor/app/dist/esm/index.js
-var App;
-var init_esm2 = __esm({
+var App, init_esm2 = __esm({
   "mobile/node_modules/@capacitor/app/dist/esm/index.js"() {
     init_dist();
     init_definitions3();
@@ -1145,8 +838,7 @@ var init_esm2 = __esm({
 });
 
 // mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/base.js
-var BiometricAuthBase;
-var init_base2 = __esm({
+var BiometricAuthBase, init_base2 = __esm({
   "mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/base.js"() {
     init_esm2();
     init_dist();
@@ -1161,17 +853,14 @@ var init_base2 = __esm({
       }
       async addResumeListener(listener) {
         return App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) {
-            ;
-            (async () => {
-              try {
-                const info = await this.checkBiometry();
-                listener(info);
-              } catch (error) {
-                console.error(error);
-              }
-            })();
-          }
+          isActive && (async () => {
+            try {
+              let info = await this.checkBiometry();
+              listener(info);
+            } catch (error) {
+              console.error(error);
+            }
+          })();
         });
       }
     };
@@ -1189,34 +878,19 @@ function isBiometryType(value) {
 function isBiometryTypes(value) {
   return value.every((type) => isBiometryType(type));
 }
-var BiometricAuthWeb;
-var init_web3 = __esm({
+var BiometricAuthWeb, init_web3 = __esm({
   "mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/web.js"() {
     init_base2();
     init_definitions2();
     init_web_utils();
     BiometricAuthWeb = class extends BiometricAuthBase {
       constructor() {
-        super(...arguments);
-        this.biometryType = BiometryType.none;
-        this.biometryTypes = [];
-        this.biometryIsEnrolled = false;
-        this.deviceIsSecure = false;
+        super(...arguments), this.biometryType = BiometryType.none, this.biometryTypes = [], this.biometryIsEnrolled = !1, this.deviceIsSecure = !1;
       }
       // On the web, return the fake biometry set by setBiometryType().
       async checkBiometry() {
-        const hasBiometry = this.biometryType !== BiometryType.none;
-        const available = hasBiometry && this.biometryIsEnrolled;
-        let reason = "";
-        let code = BiometryErrorType.none;
-        if (!hasBiometry) {
-          reason = "No biometry is available";
-          code = BiometryErrorType.biometryNotAvailable;
-        } else if (!this.biometryIsEnrolled) {
-          reason = "Biometry is not enrolled";
-          code = BiometryErrorType.biometryNotEnrolled;
-        }
-        return {
+        let hasBiometry = this.biometryType !== BiometryType.none, available = hasBiometry && this.biometryIsEnrolled, reason = "", code = BiometryErrorType.none;
+        return hasBiometry ? this.biometryIsEnrolled || (reason = "Biometry is not enrolled", code = BiometryErrorType.biometryNotEnrolled) : (reason = "No biometry is available", code = BiometryErrorType.biometryNotAvailable), {
           isAvailable: available,
           strongBiometryIsAvailable: this.biometryIsEnrolled && this.hasStrongBiometry(),
           biometryType: this.biometryType,
@@ -1231,58 +905,35 @@ var init_web3 = __esm({
       }
       // On the web, fake authentication with a confirm dialog.
       async internalAuthenticate(options) {
-        const result = await this.checkBiometry();
-        if (result.isAvailable && // oxlint-disable-next-line no-alert
+        let result = await this.checkBiometry();
+        if (!(result.isAvailable && // oxlint-disable-next-line no-alert
         confirm(
           // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- we want to use the default value if options?.reason is an empty string
-          (options === null || options === void 0 ? void 0 : options.reason) || `Authenticate with ${result.biometryTypes.map((type) => getBiometryName(type)).join(" or ")}?`
-        )) {
-          return;
+          options?.reason || `Authenticate with ${result.biometryTypes.map((type) => getBiometryName(type)).join(" or ")}?`
+        ))) {
+          if (options?.allowDeviceCredential) {
+            if (result.deviceIsSecure) {
+              if (confirm("Authenticate with device security?"))
+                return;
+              throw new BiometryError("User cancelled", BiometryErrorType.userCancel);
+            } else if (result.isAvailable)
+              throw new BiometryError("Device is not secure", BiometryErrorType.noDeviceCredential);
+          } else if (!result.isAvailable)
+            throw result.biometryType === BiometryType.none ? new BiometryError("Biometry is not available", BiometryErrorType.biometryNotAvailable) : new BiometryError("Biometry is not enrolled", BiometryErrorType.biometryNotEnrolled);
+          throw new BiometryError("User cancelled", BiometryErrorType.userCancel);
         }
-        if (options === null || options === void 0 ? void 0 : options.allowDeviceCredential) {
-          if (result.deviceIsSecure) {
-            if (confirm("Authenticate with device security?")) {
-              return;
-            }
-            throw new BiometryError("User cancelled", BiometryErrorType.userCancel);
-          } else if (result.isAvailable) {
-            throw new BiometryError("Device is not secure", BiometryErrorType.noDeviceCredential);
-          }
-        } else if (!result.isAvailable) {
-          throw result.biometryType === BiometryType.none ? new BiometryError("Biometry is not available", BiometryErrorType.biometryNotAvailable) : new BiometryError("Biometry is not enrolled", BiometryErrorType.biometryNotEnrolled);
-        }
-        throw new BiometryError("User cancelled", BiometryErrorType.userCancel);
       }
       // Web only, used for simulating biometric authentication.
       async setBiometryType(type) {
-        if (type === void 0) {
+        if (type === void 0)
           return;
-        }
-        const types = Array.isArray(type) ? type : [type];
-        this.biometryTypes = [];
-        this.biometryType = BiometryType.none;
-        if (types.length === 0) {
-          return;
-        }
-        if (isBiometryTypes(types)) {
-          this.biometryType = types[0];
-          if (this.biometryType !== BiometryType.none) {
-            this.biometryTypes = types;
-          }
-        } else {
-          for (const [i, theType] of types.entries()) {
-            if (isBiometryType(theType)) {
-              if (this.biometryType === BiometryType.none) {
-                this.biometryTypes = [];
-              } else {
-                this.biometryTypes.push(theType);
-              }
-              if (i === 0) {
-                this.biometryType = theType;
-              }
-            }
-          }
-        }
+        let types = Array.isArray(type) ? type : [type];
+        if (this.biometryTypes = [], this.biometryType = BiometryType.none, types.length !== 0)
+          if (isBiometryTypes(types))
+            this.biometryType = types[0], this.biometryType !== BiometryType.none && (this.biometryTypes = types);
+          else
+            for (let [i, theType] of types.entries())
+              isBiometryType(theType) && (this.biometryType === BiometryType.none ? this.biometryTypes = [] : this.biometryTypes.push(theType), i === 0 && (this.biometryType = theType));
       }
       // Web only, used for simulating device unlock security.
       async setBiometryIsEnrolled(enrolled) {
@@ -1301,26 +952,24 @@ var native_exports2 = {};
 __export(native_exports2, {
   BiometricAuthNative: () => BiometricAuthNative
 });
-var BiometricAuthNative;
-var init_native2 = __esm({
+var BiometricAuthNative, init_native2 = __esm({
   "mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/native.js"() {
     init_base2();
     init_definitions2();
     BiometricAuthNative = class extends BiometricAuthBase {
       constructor(capProxy) {
         super();
-        const proxy3 = capProxy;
-        this.checkBiometry = proxy3.checkBiometry;
-        this.internalAuthenticate = proxy3.internalAuthenticate;
+        let proxy3 = capProxy;
+        this.checkBiometry = proxy3.checkBiometry, this.internalAuthenticate = proxy3.internalAuthenticate;
       }
       // @native
       async checkBiometry() {
         return {
-          isAvailable: false,
-          strongBiometryIsAvailable: false,
+          isAvailable: !1,
+          strongBiometryIsAvailable: !1,
           biometryType: BiometryType.none,
           biometryTypes: [],
-          deviceIsSecure: false,
+          deviceIsSecure: !1,
           reason: "",
           code: BiometryErrorType.none,
           strongReason: "",
@@ -1348,23 +997,22 @@ var init_native2 = __esm({
 });
 
 // mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/index.js
-var proxy2;
-var init_esm3 = __esm({
+var proxy2, init_esm3 = __esm({
   "mobile/node_modules/@aparajita/capacitor-biometric-auth/dist/esm/index.js"() {
     init_dist();
     init_definitions2();
     init_web_utils();
     proxy2 = registerPlugin("BiometricAuthNative", {
       web: async () => {
-        const module = await Promise.resolve().then(() => (init_web3(), web_exports3));
+        let module = await Promise.resolve().then(() => (init_web3(), web_exports3));
         return new module.BiometricAuthWeb();
       },
       ios: async () => {
-        const module = await Promise.resolve().then(() => (init_native2(), native_exports2));
+        let module = await Promise.resolve().then(() => (init_native2(), native_exports2));
         return new module.BiometricAuthNative(proxy2);
       },
       android: async () => {
-        const module = await Promise.resolve().then(() => (init_native2(), native_exports2));
+        let module = await Promise.resolve().then(() => (init_native2(), native_exports2));
         return new module.BiometricAuthNative(proxy2);
       }
     });
@@ -1372,12 +1020,9 @@ var init_esm3 = __esm({
 });
 
 // mobile/plugins/dictation/src/core.js
-var DICTATION_EVENTS, END_REASONS, ERROR_CODES;
-var init_core2 = __esm({
+var DICTATION_EVENTS, END_REASONS, ERROR_CODES, init_core2 = __esm({
   "mobile/plugins/dictation/src/core.js"() {
-    DICTATION_EVENTS = Object.freeze(["partial", "final", "level", "end", "error"]);
-    END_REASONS = Object.freeze(["done", "silence", "no-speech", "cancelled", "error"]);
-    ERROR_CODES = Object.freeze([
+    DICTATION_EVENTS = Object.freeze(["partial", "final", "level", "end", "error"]), END_REASONS = Object.freeze(["done", "silence", "no-speech", "cancelled", "error"]), ERROR_CODES = Object.freeze([
       "permission-denied",
       "on-device-unavailable",
       "locale-unavailable",
@@ -1394,14 +1039,12 @@ var web_exports4 = {};
 __export(web_exports4, {
   DictationWeb: () => DictationWeb
 });
-var NOT_ON_WEB, DictationWeb;
-var init_web4 = __esm({
+var NOT_ON_WEB, DictationWeb, init_web4 = __esm({
   "mobile/plugins/dictation/src/web.js"() {
     init_dist();
-    NOT_ON_WEB = "Dictation is in the Android and iPhone apps. The browser keyboard has its own dictation key.";
-    DictationWeb = class extends WebPlugin {
+    NOT_ON_WEB = "Dictation is in the Android and iPhone apps. The browser keyboard has its own dictation key.", DictationWeb = class extends WebPlugin {
       async available() {
-        return { available: false, onDevice: false, serverAvailable: false, permission: "denied", platform: "web" };
+        return { available: !1, onDevice: !1, serverAvailable: !1, permission: "denied", platform: "web" };
       }
       async requestPermission() {
         throw this.unavailable(NOT_ON_WEB);
@@ -1418,8 +1061,7 @@ var init_web4 = __esm({
 });
 
 // mobile/plugins/dictation/src/index.js
-var Dictation;
-var init_src = __esm({
+var Dictation, init_src = __esm({
   "mobile/plugins/dictation/src/index.js"() {
     init_dist();
     init_core2();
@@ -1430,10 +1072,8 @@ var init_src = __esm({
 });
 
 // mobile/plugins/isolated-preview/src/core.js
-var MAX_HTML_BYTES, SANDBOX_POLICY;
-var init_core3 = __esm({
+var SANDBOX_POLICY, init_core3 = __esm({
   "mobile/plugins/isolated-preview/src/core.js"() {
-    MAX_HTML_BYTES = 8 * 1024 * 1024;
     SANDBOX_POLICY = Object.freeze({
       javascript: "on",
       bridge: "none",
@@ -1453,8 +1093,7 @@ var web_exports5 = {};
 __export(web_exports5, {
   IsolatedPreviewWeb: () => IsolatedPreviewWeb
 });
-var IsolatedPreviewWeb;
-var init_web5 = __esm({
+var IsolatedPreviewWeb, init_web5 = __esm({
   "mobile/plugins/isolated-preview/src/web.js"() {
     init_dist();
     IsolatedPreviewWeb = class extends WebPlugin {
@@ -1466,8 +1105,7 @@ var init_web5 = __esm({
 });
 
 // mobile/plugins/isolated-preview/src/index.js
-var IsolatedPreview;
-var init_src2 = __esm({
+var IsolatedPreview, init_src2 = __esm({
   "mobile/plugins/isolated-preview/src/index.js"() {
     init_dist();
     init_core3();
@@ -1482,14 +1120,12 @@ var web_exports6 = {};
 __export(web_exports6, {
   UnifiedPushWeb: () => UnifiedPushWeb
 });
-var NOT_ON_WEB2, UnifiedPushWeb;
-var init_web6 = __esm({
+var NOT_ON_WEB2, UnifiedPushWeb, init_web6 = __esm({
   "mobile/plugins/unifiedpush/src/web.js"() {
     init_dist();
-    NOT_ON_WEB2 = "UnifiedPush is only in the Android app. The browser uses Web Push.";
-    UnifiedPushWeb = class extends WebPlugin {
+    NOT_ON_WEB2 = "UnifiedPush is only in the Android app. The browser uses Web Push.", UnifiedPushWeb = class extends WebPlugin {
       async getState() {
-        return { supported: false, distributor: null, endpoints: {}, failures: {}, registrations: [], visible: false };
+        return { supported: !1, distributor: null, endpoints: {}, failures: {}, registrations: [], visible: !1 };
       }
       async getDistributors() {
         return { distributors: [], saved: null };
@@ -1507,18 +1143,17 @@ var init_web6 = __esm({
         throw this.unavailable(NOT_ON_WEB2);
       }
       async requestNotificationPermission() {
-        return { granted: false };
+        return { granted: !1 };
       }
       async getNotificationPermission() {
-        return { granted: false };
+        return { granted: !1 };
       }
     };
   }
 });
 
 // mobile/plugins/unifiedpush/src/index.js
-var UnifiedPush;
-var init_src3 = __esm({
+var UnifiedPush, init_src3 = __esm({
   "mobile/plugins/unifiedpush/src/index.js"() {
     init_dist();
     init_core();
@@ -1555,39 +1190,35 @@ function secureStorageAdapter(plugin) {
 }
 function scanOutcome(error, result) {
   if (!error) {
-    const text = typeof result?.ScanResult === "string" ? result.ScanResult : "";
-    return text ? { ok: true, text } : { ok: false, reason: "cancelled" };
+    let text = typeof result?.ScanResult == "string" ? result.ScanResult : "";
+    return text ? { ok: !0, text } : { ok: !1, reason: "cancelled" };
   }
-  const said = `${error?.code ?? ""} ${error?.message ?? error ?? ""}`;
-  if (/permission|denied|not authori[sz]ed|restricted/i.test(said)) return { ok: false, reason: "denied" };
-  if (/cancel|dismiss|closed/i.test(said)) return { ok: false, reason: "cancelled" };
-  return { ok: false, reason: "failed" };
+  let said = `${error?.code ?? ""} ${error?.message ?? error ?? ""}`;
+  return /permission|denied|not authori[sz]ed|restricted/i.test(said) ? { ok: !1, reason: "denied" } : /cancel|dismiss|closed/i.test(said) ? { ok: !1, reason: "cancelled" } : { ok: !1, reason: "failed" };
 }
 function buildNative(parts, { platform = "" } = {}) {
-  const register = parts.registerPlugin;
-  const scanner = register("CapacitorBarcodeScanner");
-  const plugins = {
-    App: register("App"),
-    Haptics: register("Haptics"),
-    Browser: register("Browser"),
-    Share: register("Share"),
-    Filesystem: register("Filesystem"),
-    TextZoom: register("TextZoom"),
-    Network: register("Network"),
-    LocalNotifications: register("LocalNotifications"),
-    PlenumPrivacy: register("PlenumPrivacy")
-  };
+  let register = parts.registerPlugin, scanner = register("CapacitorBarcodeScanner");
   return {
-    ...plugins,
+    ...{
+      App: register("App"),
+      Haptics: register("Haptics"),
+      Browser: register("Browser"),
+      Share: register("Share"),
+      Filesystem: register("Filesystem"),
+      TextZoom: register("TextZoom"),
+      Network: register("Network"),
+      LocalNotifications: register("LocalNotifications"),
+      PlenumPrivacy: register("PlenumPrivacy")
+    },
     secureStorage: secureStorageAdapter(parts.SecureStorage),
     // Settings the shell wants for the keys: never synchronised to iCloud, and on this device only. On iOS the Keychain setting must hold:
     // when it cannot be set, this throws, and app.js treats a throwing loadPlugins as no secure storage, so no key is stored.
     async configureStorage() {
-      await Promise.resolve(parts.SecureStorage.setSynchronize?.(false)).catch(() => {
-      });
-      if (platform !== "ios") return;
-      if (typeof parts.SecureStorage.setDefaultKeychainAccess !== "function") throw new Error("keychain access cannot be set");
-      await parts.SecureStorage.setDefaultKeychainAccess(1);
+      if (await Promise.resolve(parts.SecureStorage.setSynchronize?.(!1)).catch(() => {
+      }), platform === "ios") {
+        if (typeof parts.SecureStorage.setDefaultKeychainAccess != "function") throw new Error("keychain access cannot be set");
+        await parts.SecureStorage.setDefaultKeychainAccess(1);
+      }
     },
     BiometricAuth: parts.BiometricAuth,
     WebView: parts.WebView,
@@ -1598,10 +1229,10 @@ function buildNative(parts, { platform = "" } = {}) {
       // Scans one QR code. The result is { ok, text } or { ok: false, reason }.
       async scan(options = {}) {
         try {
-          const result = await scanner.scanBarcode({
+          let result = await scanner.scanBarcode({
             hint: QR_CODE_HINT,
             scanInstructions: " ",
-            scanButton: false,
+            scanButton: !1,
             scanText: " ",
             cameraDirection: CAMERA_BACK,
             scanOrientation: ORIENTATION_ADAPTIVE,
@@ -1617,12 +1248,10 @@ function buildNative(parts, { platform = "" } = {}) {
   };
 }
 async function loadNativePlugins() {
-  const native = buildNative({ registerPlugin, WebView, SecureStorage: proxy, BiometricAuth: proxy2, Dictation, IsolatedPreview, UnifiedPush }, { platform: Capacitor.getPlatform() });
-  await native.configureStorage();
-  return native;
+  let native = buildNative({ registerPlugin, WebView, SecureStorage: proxy, BiometricAuth: proxy2, Dictation, IsolatedPreview, UnifiedPush }, { platform: Capacitor.getPlatform() });
+  return await native.configureStorage(), native;
 }
-var REGISTERED_NAMES, QR_CODE_HINT, CAMERA_BACK, ORIENTATION_ADAPTIVE;
-var init_native3 = __esm({
+var REGISTERED_NAMES, QR_CODE_HINT, CAMERA_BACK, ORIENTATION_ADAPTIVE, init_native3 = __esm({
   "mobile/shell/native.js"() {
     init_dist();
     init_esm();
@@ -1641,26 +1270,20 @@ var init_native3 = __esm({
       "LocalNotifications",
       "CapacitorBarcodeScanner",
       "PlenumPrivacy"
-    ]);
-    QR_CODE_HINT = 0;
-    CAMERA_BACK = 1;
-    ORIENTATION_ADAPTIVE = 3;
+    ]), QR_CODE_HINT = 0, CAMERA_BACK = 1, ORIENTATION_ADAPTIVE = 3;
   }
 });
 
 // mobile/shell/channel.js
-var CHANNEL_WORKER_NAME = "plenum-channel";
-var utf8 = new TextEncoder();
+var CHANNEL_WORKER_NAME = "plenum-channel", utf8 = new TextEncoder();
 function b64uToBytes(text) {
-  const s = String(text).replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(s + "=".repeat((4 - s.length % 4) % 4));
-  const out = new Uint8Array(bin.length);
+  let s = String(text).replace(/-/g, "+").replace(/_/g, "/"), bin = atob(s + "=".repeat((4 - s.length % 4) % 4)), out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 function bytesToB64u(bytes) {
   let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
+  for (let b of bytes) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 function defaultCreateWorker() {
@@ -1671,7 +1294,7 @@ function workerComputer(record, carriers = null) {
     id: record.id,
     name: record.name ?? "",
     desktopPub: b64uToBytes(record.desktopPub),
-    myPriv: b64uToBytes(typeof record.myPriv === "string" ? record.myPriv : fail("locked")),
+    myPriv: b64uToBytes(typeof record.myPriv == "string" ? record.myPriv : fail("locked")),
     carriers: carriers ?? record.carriers ?? [],
     lastCarrier: record.lastCarrier ?? null,
     counter: Number.isSafeInteger(record.counter) ? record.counter : 0
@@ -1685,51 +1308,39 @@ function coded(code, message = code) {
 }
 async function answerCounter(store, msg, reply) {
   try {
-    const counter = store ? await store.raiseCounter(msg.id, msg.minimum) : msg.minimum;
-    reply({ op: "counterSaved", rid: msg.rid, ok: true, counter });
+    let counter = store ? await store.raiseCounter(msg.id, msg.minimum) : msg.minimum;
+    reply({ op: "counterSaved", rid: msg.rid, ok: !0, counter });
   } catch {
-    reply({ op: "counterSaved", rid: msg.rid, ok: false });
+    reply({ op: "counterSaved", rid: msg.rid, ok: !1 });
   }
 }
 function sendLockedStop({ record, store = null, createWorker = defaultCreateWorker, onStopState = () => {
 } } = {}) {
-  const validKey = typeof record?.stopKey === "string" && /^[A-Za-z0-9_-]{43}$/.test(record.stopKey);
-  const validId = /^[0-9a-f]{64}$/.test(String(record?.myDeviceId ?? ""));
-  if (!record || typeof record.id !== "string" || !validKey || !validId) return Promise.reject(coded("no-key"));
-  const worker = createWorker();
-  const sid = 1;
-  let settled = false;
+  let validKey = typeof record?.stopKey == "string" && /^[A-Za-z0-9_-]{43}$/.test(record.stopKey), validId = /^[0-9a-f]{64}$/.test(String(record?.myDeviceId ?? ""));
+  if (!record || typeof record.id != "string" || !validKey || !validId) return Promise.reject(coded("no-key"));
+  let worker = createWorker(), sid = 1, settled = !1;
   return new Promise((resolve, reject) => {
-    const end = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      setTimeout(() => {
+    let end = (fn, value) => {
+      settled || (settled = !0, setTimeout(() => {
         try {
           worker.terminate();
         } catch {
         }
-      }, 0);
-      fn(value);
+      }, 0), fn(value));
     };
     worker.onmessage = (event) => {
-      const msg = event?.data;
-      if (!msg || typeof msg !== "object") return;
-      if (msg.op === "counter") {
-        answerCounter(store, msg, (reply) => worker.postMessage(reply));
-      } else if (msg.op === "stopState") {
-        if (msg.sid === sid && !settled) {
-          try {
-            onStopState({ sid, state: msg.state });
-          } catch {
-          }
-        }
-      } else if (msg.op === "stopAck" && msg.sid === sid) {
-        if (msg.error) end(reject, coded(msg.error, msg.error));
-        else end(resolve, msg.ack);
-      }
-    };
-    worker.onerror = () => end(reject, coded("unreachable"));
-    worker.postMessage({
+      let msg = event?.data;
+      if (!(!msg || typeof msg != "object"))
+        if (msg.op === "counter")
+          answerCounter(store, msg, (reply) => worker.postMessage(reply));
+        else if (msg.op === "stopState") {
+          if (msg.sid === sid && !settled)
+            try {
+              onStopState({ sid, state: msg.state });
+            } catch {
+            }
+        } else msg.op === "stopAck" && msg.sid === sid && (msg.error ? end(reject, coded(msg.error, msg.error)) : end(resolve, msg.ack));
+    }, worker.onerror = () => end(reject, coded("unreachable")), worker.postMessage({
       op: "stopLocked",
       sid,
       computer: {
@@ -1753,134 +1364,103 @@ function openChannel({
   onWorkerError = () => {
   }
 } = {}) {
-  if (!computer || typeof computer.id !== "string") throw new TypeError("openChannel needs a computer record");
-  const worker = createWorker();
-  let seq = 0;
-  let closed = false;
-  let state = { status: "connecting", carrier: null, desktopName: "", lastSeen: null, since: 0, nextRetryAt: null, failedRounds: 0, failure: null, computerId: computer.id, stopsPending: 0 };
-  let hello = null;
-  const reqs = /* @__PURE__ */ new Map();
-  const stops = /* @__PURE__ */ new Map();
-  const stateSubs = /* @__PURE__ */ new Set();
-  const eventSubs = /* @__PURE__ */ new Set();
-  const stopSubs = /* @__PURE__ */ new Set();
-  const helloSubs = /* @__PURE__ */ new Set();
-  const post = (msg, transfer = []) => worker.postMessage(msg, transfer);
-  const notify = (set, value) => {
-    for (const fn of Array.from(set)) {
+  if (!computer || typeof computer.id != "string") throw new TypeError("openChannel needs a computer record");
+  let worker = createWorker(), seq = 0, closed = !1, state = { status: "connecting", carrier: null, desktopName: "", lastSeen: null, since: 0, nextRetryAt: null, failedRounds: 0, failure: null, computerId: computer.id, stopsPending: 0 }, hello = null, reqs = /* @__PURE__ */ new Map(), stops = /* @__PURE__ */ new Map(), stateSubs = /* @__PURE__ */ new Set(), eventSubs = /* @__PURE__ */ new Set(), stopSubs = /* @__PURE__ */ new Set(), helloSubs = /* @__PURE__ */ new Set(), post = (msg, transfer = []) => worker.postMessage(msg, transfer), notify = (set, value) => {
+    for (let fn of Array.from(set))
       try {
         fn(value);
       } catch {
       }
-    }
-  };
-  const endRequest = (msg) => {
-    const entry = reqs.get(msg.sid);
+  }, endRequest = (msg) => {
+    let entry = reqs.get(msg.sid);
     if (!entry) return;
-    reqs.delete(msg.sid);
-    entry.detach?.();
-    const controller = entry.controller;
+    reqs.delete(msg.sid), entry.detach?.();
+    let controller = entry.controller;
     if (msg.error || msg.cancelled) {
-      const code = msg.cancelled ? "cancelled" : msg.error;
-      const err = coded(code, code);
-      if (!entry.head) entry.reject(err);
+      let code = msg.cancelled ? "cancelled" : msg.error, err = coded(code, code);
+      entry.head || entry.reject(err);
       try {
         controller?.error(err);
       } catch {
       }
-    } else {
+    } else
       try {
         controller?.close();
       } catch {
       }
-    }
   };
   worker.onmessage = (event) => {
-    const msg = event?.data;
-    if (!msg || typeof msg !== "object") return;
-    switch (msg.op) {
-      case "state":
-        state = msg.state;
-        notify(stateSubs, state);
-        if (state.status === "closed") {
-          setTimeout(() => {
+    let msg = event?.data;
+    if (!(!msg || typeof msg != "object"))
+      switch (msg.op) {
+        case "state":
+          state = msg.state, notify(stateSubs, state), state.status === "closed" && setTimeout(() => {
             try {
               worker.terminate();
             } catch {
             }
           }, 0);
+          return;
+        case "hello":
+          hello = msg.hello, notify(helloSubs, hello);
+          return;
+        case "event":
+          notify(eventSubs, msg.event);
+          return;
+        case "res": {
+          let entry = reqs.get(msg.sid);
+          if (!entry || entry.head) return;
+          entry.head = !0, entry.resolve({ status: msg.status, headers: msg.headers ?? {}, body: entry.stream, id: msg.sid, cancel: () => cancel(msg.sid) });
+          return;
         }
-        return;
-      case "hello":
-        hello = msg.hello;
-        notify(helloSubs, hello);
-        return;
-      case "event":
-        notify(eventSubs, msg.event);
-        return;
-      case "res": {
-        const entry = reqs.get(msg.sid);
-        if (!entry || entry.head) return;
-        entry.head = true;
-        entry.resolve({ status: msg.status, headers: msg.headers ?? {}, body: entry.stream, id: msg.sid, cancel: () => cancel(msg.sid) });
-        return;
-      }
-      case "data": {
-        const entry = reqs.get(msg.sid);
-        if (!entry || !entry.controller) return;
-        try {
-          entry.controller.enqueue(new Uint8Array(msg.bytes));
-        } catch {
+        case "data": {
+          let entry = reqs.get(msg.sid);
+          if (!entry || !entry.controller) return;
+          try {
+            entry.controller.enqueue(new Uint8Array(msg.bytes));
+          } catch {
+          }
+          return;
         }
-        return;
+        case "end":
+          endRequest(msg);
+          return;
+        case "stopState":
+          notify(stopSubs, { sid: msg.sid, state: msg.state });
+          return;
+        case "stopAck": {
+          let waiter = stops.get(msg.sid);
+          if (!waiter) return;
+          stops.delete(msg.sid), msg.error ? waiter.reject(coded(msg.error, msg.error)) : waiter.resolve(msg.ack);
+          return;
+        }
+        case "counter":
+          answerCounter(store, msg, (reply) => post(reply));
+          return;
+        case "patch":
+          store && store.patchComputer(msg.id, msg.patch).catch(() => {
+          });
+          return;
+        case "log":
+          onWorkerError(String(msg.line ?? ""));
+          return;
+        default:
+          return;
       }
-      case "end":
-        endRequest(msg);
-        return;
-      case "stopState":
-        notify(stopSubs, { sid: msg.sid, state: msg.state });
-        return;
-      case "stopAck": {
-        const waiter = stops.get(msg.sid);
-        if (!waiter) return;
-        stops.delete(msg.sid);
-        if (msg.error) waiter.reject(coded(msg.error, msg.error));
-        else waiter.resolve(msg.ack);
-        return;
-      }
-      case "counter":
-        answerCounter(store, msg, (reply) => post(reply));
-        return;
-      case "patch":
-        if (store) store.patchComputer(msg.id, msg.patch).catch(() => {
-        });
-        return;
-      case "log":
-        onWorkerError(String(msg.line ?? ""));
-        return;
-      default:
-        return;
-    }
-  };
-  worker.onerror = (event) => {
-    onWorkerError(String(event?.message ?? "worker error"));
-    closed = true;
-    for (const [sid, waiter] of Array.from(stops)) {
-      stops.delete(sid);
-      waiter.reject(coded("unreachable"));
-    }
-    for (const sid of Array.from(reqs.keys())) endRequest({ sid, error: "lost" });
+  }, worker.onerror = (event) => {
+    onWorkerError(String(event?.message ?? "worker error")), closed = !0;
+    for (let [sid, waiter] of Array.from(stops))
+      stops.delete(sid), waiter.reject(coded("unreachable"));
+    for (let sid of Array.from(reqs.keys())) endRequest({ sid, error: "lost" });
     try {
       worker.terminate();
     } catch {
     }
   };
-  const request = ({ method = "GET", path = "/", headers = {} } = {}, body = null, { signal = null, scope = "page" } = {}) => {
+  let request = ({ method = "GET", path = "/", headers = {} } = {}, body = null, { signal = null, scope = "page" } = {}) => {
     if (closed) return Promise.reject(coded("closed"));
     if (signal?.aborted) return Promise.reject(coded("cancelled"));
-    const sid = ++seq;
-    let controller = null;
-    const stream = new ReadableStream({
+    let sid = ++seq, controller = null, stream = new ReadableStream({
       start(c) {
         controller = c;
       },
@@ -1889,47 +1469,30 @@ function openChannel({
       }
     });
     return new Promise((resolve, reject) => {
-      const entry = { sid, head: false, resolve, reject, stream, controller: null, detach: null };
-      reqs.set(sid, entry);
-      entry.controller = controller;
-      if (signal) {
-        const onAbort = () => {
+      let entry = { sid, head: !1, resolve, reject, stream, controller: null, detach: null };
+      if (reqs.set(sid, entry), entry.controller = controller, signal) {
+        let onAbort = () => {
           if (reqs.get(sid) !== entry) return;
-          reqs.delete(sid);
-          post({ op: "cancel", sid });
-          const err = coded("cancelled");
-          if (!entry.head) entry.reject(err);
+          reqs.delete(sid), post({ op: "cancel", sid });
+          let err = coded("cancelled");
+          entry.head || entry.reject(err);
           try {
             controller?.error(err);
           } catch {
           }
         };
-        signal.addEventListener("abort", onAbort, { once: true });
-        entry.detach = () => signal.removeEventListener("abort", onAbort);
+        signal.addEventListener("abort", onAbort, { once: !0 }), entry.detach = () => signal.removeEventListener("abort", onAbort);
       }
       let bytes = null;
-      if (body !== null && body !== void 0) {
-        if (typeof body === "string") bytes = utf8.encode(body);
-        else if (body instanceof Uint8Array) bytes = body.slice();
-        else bytes = new Uint8Array(body);
-      }
-      post({ op: "request", sid, method, path, headers, scope: scope === "shell" ? "shell" : "page", body: bytes }, bytes ? [bytes.buffer] : []);
+      body != null && (typeof body == "string" ? bytes = utf8.encode(body) : body instanceof Uint8Array ? bytes = body.slice() : bytes = new Uint8Array(body)), post({ op: "request", sid, method, path, headers, scope: scope === "shell" ? "shell" : "page", body: bytes }, bytes ? [bytes.buffer] : []);
     });
-  };
-  const cancel = (sid) => {
-    if (closed) return false;
-    post({ op: "cancel", sid });
-    return true;
-  };
-  const stop = (project = null) => {
+  }, cancel = (sid) => closed ? !1 : (post({ op: "cancel", sid }), !0), stop = (project = null) => {
     if (closed) return Promise.reject(coded("closed"));
-    const sid = ++seq;
+    let sid = ++seq;
     return new Promise((resolve, reject) => {
-      stops.set(sid, { resolve, reject });
-      post({ op: "stop", sid, project: project ?? null });
+      stops.set(sid, { resolve, reject }), post({ op: "stop", sid, project: project ?? null });
     });
-  };
-  const api = {
+  }, api = {
     id: computer.id,
     request,
     cancel,
@@ -1943,22 +1506,18 @@ function openChannel({
       return () => stateSubs.delete(fn);
     },
     onEvent(fn) {
-      eventSubs.add(fn);
-      return () => eventSubs.delete(fn);
+      return eventSubs.add(fn), () => eventSubs.delete(fn);
     },
     onStopState(fn) {
-      stopSubs.add(fn);
-      return () => stopSubs.delete(fn);
+      return stopSubs.add(fn), () => stopSubs.delete(fn);
     },
     // fn(hello) each time the computer answers a session with HELLO (after every reconnect too).
     onHello(fn) {
-      helloSubs.add(fn);
-      if (hello) {
+      if (helloSubs.add(fn), hello)
         try {
           fn(hello);
         } catch {
         }
-      }
       return () => helloSubs.delete(fn);
     },
     get hello() {
@@ -1968,92 +1527,71 @@ function openChannel({
       return state;
     },
     reconnect() {
-      if (!closed) post({ op: "reconnect" });
+      closed || post({ op: "reconnect" });
     },
     close() {
-      if (closed) return;
-      closed = true;
-      post({ op: "close" });
-      setTimeout(() => {
+      closed || (closed = !0, post({ op: "close" }), setTimeout(() => {
         try {
           worker.terminate();
         } catch {
         }
-      }, 2e3);
+      }, 2e3));
     }
   };
-  post({
+  return post({
     op: "init",
     computer: workerComputer(computer, carriers),
     device,
     caps: caps ?? void 0,
-    hasStopKey: Boolean(computer.stopKey && computer.myDeviceId)
-  });
-  return api;
+    hasStopKey: !!(computer.stopKey && computer.myDeviceId)
+  }), api;
 }
 
 // mobile/shell/store.js
 var STORE_DB = "plenum-shell";
-var STORE_OBJECT = "kv";
 var SECURE_PREFIX = "plenum.";
 function createIdbKv({ indexedDB: factory, name = STORE_DB } = {}) {
-  if (!factory || typeof factory.open !== "function") throw new TypeError("createIdbKv needs an IndexedDB factory");
-  let opening = null;
-  const database = () => {
-    if (!opening) {
-      opening = new Promise((resolve, reject) => {
-        const req = factory.open(name, 1);
-        req.onupgradeneeded = () => {
-          const db = req.result;
-          if (!db.objectStoreNames.contains(STORE_OBJECT)) db.createObjectStore(STORE_OBJECT);
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed"));
-        req.onblocked = () => reject(new Error("IndexedDB blocked"));
-      });
-      opening.catch(() => {
-        opening = null;
-      });
-    }
-    return opening;
-  };
-  const run = async (mode, fn) => {
-    const db = await database();
+  if (!factory || typeof factory.open != "function") throw new TypeError("createIdbKv needs an IndexedDB factory");
+  let opening = null, database = () => (opening || (opening = new Promise((resolve, reject) => {
+    let req = factory.open(name, 1);
+    req.onupgradeneeded = () => {
+      let db = req.result;
+      db.objectStoreNames.contains("kv") || db.createObjectStore("kv");
+    }, req.onsuccess = () => resolve(req.result), req.onerror = () => reject(req.error ?? new Error("IndexedDB open failed")), req.onblocked = () => reject(new Error("IndexedDB blocked"));
+  }), opening.catch(() => {
+    opening = null;
+  })), opening), run = async (mode, fn) => {
+    let db = await database();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_OBJECT, mode, mode === "readwrite" ? { durability: "strict" } : void 0);
-      const os = tx.objectStore(STORE_OBJECT);
-      let result;
-      const req = fn(os);
-      if (req) req.onsuccess = () => {
+      let tx = db.transaction("kv", mode, mode === "readwrite" ? { durability: "strict" } : void 0), os = tx.objectStore("kv"), result, req = fn(os);
+      req && (req.onsuccess = () => {
         result = req.result;
-      };
-      tx.oncomplete = () => resolve(result);
-      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB transaction failed"));
-      tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"));
+      }), tx.oncomplete = () => resolve(result), tx.onerror = () => reject(tx.error ?? new Error("IndexedDB transaction failed")), tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted"));
     });
   };
   return {
     kind: "web",
     get: async (key) => {
-      const value = await run("readonly", (os) => os.get(key));
+      let value = await run("readonly", (os) => os.get(key));
       return value === void 0 ? void 0 : value;
     },
-    put: (key, value) => run("readwrite", (os) => os.put(value, key)).then(() => void 0),
-    delete: (key) => run("readwrite", (os) => os.delete(key)).then(() => void 0),
+    put: (key, value) => run("readwrite", (os) => os.put(value, key)).then(() => {
+    }),
+    delete: (key) => run("readwrite", (os) => os.delete(key)).then(() => {
+    }),
     keys: async () => {
-      const list = await run("readonly", (os) => os.getAllKeys());
+      let list = await run("readonly", (os) => os.getAllKeys());
       return Array.from(list ?? []).map(String);
     }
   };
 }
 function createSecureKv({ plugin, prefix = SECURE_PREFIX } = {}) {
-  if (!plugin || typeof plugin.setItem !== "function") throw new TypeError("createSecureKv needs the SecureStorage plugin");
+  if (!plugin || typeof plugin.setItem != "function") throw new TypeError("createSecureKv needs the SecureStorage plugin");
   return {
     kind: "native",
     get: async (key) => {
-      const answer = await plugin.getItem({ key: prefix + key });
-      const text = answer?.value;
-      return text === null || text === void 0 ? void 0 : JSON.parse(String(text));
+      let text = (await plugin.getItem({ key: prefix + key }))?.value;
+      return text == null ? void 0 : JSON.parse(String(text));
     },
     put: async (key, value) => {
       await plugin.setItem({ key: prefix + key, value: JSON.stringify(value) });
@@ -2061,16 +1599,12 @@ function createSecureKv({ plugin, prefix = SECURE_PREFIX } = {}) {
     delete: async (key) => {
       await plugin.removeItem({ key: prefix + key });
     },
-    keys: async () => {
-      const answer = await plugin.keys();
-      return (answer?.keys ?? []).filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length));
-    }
+    keys: async () => ((await plugin.keys())?.keys ?? []).filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length))
   };
 }
-var isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var isObject = (v) => v !== null && typeof v == "object" && !Array.isArray(v);
 function publicComputer(record) {
-  if (!isObject(record)) return null;
-  return {
+  return isObject(record) ? {
     id: record.id,
     name: record.name ?? "",
     carriers: Array.isArray(record.carriers) ? record.carriers.map((c) => ({ kind: c.kind })) : [],
@@ -2079,71 +1613,54 @@ function publicComputer(record) {
     pairedAt: record.pairedAt ?? null,
     counter: Number.isSafeInteger(record.counter) ? record.counter : 0,
     // Whether this phone holds the computer's Stop key and its own id there (C5): Stop can then be sent without unlocking.
-    stopReady: typeof record.stopKey === "string" && /^[A-Za-z0-9_-]{43}$/.test(record.stopKey) && /^[0-9a-f]{64}$/.test(String(record.myDeviceId ?? ""))
-  };
+    stopReady: typeof record.stopKey == "string" && /^[A-Za-z0-9_-]{43}$/.test(record.stopKey) && /^[0-9a-f]{64}$/.test(String(record.myDeviceId ?? ""))
+  } : null;
 }
 function createStore({ kv } = {}) {
-  if (!kv || typeof kv.get !== "function") throw new TypeError("createStore needs a key-value back end");
-  let chain = Promise.resolve();
-  const serial = (fn) => {
-    const run = chain.then(fn, fn);
-    chain = run.catch(() => {
-    });
-    return run;
-  };
-  const readComputers = async () => {
-    const list = await kv.get("computers");
+  if (!kv || typeof kv.get != "function") throw new TypeError("createStore needs a key-value back end");
+  let chain = Promise.resolve(), serial = (fn) => {
+    let run = chain.then(fn, fn);
+    return chain = run.catch(() => {
+    }), run;
+  }, readComputers = async () => {
+    let list = await kv.get("computers");
     return Array.isArray(list) ? list.filter(isObject) : [];
-  };
-  const readCounter = async (id) => {
-    const value = await kv.get(`ctr:${id}`);
+  }, readCounter = async (id) => {
+    let value = await kv.get(`ctr:${id}`);
     return Number.isSafeInteger(value) && value >= 0 ? value : 0;
   };
-  const store = {
+  return {
     kind: kv.kind,
     // Every record, keys included. Only the unlock path and the connect path may use these.
     list: () => serial(readComputers),
     get: (id) => serial(async () => (await readComputers()).find((c) => c.id === id) ?? null),
     publicList: () => serial(async () => (await readComputers()).map(publicComputer)),
     put: (record) => serial(async () => {
-      if (!isObject(record) || typeof record.id !== "string" || !record.id) throw new TypeError("a computer record needs an id");
-      const all = await readComputers();
-      const next = all.some((c) => c.id === record.id) ? all.map((c) => c.id === record.id ? record : c) : [...all, record];
-      await kv.put("computers", next);
-      return record;
+      if (!isObject(record) || typeof record.id != "string" || !record.id) throw new TypeError("a computer record needs an id");
+      let all = await readComputers(), next = all.some((c) => c.id === record.id) ? all.map((c) => c.id === record.id ? record : c) : [...all, record];
+      return await kv.put("computers", next), record;
     }),
     // Merges fields into a record. Keys in `fields` replace the record's value; a null value removes the field.
     patchComputer: (id, fields) => serial(async () => {
-      const all = await readComputers();
-      const found = all.find((c) => c.id === id);
+      let all = await readComputers(), found = all.find((c) => c.id === id);
       if (!found) return null;
-      for (const [k, v] of Object.entries(fields ?? {})) {
-        if (v === null) delete found[k];
-        else found[k] = v;
-      }
-      await kv.put("computers", all);
-      return publicComputer(found);
+      for (let [k, v] of Object.entries(fields ?? {}))
+        v === null ? delete found[k] : found[k] = v;
+      return await kv.put("computers", all), publicComputer(found);
     }),
     remove: (id) => serial(async () => {
-      const all = await readComputers();
-      await kv.put("computers", all.filter((c) => c.id !== id));
-      return true;
+      let all = await readComputers();
+      return await kv.put("computers", all.filter((c) => c.id !== id)), !0;
     }),
     counter: (id) => serial(() => readCounter(id)),
     // Stores a counter of at least `minimum`, never lower than what is stored, and returns the value stored. The handshake only
     // goes out with a value this returns (channel.js answerCounter).
     raiseCounter: (id, minimum) => serial(async () => {
-      const current = await readCounter(id);
-      const next = Math.max(current, Number(minimum) - 1) + 1;
+      let current = await readCounter(id), next = Math.max(current, Number(minimum) - 1) + 1;
       if (!Number.isSafeInteger(next)) throw new RangeError("counter out of range");
       await kv.put(`ctr:${id}`, next);
-      const all = await readComputers();
-      const found = all.find((c) => c.id === id);
-      if (found) {
-        found.counter = next;
-        await kv.put("computers", all);
-      }
-      return next;
+      let all = await readComputers(), found = all.find((c) => c.id === id);
+      return found && (found.counter = next, await kv.put("computers", all)), next;
     }),
     meta: {
       get: (name) => serial(() => kv.get(`meta:${name}`)),
@@ -2153,7 +1670,6 @@ function createStore({ kv } = {}) {
     // Used by the Node suites and the debug console: what the store holds under which keys (names only).
     keys: () => serial(() => kv.keys())
   };
-  return store;
 }
 function createPlatformStore({ secureStorage = null, indexedDB = null } = {}) {
   if (secureStorage) return createStore({ kv: createSecureKv({ plugin: secureStorage }) });
@@ -2167,7 +1683,7 @@ function isBytes(a) {
 }
 var atitle = (title) => title ? `"${title}" ` : "";
 function anumber(n, title = "") {
-  if (typeof n !== "number")
+  if (typeof n != "number")
     throw new TypeError(atitle(title) + "expected number, got " + typeof n);
   if (!Number.isSafeInteger(n) || n < 0)
     throw new RangeError(atitle(title) + "expected integer >= 0, got " + n);
@@ -2176,37 +1692,28 @@ function anumber(n, title = "") {
 function abytes(value, length, title = "") {
   if (isBytes(value) && (length === void 0 || value.length === length))
     return value;
-  if (length !== void 0)
-    anumber(length, "length");
-  const bytes = isBytes(value);
-  const ofLen = length !== void 0 ? ` of length ${length}` : "";
-  const got = bytes ? `length=${value.length}` : `type=${typeof value}`;
-  const message = atitle(title) + "expected Uint8Array" + ofLen + ", got " + got;
-  if (!bytes)
-    throw new TypeError(message);
-  throw new RangeError(message);
+  length !== void 0 && anumber(length, "length");
+  let bytes = isBytes(value), ofLen = length !== void 0 ? ` of length ${length}` : "", got = bytes ? `length=${value.length}` : `type=${typeof value}`, message = atitle(title) + "expected Uint8Array" + ofLen + ", got " + got;
+  throw bytes ? new RangeError(message) : new TypeError(message);
 }
 function ahash(h) {
-  if (typeof h !== "function" || typeof h.create !== "function")
+  if (typeof h != "function" || typeof h.create != "function")
     throw new TypeError("expected hash wrapped by utils.createHasher");
-  anumber(h.outputLen);
-  anumber(h.blockLen);
-  if (h.outputLen < 1 || h.blockLen < 1)
+  if (anumber(h.outputLen), anumber(h.blockLen), h.outputLen < 1 || h.blockLen < 1)
     throw new Error("hash blockLen / outputLen must be >= 1");
 }
 var aobject = (value, label) => {
-  if (value === null || typeof value !== "object" || Array.isArray(value))
+  if (value === null || typeof value != "object" || Array.isArray(value))
     throw new TypeError((label === "object" ? "" : `"${label}" `) + "expected object, got type=" + typeof value);
-};
-var aopts = (value, label) => {
+}, aopts = (value, label) => {
   aobject(value, label);
-  const proto = Object.getPrototypeOf(value);
+  let proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null)
     throw new TypeError(`"${label}" expected plain object`);
   if (Object.hasOwn(value, "__proto__"))
     throw new TypeError(`"${label}.__proto__" is not allowed`);
 };
-function aexists(instance, checkFinished = true) {
+function aexists(instance, checkFinished = !0) {
   if (instance.destroyed)
     throw new Error("hash was destroyed");
   if (checkFinished && instance.finished)
@@ -2214,15 +1721,13 @@ function aexists(instance, checkFinished = true) {
 }
 function aoutput(out, instance) {
   abytes(out, void 0, "output");
-  const min = instance.outputLen;
-  if (!(out.length >= min)) {
+  let min = instance.outputLen;
+  if (!(out.length >= min))
     throw new RangeError('"output" expected length >= ' + min);
-  }
 }
 function clean(...arrays) {
-  for (let i = 0; i < arrays.length; i++) {
+  for (let i = 0; i < arrays.length; i++)
     arrays[i].fill(0);
-  }
 }
 function createView(arr) {
   return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
@@ -2231,9 +1736,9 @@ function rotr(word, shift) {
   return word << 32 - shift | word >>> shift;
 }
 function utf8ToBytes(str) {
-  if (typeof str !== "string")
+  if (typeof str != "string")
     throw new TypeError("string expected");
-  const encoded = new TextEncoder().encode(str);
+  let encoded = new TextEncoder().encode(str);
   try {
     return new Uint8Array(encoded);
   } finally {
@@ -2241,34 +1746,22 @@ function utf8ToBytes(str) {
   }
 }
 function kdfInputToBytes(data, errorTitle = "") {
-  if (typeof data === "string")
-    return utf8ToBytes(data);
-  return abytes(data, void 0, errorTitle);
+  return typeof data == "string" ? utf8ToBytes(data) : abytes(data, void 0, errorTitle);
 }
 function checkOpts(defaults, opts, title = "opts") {
-  aopts(defaults, "defaults");
-  if (opts !== void 0)
-    aopts(opts, title);
-  const merged = Object.assign(/* @__PURE__ */ Object.create(null), defaults, opts);
-  return merged;
+  return aopts(defaults, "defaults"), opts !== void 0 && aopts(opts, title), Object.assign(/* @__PURE__ */ Object.create(null), defaults, opts);
 }
 function createHasher(hashCons, info = {}) {
-  if (typeof hashCons !== "function")
+  if (typeof hashCons != "function")
     throw new TypeError('"hashCons" expected function, got type=' + typeof hashCons);
   info = checkOpts({}, info, "info");
-  const hashC = (msg, opts) => hashCons(opts).update(msg).digest();
-  const tmp = hashCons(void 0);
-  hashC.outputLen = tmp.outputLen;
-  hashC.blockLen = tmp.blockLen;
-  hashC.canXOF = tmp.canXOF;
-  hashC.create = (opts) => hashCons(opts);
-  Object.assign(hashC, info);
-  return Object.freeze(hashC);
+  let hashC = (msg, opts) => hashCons(opts).update(msg).digest(), tmp = hashCons(void 0);
+  return hashC.outputLen = tmp.outputLen, hashC.blockLen = tmp.blockLen, hashC.canXOF = tmp.canXOF, hashC.create = (opts) => hashCons(opts), Object.assign(hashC, info), Object.freeze(hashC);
 }
 function randomBytes(bytesLength = 32) {
   anumber(bytesLength, "bytesLength");
-  const cr = typeof globalThis === "object" ? globalThis.crypto : null;
-  if (typeof cr?.getRandomValues !== "function")
+  let cr = typeof globalThis == "object" ? globalThis.crypto : null;
+  if (typeof cr?.getRandomValues != "function")
     throw new Error("crypto.getRandomValues must be defined");
   if (bytesLength > 65536)
     throw new RangeError(`"bytesLength" expected <= 65536, got ${bytesLength}`);
@@ -2287,159 +1780,103 @@ var _HMAC = class {
     __publicField(this, "iHash");
     __publicField(this, "blockLen");
     __publicField(this, "outputLen");
-    __publicField(this, "canXOF", false);
-    __publicField(this, "finished", false);
-    __publicField(this, "destroyed", false);
-    ahash(hash);
-    abytes(key, void 0, "key");
-    this.iHash = hash.create();
-    if (typeof this.iHash.update !== "function")
+    __publicField(this, "canXOF", !1);
+    __publicField(this, "finished", !1);
+    __publicField(this, "destroyed", !1);
+    if (ahash(hash), abytes(key, void 0, "key"), this.iHash = hash.create(), typeof this.iHash.update != "function")
       throw new Error("expected Hash instance");
-    this.blockLen = this.iHash.blockLen;
-    this.outputLen = this.iHash.outputLen;
-    const blockLen = this.blockLen;
-    const pad = new Uint8Array(blockLen);
+    this.blockLen = this.iHash.blockLen, this.outputLen = this.iHash.outputLen;
+    let blockLen = this.blockLen, pad = new Uint8Array(blockLen);
     pad.set(key.length > blockLen ? hash.create().update(key).digest() : key);
     for (let i = 0; i < pad.length; i++)
       pad[i] ^= 54;
-    this.iHash.update(pad);
-    this.oHash = hash.create();
+    this.iHash.update(pad), this.oHash = hash.create();
     for (let i = 0; i < pad.length; i++)
-      pad[i] ^= 54 ^ 92;
-    this.oHash.update(pad);
-    clean(pad);
+      pad[i] ^= 106;
+    this.oHash.update(pad), clean(pad);
   }
   update(buf) {
-    aexists(this);
-    this.iHash.update(buf);
-    return this;
+    return aexists(this), this.iHash.update(buf), this;
   }
   digestInto(out) {
-    aexists(this);
-    aoutput(out, this);
-    this.finished = true;
-    const buf = out.subarray(0, this.outputLen);
-    this.iHash.digestInto(buf);
-    this.oHash.update(buf);
-    this.oHash.digestInto(buf);
-    this.destroy();
+    aexists(this), aoutput(out, this), this.finished = !0;
+    let buf = out.subarray(0, this.outputLen);
+    this.iHash.digestInto(buf), this.oHash.update(buf), this.oHash.digestInto(buf), this.destroy();
   }
   digest() {
-    const out = new Uint8Array(this.oHash.outputLen);
-    this.digestInto(out);
-    return out;
+    let out = new Uint8Array(this.oHash.outputLen);
+    return this.digestInto(out), out;
   }
   _cloneInto(to) {
     to ||= Object.create(Object.getPrototypeOf(this), {});
-    const { oHash, iHash, finished, destroyed, blockLen, outputLen, canXOF } = this;
-    to = to;
-    to.finished = finished;
-    to.destroyed = destroyed;
-    to.blockLen = blockLen;
-    to.outputLen = outputLen;
-    to.canXOF = canXOF;
-    to.oHash = oHash._cloneInto(to.oHash);
-    to.iHash = iHash._cloneInto(to.iHash);
-    return to;
+    let { oHash, iHash, finished, destroyed, blockLen, outputLen, canXOF } = this;
+    return to = to, to.finished = finished, to.destroyed = destroyed, to.blockLen = blockLen, to.outputLen = outputLen, to.canXOF = canXOF, to.oHash = oHash._cloneInto(to.oHash), to.iHash = iHash._cloneInto(to.iHash), to;
   }
   clone() {
     return this._cloneInto();
   }
   destroy() {
-    this.destroyed = true;
-    this.oHash.destroy();
-    this.iHash.destroy();
+    this.destroyed = !0, this.oHash.destroy(), this.iHash.destroy();
   }
-};
-var hmac = /* @__PURE__ */ (() => {
-  const hmac_ = ((hash, key, message) => new _HMAC(hash, key).update(message).digest());
-  hmac_.create = (hash, key) => new _HMAC(hash, key);
-  return hmac_;
+}, hmac = /* @__PURE__ */ (() => {
+  let hmac_ = ((hash, key, message) => new _HMAC(hash, key).update(message).digest());
+  return hmac_.create = (hash, key) => new _HMAC(hash, key), hmac_;
 })();
 
 // mobile/node_modules/@noble/hashes/pbkdf2.js
 function pbkdf2Init(hash, _password, _salt, _opts) {
   ahash(hash);
-  const opts = checkOpts({ dkLen: 32, asyncTick: 10 }, _opts);
-  const { c, dkLen, asyncTick } = opts;
-  anumber(c, "c");
-  anumber(dkLen, "dkLen");
-  anumber(asyncTick, "asyncTick");
-  if (c < 1)
+  let opts = checkOpts({ dkLen: 32, asyncTick: 10 }, _opts), { c, dkLen, asyncTick } = opts;
+  if (anumber(c, "c"), anumber(dkLen, "dkLen"), anumber(asyncTick, "asyncTick"), c < 1)
     throw new Error('"c" (iterations) must be >= 1');
   if (dkLen < 1)
     throw new Error('"dkLen" must be >= 1');
   if (dkLen > (2 ** 32 - 1) * hash.outputLen)
     throw new Error("derived key too long");
-  const p = kdfInputToBytes(_password, "password");
+  let p = kdfInputToBytes(_password, "password");
   try {
-    const s = kdfInputToBytes(_salt, "salt");
+    let s = kdfInputToBytes(_salt, "salt");
     try {
-      const DK = new Uint8Array(dkLen);
-      const { iHash, oHash, outputLen } = hmac.create(hash, p);
-      const u = new Uint8Array(outputLen);
-      const eng = pbkdf2Engine(iHash, oHash, s, u);
+      let DK = new Uint8Array(dkLen), { iHash, oHash, outputLen } = hmac.create(hash, p), u = new Uint8Array(outputLen), eng = pbkdf2Engine(iHash, oHash, s, u);
       return { c, dkLen, asyncTick, DK, outputLen, eng };
     } finally {
-      if (typeof _salt === "string")
-        clean(s);
+      typeof _salt == "string" && clean(s);
     }
   } finally {
-    if (typeof _password === "string")
-      clean(p);
+    typeof _password == "string" && clean(p);
   }
 }
 function pbkdf2Engine(iHash, oHash, salt, u) {
-  const counter = new Uint8Array(4);
-  const view = createView(counter);
-  const salted = iHash._cloneInto().update(salt);
-  const work = oHash._cloneInto();
-  const iClone = iHash._cloneInto;
-  const oClone = oHash._cloneInto;
+  let counter = new Uint8Array(4), view = createView(counter), salted = iHash._cloneInto().update(salt), work = oHash._cloneInto(), iClone = iHash._cloneInto, oClone = oHash._cloneInto;
   return {
     u1: (ti, Ti) => {
-      view.setInt32(0, ti, false);
-      salted._cloneInto(work).update(counter).digestInto(u);
-      oHash._cloneInto(work).update(u).digestInto(u);
-      Ti.set(u.subarray(0, Ti.length));
+      view.setInt32(0, ti, !1), salted._cloneInto(work).update(counter).digestInto(u), oHash._cloneInto(work).update(u).digestInto(u), Ti.set(u.subarray(0, Ti.length));
     },
     // Whole `F` inner loop for the sync variant: one optimized function owns the hot loop.
     rounds: (c, Ti) => {
       for (let ui = 1; ui < c; ui++) {
-        iClone.call(iHash, work).update(u).digestInto(u);
-        oClone.call(oHash, work).update(u).digestInto(u);
+        iClone.call(iHash, work).update(u).digestInto(u), oClone.call(oHash, work).update(u).digestInto(u);
         for (let i = 0; i < Ti.length; i++)
           Ti[i] ^= u[i];
       }
     },
-    output: (DK) => {
-      iHash.destroy();
-      oHash.destroy();
-      salted.destroy();
-      work.destroy();
-      clean(u);
-      return DK;
-    }
+    output: (DK) => (iHash.destroy(), oHash.destroy(), salted.destroy(), work.destroy(), clean(u), DK)
   };
 }
 function pbkdf2(hash, password, salt, opts) {
-  const { c, dkLen, DK, outputLen, eng } = pbkdf2Init(hash, password, salt, opts);
+  let { c, dkLen, DK, outputLen, eng } = pbkdf2Init(hash, password, salt, opts);
   for (let ti = 1, pos = 0; pos < dkLen; ti++, pos += outputLen) {
-    const Ti = DK.subarray(pos, pos + outputLen);
-    eng.u1(ti, Ti);
-    eng.rounds(c, Ti);
+    let Ti = DK.subarray(pos, pos + outputLen);
+    eng.u1(ti, Ti), eng.rounds(c, Ti);
   }
   return eng.output(DK);
 }
 
 // mobile/node_modules/@noble/hashes/_u64.js
-var fromNumH = (n) => n / 2 ** 32 | 0;
-var fromNumL = (n) => n >>> 0;
+var fromNumH = (n) => n / 2 ** 32 | 0, fromNumL = (n) => n >>> 0;
 function setU64FromNum(view, byteOffset, n, isLE2) {
-  const h = fromNumH(n);
-  const l = fromNumL(n);
-  view.setUint32(byteOffset, isLE2 ? l : h, isLE2);
-  view.setUint32(byteOffset + 4, isLE2 ? h : l, isLE2);
+  let h = fromNumH(n), l = fromNumL(n);
+  view.setUint32(byteOffset, isLE2 ? l : h, isLE2), view.setUint32(byteOffset + 4, isLE2 ? h : l, isLE2);
 }
 
 // mobile/node_modules/@noble/hashes/_md.js
@@ -2453,98 +1890,58 @@ var HashMD = class {
   constructor(blockLen, outputLen, padOffset, isLE2) {
     __publicField(this, "blockLen");
     __publicField(this, "outputLen");
-    __publicField(this, "canXOF", false);
+    __publicField(this, "canXOF", !1);
     __publicField(this, "padOffset");
     __publicField(this, "isLE");
     // For partial updates less than block size
     __publicField(this, "buffer");
     __publicField(this, "view");
-    __publicField(this, "finished", false);
+    __publicField(this, "finished", !1);
     __publicField(this, "length", 0);
     __publicField(this, "pos", 0);
-    __publicField(this, "destroyed", false);
-    this.blockLen = blockLen;
-    this.outputLen = outputLen;
-    this.padOffset = padOffset;
-    this.isLE = isLE2;
-    this.buffer = new Uint8Array(blockLen);
-    this.view = createView(this.buffer);
+    __publicField(this, "destroyed", !1);
+    this.blockLen = blockLen, this.outputLen = outputLen, this.padOffset = padOffset, this.isLE = isLE2, this.buffer = new Uint8Array(blockLen), this.view = createView(this.buffer);
   }
   update(data) {
-    aexists(this);
-    abytes(data);
-    const { view, buffer, blockLen } = this;
-    const len = data.length;
-    let processed = false;
+    aexists(this), abytes(data);
+    let { view, buffer, blockLen } = this, len = data.length, processed = !1;
     for (let pos = 0; pos < len; ) {
-      const take = Math.min(blockLen - this.pos, len - pos);
+      let take = Math.min(blockLen - this.pos, len - pos);
       if (take === blockLen) {
-        const dataView = createView(data);
+        let dataView = createView(data);
         for (; blockLen <= len - pos; pos += blockLen)
           this.process(dataView, pos);
-        processed = true;
+        processed = !0;
         continue;
       }
-      buffer.set(pos === 0 && take === len ? data : data.subarray(pos, pos + take), this.pos);
-      this.pos += take;
-      pos += take;
-      if (this.pos === blockLen) {
-        this.process(view, 0);
-        this.pos = 0;
-        processed = true;
-      }
+      buffer.set(pos === 0 && take === len ? data : data.subarray(pos, pos + take), this.pos), this.pos += take, pos += take, this.pos === blockLen && (this.process(view, 0), this.pos = 0, processed = !0);
     }
-    this.length += data.length;
-    if (processed)
-      this.roundClean();
-    return this;
+    return this.length += data.length, processed && this.roundClean(), this;
   }
   digestInto(out) {
-    aexists(this);
-    aoutput(out, this);
-    this.finished = true;
-    const { buffer, view, blockLen, isLE: isLE2 } = this;
-    let { pos } = this;
-    buffer[pos++] = 128;
-    buffer.fill(0, pos);
-    if (this.padOffset > blockLen - pos) {
-      this.process(view, 0);
-      buffer.fill(0);
-    }
-    setU64FromNum(view, blockLen - 8, this.length * 8, isLE2);
-    this.process(view, 0);
-    this.roundClean();
-    const oview = out === buffer ? view : createView(out);
-    const len = this.outputLen;
-    const outLen = len / 4;
-    const state = this.get();
+    aexists(this), aoutput(out, this), this.finished = !0;
+    let { buffer, view, blockLen, isLE: isLE2 } = this, { pos } = this;
+    buffer[pos++] = 128, buffer.fill(0, pos), this.padOffset > blockLen - pos && (this.process(view, 0), buffer.fill(0)), setU64FromNum(view, blockLen - 8, this.length * 8, isLE2), this.process(view, 0), this.roundClean();
+    let oview = out === buffer ? view : createView(out), len = this.outputLen, outLen = len / 4, state = this.get();
     if (len % 4 || outLen > state.length)
       throw new Error("invalid outputLen");
     for (let i = 0; i < outLen; i++)
       oview.setUint32(4 * i, state[i], isLE2);
   }
   digest() {
-    const { buffer, outputLen } = this;
+    let { buffer, outputLen } = this;
     this.digestInto(buffer);
-    const res = buffer.slice(0, outputLen);
-    this.destroy();
-    return res;
+    let res = buffer.slice(0, outputLen);
+    return this.destroy(), res;
   }
   _cloneIntoMeta(to) {
-    const { buffer, length, finished, destroyed, pos } = this;
-    to.destroyed = destroyed;
-    to.finished = finished;
-    to.length = length;
-    to.pos = pos;
-    if (pos)
-      to.buffer.set(buffer);
-    return to;
+    let { buffer, length, finished, destroyed, pos } = this;
+    return to.destroyed = destroyed, to.finished = finished, to.length = length, to.pos = pos, pos && to.buffer.set(buffer), to;
   }
   clone() {
     return this._cloneInto();
   }
-};
-var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+}, SHA256_IV = /* @__PURE__ */ Uint32Array.from([
   1779033703,
   3144134277,
   1013904242,
@@ -2621,11 +2018,9 @@ var SHA256_K = /* @__PURE__ */ Uint32Array.from([
   2756734187,
   3204031479,
   3329325298
-]);
-var SHA256_W = /* @__PURE__ */ new Uint32Array(64);
-var SHA2_32B = class extends HashMD {
+]), SHA256_W = /* @__PURE__ */ new Uint32Array(64), SHA2_32B = class extends HashMD {
   constructor(outputLen, IV) {
-    super(64, outputLen, 8, false);
+    super(64, outputLen, 8, !1);
     // We cannot use array here since array allows indexing by variable
     // which means optimizer/compiler cannot use registers.
     // Numeric initializers matter: starting the fields as `undefined` changes
@@ -2638,79 +2033,40 @@ var SHA2_32B = class extends HashMD {
     __publicField(this, "F", 0);
     __publicField(this, "G", 0);
     __publicField(this, "H", 0);
-    this.A = IV[0] | 0;
-    this.B = IV[1] | 0;
-    this.C = IV[2] | 0;
-    this.D = IV[3] | 0;
-    this.E = IV[4] | 0;
-    this.F = IV[5] | 0;
-    this.G = IV[6] | 0;
-    this.H = IV[7] | 0;
+    this.A = IV[0] | 0, this.B = IV[1] | 0, this.C = IV[2] | 0, this.D = IV[3] | 0, this.E = IV[4] | 0, this.F = IV[5] | 0, this.G = IV[6] | 0, this.H = IV[7] | 0;
   }
   get() {
-    const { A, B, C, D, E, F, G, H } = this;
+    let { A, B, C, D, E, F, G, H } = this;
     return [A, B, C, D, E, F, G, H];
   }
   // prettier-ignore
   set(A, B, C, D, E, F, G, H) {
-    this.A = A | 0;
-    this.B = B | 0;
-    this.C = C | 0;
-    this.D = D | 0;
-    this.E = E | 0;
-    this.F = F | 0;
-    this.G = G | 0;
-    this.H = H | 0;
+    this.A = A | 0, this.B = B | 0, this.C = C | 0, this.D = D | 0, this.E = E | 0, this.F = F | 0, this.G = G | 0, this.H = H | 0;
   }
   _cloneInto(to) {
-    (to ||= new this.constructor()).set(...this.get());
-    return this._cloneIntoMeta(to);
+    return (to ||= new this.constructor()).set(...this.get()), this._cloneIntoMeta(to);
   }
   process(view, offset) {
     for (let i = 0; i < 16; i++, offset += 4)
-      SHA256_W[i] = view.getUint32(offset, false);
+      SHA256_W[i] = view.getUint32(offset, !1);
     for (let i = 16; i < 64; i++) {
-      const W15 = SHA256_W[i - 15];
-      const W2 = SHA256_W[i - 2];
-      const s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ W15 >>> 3;
-      const s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ W2 >>> 10;
+      let W15 = SHA256_W[i - 15], W2 = SHA256_W[i - 2], s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ W15 >>> 3, s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ W2 >>> 10;
       SHA256_W[i] = s1 + SHA256_W[i - 7] + s0 + SHA256_W[i - 16] | 0;
     }
     let { A, B, C, D, E, F, G, H } = this;
     for (let i = 0; i < 64; i++) {
-      const sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25);
-      const T1 = H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i] | 0;
-      const sigma0 = rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22);
-      const T2 = sigma0 + Maj(A, B, C) | 0;
-      H = G;
-      G = F;
-      F = E;
-      E = D + T1 | 0;
-      D = C;
-      C = B;
-      B = A;
-      A = T1 + T2 | 0;
+      let sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25), T1 = H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i] | 0, T2 = (rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22)) + Maj(A, B, C) | 0;
+      H = G, G = F, F = E, E = D + T1 | 0, D = C, C = B, B = A, A = T1 + T2 | 0;
     }
-    A = A + this.A | 0;
-    B = B + this.B | 0;
-    C = C + this.C | 0;
-    D = D + this.D | 0;
-    E = E + this.E | 0;
-    F = F + this.F | 0;
-    G = G + this.G | 0;
-    H = H + this.H | 0;
-    this.set(A, B, C, D, E, F, G, H);
+    A = A + this.A | 0, B = B + this.B | 0, C = C + this.C | 0, D = D + this.D | 0, E = E + this.E | 0, F = F + this.F | 0, G = G + this.G | 0, H = H + this.H | 0, this.set(A, B, C, D, E, F, G, H);
   }
   roundClean() {
     clean(SHA256_W);
   }
   destroy() {
-    this.destroyed = true;
-    this.set(0, 0, 0, 0, 0, 0, 0, 0);
-    clean(this.buffer);
+    this.destroyed = !0, this.set(0, 0, 0, 0, 0, 0, 0, 0), clean(this.buffer);
   }
-};
-var _SHA256 = class extends SHA2_32B {
+}, _SHA256 = class extends SHA2_32B {
   constructor() {
     super(32, SHA256_IV);
   }
@@ -2726,12 +2082,12 @@ function isBytes2(a) {
 }
 var atitle2 = (title) => title ? `"${title}" ` : "";
 function abool(value, title = "") {
-  if (typeof value !== "boolean")
+  if (typeof value != "boolean")
     throw new TypeError(atitle2(title) + "expected boolean, got type=" + typeof value);
   return value;
 }
 function anumber2(n, title = "") {
-  if (typeof n !== "number")
+  if (typeof n != "number")
     throw new TypeError(atitle2(title) + "expected number, got " + typeof n);
   if (!Number.isSafeInteger(n) || n < 0)
     throw new RangeError(atitle2(title) + "expected integer >= 0, got " + n);
@@ -2740,17 +2096,11 @@ function anumber2(n, title = "") {
 function abytes2(value, length, title = "") {
   if (isBytes2(value) && (length === void 0 || value.length === length))
     return value;
-  if (length !== void 0)
-    anumber2(length, "length");
-  const bytes = isBytes2(value);
-  const ofLen = length !== void 0 ? ` of length ${length}` : "";
-  const got = bytes ? `length=${value.length}` : `type=${typeof value}`;
-  const message = atitle2(title) + "expected Uint8Array" + ofLen + ", got " + got;
-  if (!bytes)
-    throw new TypeError(message);
-  throw new RangeError(message);
+  length !== void 0 && anumber2(length, "length");
+  let bytes = isBytes2(value), ofLen = length !== void 0 ? ` of length ${length}` : "", got = bytes ? `length=${value.length}` : `type=${typeof value}`, message = atitle2(title) + "expected Uint8Array" + ofLen + ", got " + got;
+  throw bytes ? new RangeError(message) : new TypeError(message);
 }
-function aexists2(instance, checkFinished = true) {
+function aexists2(instance, checkFinished = !0) {
   if (instance.destroyed)
     throw new Error("hash was destroyed");
   if (checkFinished && instance.finished)
@@ -2758,14 +2108,12 @@ function aexists2(instance, checkFinished = true) {
 }
 function aoutput2(out, instance) {
   abytes2(out, void 0, "output");
-  const min = instance.outputLen;
-  if (!(out.length >= min)) {
+  let min = instance.outputLen;
+  if (!(out.length >= min))
     throw new RangeError('"output" expected length >= ' + min);
-  }
 }
 function aoutput32(out, instance) {
-  aoutput2(out, instance);
-  if (!isAligned32(out))
+  if (aoutput2(out, instance), !isAligned32(out))
     throw new Error("invalid output, must be aligned");
 }
 function u8(arr) {
@@ -2775,109 +2123,81 @@ function u32(arr) {
   return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
 }
 function clean2(...arrays) {
-  for (let i = 0; i < arrays.length; i++) {
+  for (let i = 0; i < arrays.length; i++)
     arrays[i].fill(0);
-  }
 }
 function createView2(arr) {
   return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
 }
-var isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68)();
+var isLE = new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68;
 function byteSwap(word) {
   return word << 24 & 4278190080 | word << 8 & 16711680 | word >>> 8 & 65280 | word >>> 24 & 255;
 }
 var swap8IfBE = isLE ? (n) => n : (n) => byteSwap(n) >>> 0;
 function byteSwap32(arr) {
-  for (let i = 0; i < arr.length; i++) {
+  for (let i = 0; i < arr.length; i++)
     arr[i] = byteSwap(arr[i]);
-  }
   return arr;
 }
 var swap32IfBE = isLE ? (u) => u : byteSwap32;
 function equalBytes(a, b) {
-  a = abytes2(a);
-  b = abytes2(b);
-  if (a.length !== b.length)
-    return false;
+  if (a = abytes2(a), b = abytes2(b), a.length !== b.length)
+    return !1;
   let diff = 0;
   for (let i = 0; i < a.length; i++)
     diff |= a[i] ^ b[i];
   return diff === 0;
 }
 function wrapMacConstructor(keyLen, macCons, fromMsg) {
-  const mac = macCons;
-  const getArgs = fromMsg || (() => []);
-  const macC = (msg, key) => mac(key, ...getArgs(msg)).update(msg).digest();
-  const tmp = mac(new Uint8Array(keyLen), ...getArgs(new Uint8Array(0)));
-  macC.outputLen = tmp.outputLen;
-  macC.blockLen = tmp.blockLen;
-  macC.create = (key, ...args) => mac(key, ...args);
-  return macC;
+  let mac = macCons, getArgs = fromMsg || (() => []), macC = (msg, key) => mac(key, ...getArgs(msg)).update(msg).digest(), tmp = mac(new Uint8Array(keyLen), ...getArgs(new Uint8Array(0)));
+  return macC.outputLen = tmp.outputLen, macC.blockLen = tmp.blockLen, macC.create = (key, ...args) => mac(key, ...args), macC;
 }
 var wrapCipher = /* @__NO_SIDE_EFFECTS__ */ (params, constructor) => {
   function wrappedCipher(key, ...args) {
-    abytes2(key, void 0, "key");
-    if (params.nonceLength !== void 0) {
-      const nonce = args[0];
+    if (abytes2(key, void 0, "key"), params.nonceLength !== void 0) {
+      let nonce = args[0];
       abytes2(nonce, params.varSizeNonce ? void 0 : params.nonceLength, "nonce");
     }
-    const tagl = params.tagLength;
-    const aadStart = params.nonceLength !== void 0 ? 1 : 0;
+    let tagl = params.tagLength, aadStart = params.nonceLength !== void 0 ? 1 : 0;
     if (!params.withAAD) {
       for (let i = aadStart; i < args.length; i++)
         if (isBytes2(args[i]))
           throw new Error("AAD not supported");
     }
-    if (params.withAAD && args[aadStart] !== void 0)
-      abytes2(args[aadStart], void 0, "AAD");
-    const cipher = constructor(key, ...args);
-    const checkOutput = (fnLength, output) => {
+    params.withAAD && args[aadStart] !== void 0 && abytes2(args[aadStart], void 0, "AAD");
+    let cipher = constructor(key, ...args), checkOutput = (fnLength, output) => {
       if (output !== void 0) {
         if (fnLength !== 2)
           throw new Error("cipher output not supported");
         abytes2(output, void 0, "output");
       }
-    };
-    let called = false;
-    const wrCipher = {
+    }, called = !1;
+    return {
       encrypt(data, output) {
         if (called)
           throw new Error("cannot encrypt() twice with same key + nonce");
-        called = true;
-        abytes2(data, void 0, "data");
-        checkOutput(cipher.encrypt.length, output);
-        return cipher.encrypt(data, output);
+        return called = !0, abytes2(data, void 0, "data"), checkOutput(cipher.encrypt.length, output), cipher.encrypt(data, output);
       },
       decrypt(data, output) {
-        abytes2(data, void 0, "data");
-        if (tagl && data.length < tagl)
+        if (abytes2(data, void 0, "data"), tagl && data.length < tagl)
           throw new Error('"ciphertext" expected length >= tagLength=' + tagl);
-        checkOutput(cipher.decrypt.length, output);
-        return cipher.decrypt(data, output);
+        return checkOutput(cipher.decrypt.length, output), cipher.decrypt(data, output);
       }
     };
-    return wrCipher;
   }
-  Object.assign(wrappedCipher, params);
-  return wrappedCipher;
+  return Object.assign(wrappedCipher, params), wrappedCipher;
 };
-function getOutput(expectedLength, out, onlyAligned = true) {
+function getOutput(expectedLength, out, onlyAligned = !0) {
   if (out === void 0)
     return new Uint8Array(expectedLength);
-  abytes2(out, expectedLength, "output");
-  if (onlyAligned && !isAligned32(out))
+  if (abytes2(out, expectedLength, "output"), onlyAligned && !isAligned32(out))
     throw new Error("invalid output, must be aligned");
   return out;
 }
 function u64Lengths(dataLength, aadLength, isLE2) {
-  anumber2(dataLength);
-  anumber2(aadLength);
-  abool(isLE2);
-  const num = new Uint8Array(16);
-  const view = createView2(num);
-  view.setBigUint64(0, BigInt(aadLength), isLE2);
-  view.setBigUint64(8, BigInt(dataLength), isLE2);
-  return num;
+  anumber2(dataLength), anumber2(aadLength), abool(isLE2);
+  let num = new Uint8Array(16), view = createView2(num);
+  return view.setBigUint64(0, BigInt(aadLength), isLE2), view.setBigUint64(8, BigInt(dataLength), isLE2), num;
 }
 function isAligned32(bytes) {
   return bytes.byteOffset % 4 === 0;
@@ -2887,12 +2207,8 @@ function copyBytes(bytes) {
 }
 
 // mobile/node_modules/@noble/ciphers/_polyval.js
-var BLOCK_SIZE = 16;
-var ZEROS16 = /* @__PURE__ */ new Uint8Array(16);
-var ZEROS32 = /* @__PURE__ */ u32(ZEROS16);
-var POLY = 225;
-var mul2 = (s0, s1, s2, s3) => {
-  const hiBit = s3 & 1;
+var BLOCK_SIZE = 16, ZEROS16 = /* @__PURE__ */ new Uint8Array(16), ZEROS32 = /* @__PURE__ */ u32(ZEROS16), POLY = 225, mul2 = (s0, s1, s2, s3) => {
+  let hiBit = s3 & 1;
   return {
     s3: s2 << 31 | s3 >>> 1,
     s2: s1 << 31 | s2 >>> 1,
@@ -2902,16 +2218,8 @@ var mul2 = (s0, s1, s2, s3) => {
     s0: s0 >>> 1 ^ POLY << 24 & -(hiBit & 1)
     // reduce % poly
   };
-};
-var swapLE = (n) => (n >>> 0 & 255) << 24 | (n >>> 8 & 255) << 16 | (n >>> 16 & 255) << 8 | n >>> 24 & 255 | 0;
-var estimateWindow = (bytes) => {
-  if (bytes > 64 * 1024)
-    return 8;
-  if (bytes > 1024)
-    return 4;
-  return 2;
-};
-var GHASH = class {
+}, swapLE = (n) => (n >>> 0 & 255) << 24 | (n >>> 8 & 255) << 16 | (n >>> 16 & 255) << 8 | n >>> 24 & 255 | 0;
+var estimateWindow = (bytes) => bytes > 64 * 1024 ? 8 : bytes > 1024 ? 4 : 2, GHASH = class {
   // We select bits per window adaptively based on expectedLength
   constructor(key, expectedLength) {
     __publicField(this, "blockLen", BLOCK_SIZE);
@@ -2920,118 +2228,73 @@ var GHASH = class {
     __publicField(this, "s1", 0);
     __publicField(this, "s2", 0);
     __publicField(this, "s3", 0);
-    __publicField(this, "finished", false);
-    __publicField(this, "destroyed", false);
+    __publicField(this, "finished", !1);
+    __publicField(this, "destroyed", !1);
     __publicField(this, "t");
     __publicField(this, "W");
     __publicField(this, "windowSize");
-    abytes2(key, 16, "key");
-    key = copyBytes(key);
-    const kView = createView2(key);
-    let k0 = kView.getUint32(0, false);
-    let k1 = kView.getUint32(4, false);
-    let k2 = kView.getUint32(8, false);
-    let k3 = kView.getUint32(12, false);
-    const doubles = [];
-    for (let i = 0; i < 128; i++) {
-      doubles.push({ s0: swapLE(k0), s1: swapLE(k1), s2: swapLE(k2), s3: swapLE(k3) });
-      ({ s0: k0, s1: k1, s2: k2, s3: k3 } = mul2(k0, k1, k2, k3));
-    }
-    const W = estimateWindow(expectedLength || 1024);
+    abytes2(key, 16, "key"), key = copyBytes(key);
+    let kView = createView2(key), k0 = kView.getUint32(0, !1), k1 = kView.getUint32(4, !1), k2 = kView.getUint32(8, !1), k3 = kView.getUint32(12, !1), doubles = [];
+    for (let i = 0; i < 128; i++)
+      doubles.push({ s0: swapLE(k0), s1: swapLE(k1), s2: swapLE(k2), s3: swapLE(k3) }), { s0: k0, s1: k1, s2: k2, s3: k3 } = mul2(k0, k1, k2, k3);
+    let W = estimateWindow(expectedLength || 1024);
     if (![1, 2, 4, 8].includes(W))
       throw new Error("ghash: invalid window size, expected 2, 4 or 8");
     this.W = W;
-    const bits = 128;
-    const windows = bits / W;
-    const windowSize = this.windowSize = 2 ** W;
-    const items = [];
-    for (let w = 0; w < windows; w++) {
+    let windows = 128 / W, windowSize = this.windowSize = 2 ** W, items = [];
+    for (let w = 0; w < windows; w++)
       for (let byte = 0; byte < windowSize; byte++) {
         let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
         for (let j = 0; j < W; j++) {
-          const bit = byte >>> W - j - 1 & 1;
-          if (!bit)
+          if (!(byte >>> W - j - 1 & 1))
             continue;
-          const { s0: d0, s1: d1, s2: d2, s3: d3 } = doubles[W * w + j];
+          let { s0: d0, s1: d1, s2: d2, s3: d3 } = doubles[W * w + j];
           s0 ^= d0, s1 ^= d1, s2 ^= d2, s3 ^= d3;
         }
         items.push({ s0, s1, s2, s3 });
       }
-    }
     this.t = items;
   }
   _updateBlock(s0, s1, s2, s3) {
     s0 ^= this.s0, s1 ^= this.s1, s2 ^= this.s2, s3 ^= this.s3;
-    const { W, t, windowSize } = this;
-    let o0 = 0, o1 = 0, o2 = 0, o3 = 0;
-    const mask = (1 << W) - 1;
-    let w = 0;
-    for (const num of [s0, s1, s2, s3]) {
+    let { W, t, windowSize } = this, o0 = 0, o1 = 0, o2 = 0, o3 = 0, mask = (1 << W) - 1, w = 0;
+    for (let num of [s0, s1, s2, s3])
       for (let bytePos = 0; bytePos < 4; bytePos++) {
-        const byte = num >>> 8 * bytePos & 255;
+        let byte = num >>> 8 * bytePos & 255;
         for (let bitPos = 8 / W - 1; bitPos >= 0; bitPos--) {
-          const bit = byte >>> W * bitPos & mask;
-          const { s0: e0, s1: e1, s2: e2, s3: e3 } = t[w * windowSize + bit];
-          o0 ^= e0, o1 ^= e1, o2 ^= e2, o3 ^= e3;
-          w += 1;
+          let bit = byte >>> W * bitPos & mask, { s0: e0, s1: e1, s2: e2, s3: e3 } = t[w * windowSize + bit];
+          o0 ^= e0, o1 ^= e1, o2 ^= e2, o3 ^= e3, w += 1;
         }
       }
-    }
-    this.s0 = o0;
-    this.s1 = o1;
-    this.s2 = o2;
-    this.s3 = o3;
+    this.s0 = o0, this.s1 = o1, this.s2 = o2, this.s3 = o3;
   }
   update(data) {
-    aexists2(this);
-    abytes2(data);
-    data = copyBytes(data);
-    const b32 = u32(data);
-    const blocks = Math.floor(data.length / BLOCK_SIZE);
-    const left = data.length % BLOCK_SIZE;
-    for (let i = 0; i < blocks; i++) {
+    aexists2(this), abytes2(data), data = copyBytes(data);
+    let b32 = u32(data), blocks = Math.floor(data.length / BLOCK_SIZE), left = data.length % BLOCK_SIZE;
+    for (let i = 0; i < blocks; i++)
       this._updateBlock(swap8IfBE(b32[i * 4 + 0]), swap8IfBE(b32[i * 4 + 1]), swap8IfBE(b32[i * 4 + 2]), swap8IfBE(b32[i * 4 + 3]));
-    }
-    if (left) {
-      ZEROS16.set(data.subarray(blocks * BLOCK_SIZE));
-      this._updateBlock(swap8IfBE(ZEROS32[0]), swap8IfBE(ZEROS32[1]), swap8IfBE(ZEROS32[2]), swap8IfBE(ZEROS32[3]));
-      clean2(ZEROS32);
-    }
-    return this;
+    return left && (ZEROS16.set(data.subarray(blocks * BLOCK_SIZE)), this._updateBlock(swap8IfBE(ZEROS32[0]), swap8IfBE(ZEROS32[1]), swap8IfBE(ZEROS32[2]), swap8IfBE(ZEROS32[3])), clean2(ZEROS32)), this;
   }
   destroy() {
-    this.destroyed = true;
-    const { t } = this;
-    for (const elm of t) {
+    this.destroyed = !0;
+    let { t } = this;
+    for (let elm of t)
       elm.s0 = 0, elm.s1 = 0, elm.s2 = 0, elm.s3 = 0;
-    }
   }
   digestInto(out) {
-    aexists2(this);
-    aoutput32(out, this);
-    this.finished = true;
-    const { s0, s1, s2, s3 } = this;
-    const o32 = u32(out);
-    o32[0] = s0;
-    o32[1] = s1;
-    o32[2] = s2;
-    o32[3] = s3;
-    if (!isLE)
-      swap32IfBE(o32.subarray(0, BLOCK_SIZE / 4));
+    aexists2(this), aoutput32(out, this), this.finished = !0;
+    let { s0, s1, s2, s3 } = this, o32 = u32(out);
+    o32[0] = s0, o32[1] = s1, o32[2] = s2, o32[3] = s3, isLE || swap32IfBE(o32.subarray(0, BLOCK_SIZE / 4));
   }
   digest() {
-    const res = new Uint8Array(BLOCK_SIZE);
-    this.digestInto(res);
-    this.destroy();
-    return res;
+    let res = new Uint8Array(BLOCK_SIZE);
+    return this.digestInto(res), this.destroy(), res;
   }
 };
 var ghash = /* @__PURE__ */ wrapMacConstructor(16, (key, expectedLength) => new GHASH(key, expectedLength), (msg) => [msg.length]);
 
 // mobile/node_modules/@noble/ciphers/aes.js
-var BLOCK_SIZE2 = 16;
-var BLOCK_SIZE32 = 4;
-var EMPTY_BLOCK = /* @__PURE__ */ new Uint8Array(BLOCK_SIZE2);
+var BLOCK_SIZE2 = 16, BLOCK_SIZE32 = 4, EMPTY_BLOCK = /* @__PURE__ */ new Uint8Array(BLOCK_SIZE2);
 var POLY2 = 283;
 function validateKeyLength(key) {
   if (![16, 24, 32].includes(key.length))
@@ -3042,78 +2305,54 @@ function mul22(n) {
 }
 function mul(a, b) {
   let res = 0;
-  for (; b > 0; b >>= 1) {
-    res ^= a & -(b & 1);
-    a = mul22(a);
-  }
+  for (; b > 0; b >>= 1)
+    res ^= a & -(b & 1), a = mul22(a);
   return res;
 }
 var sbox = /* @__PURE__ */ (() => {
-  const t = new Uint8Array(256);
+  let t = new Uint8Array(256);
   for (let i = 0, x = 1; i < 256; i++, x ^= mul22(x))
     t[i] = x;
-  const box = new Uint8Array(256);
+  let box = new Uint8Array(256);
   box[0] = 99;
   for (let i = 0; i < 255; i++) {
     let x = t[255 - i];
-    x |= x << 8;
-    box[t[i]] = (x ^ x >> 4 ^ x >> 5 ^ x >> 6 ^ x >> 7 ^ 99) & 255;
+    x |= x << 8, box[t[i]] = (x ^ x >> 4 ^ x >> 5 ^ x >> 6 ^ x >> 7 ^ 99) & 255;
   }
-  clean2(t);
-  return box;
+  return clean2(t), box;
 })();
-var rotr32_8 = (n) => n << 24 | n >>> 8;
-var rotl32_8 = (n) => n << 8 | n >>> 24;
+var rotr32_8 = (n) => n << 24 | n >>> 8, rotl32_8 = (n) => n << 8 | n >>> 24;
 function genTtable(sbox2, fn) {
   if (sbox2.length !== 256)
     throw new Error("wrong sbox length");
-  const T0 = new Uint32Array(256).map((_, j) => fn(sbox2[j]));
-  const T1 = T0.map(rotl32_8);
-  const T2 = T1.map(rotl32_8);
-  const T3 = T2.map(rotl32_8);
-  const T01 = new Uint32Array(256 * 256);
-  const T23 = new Uint32Array(256 * 256);
-  const sbox22 = new Uint16Array(256 * 256);
-  for (let i = 0; i < 256; i++) {
+  let T0 = new Uint32Array(256).map((_, j) => fn(sbox2[j])), T1 = T0.map(rotl32_8), T2 = T1.map(rotl32_8), T3 = T2.map(rotl32_8), T01 = new Uint32Array(256 * 256), T23 = new Uint32Array(256 * 256), sbox22 = new Uint16Array(256 * 256);
+  for (let i = 0; i < 256; i++)
     for (let j = 0; j < 256; j++) {
-      const idx = i * 256 + j;
-      T01[idx] = T0[i] ^ T1[j];
-      T23[idx] = T2[i] ^ T3[j];
-      sbox22[idx] = sbox2[i] << 8 | sbox2[j];
+      let idx = i * 256 + j;
+      T01[idx] = T0[i] ^ T1[j], T23[idx] = T2[i] ^ T3[j], sbox22[idx] = sbox2[i] << 8 | sbox2[j];
     }
-  }
   return { sbox: sbox2, sbox2: sbox22, T0, T1, T2, T3, T01, T23 };
 }
 var tableEncoding = /* @__PURE__ */ genTtable(sbox, (s) => mul(s, 3) << 24 | s << 16 | s << 8 | mul(s, 2));
 var xPowers = /* @__PURE__ */ (() => {
-  const p = new Uint8Array(16);
+  let p = new Uint8Array(16);
   for (let i = 0, x = 1; i < 16; i++, x = mul22(x))
     p[i] = x;
   return p;
 })();
 function expandKeyLE(key) {
   abytes2(key);
-  const len = key.length;
+  let len = key.length;
   validateKeyLength(key);
-  const { sbox2 } = tableEncoding;
-  const toClean = [];
-  if (!isLE || !isAligned32(key))
-    toClean.push(key = copyBytes(key));
-  const k32 = swap32IfBE(u32(key));
-  const Nk = k32.length;
-  const subByte = (n) => applySbox(sbox2, n, n, n, n);
-  const xk = new Uint32Array(len + 28);
+  let { sbox2 } = tableEncoding, toClean = [];
+  (!isLE || !isAligned32(key)) && toClean.push(key = copyBytes(key));
+  let k32 = swap32IfBE(u32(key)), Nk = k32.length, subByte = (n) => applySbox(sbox2, n, n, n, n), xk = new Uint32Array(len + 28);
   xk.set(k32);
   for (let i = Nk; i < xk.length; i++) {
     let t = xk[i - 1];
-    if (i % Nk === 0)
-      t = subByte(rotr32_8(t)) ^ xPowers[i / Nk - 1];
-    else if (Nk > 6 && i % Nk === 4)
-      t = subByte(t);
-    xk[i] = xk[i - Nk] ^ t;
+    i % Nk === 0 ? t = subByte(rotr32_8(t)) ^ xPowers[i / Nk - 1] : Nk > 6 && i % Nk === 4 && (t = subByte(t)), xk[i] = xk[i - Nk] ^ t;
   }
-  clean2(...toClean);
-  return xk;
+  return clean2(...toClean), xk;
 }
 function apply0123(T01, T23, s0, s1, s2, s3) {
   return T01[s0 << 8 & 65280 | s1 >>> 8 & 255] ^ T23[s2 >>> 8 & 65280 | s3 >>> 24 & 255];
@@ -3122,50 +2361,28 @@ function applySbox(sbox2, s0, s1, s2, s3) {
   return sbox2[s0 & 255 | s1 & 65280] | sbox2[s2 >>> 16 & 255 | s3 >>> 16 & 65280] << 16;
 }
 function encrypt(xk, s0, s1, s2, s3) {
-  const { sbox2, T01, T23 } = tableEncoding;
-  let k = 0;
+  let { sbox2, T01, T23 } = tableEncoding, k = 0;
   s0 ^= xk[k++], s1 ^= xk[k++], s2 ^= xk[k++], s3 ^= xk[k++];
-  const rounds = xk.length / 4 - 2;
+  let rounds = xk.length / 4 - 2;
   for (let i = 0; i < rounds; i++) {
-    const t02 = xk[k++] ^ apply0123(T01, T23, s0, s1, s2, s3);
-    const t12 = xk[k++] ^ apply0123(T01, T23, s1, s2, s3, s0);
-    const t22 = xk[k++] ^ apply0123(T01, T23, s2, s3, s0, s1);
-    const t32 = xk[k++] ^ apply0123(T01, T23, s3, s0, s1, s2);
+    let t02 = xk[k++] ^ apply0123(T01, T23, s0, s1, s2, s3), t12 = xk[k++] ^ apply0123(T01, T23, s1, s2, s3, s0), t22 = xk[k++] ^ apply0123(T01, T23, s2, s3, s0, s1), t32 = xk[k++] ^ apply0123(T01, T23, s3, s0, s1, s2);
     s0 = t02, s1 = t12, s2 = t22, s3 = t32;
   }
-  const t0 = xk[k++] ^ applySbox(sbox2, s0, s1, s2, s3);
-  const t1 = xk[k++] ^ applySbox(sbox2, s1, s2, s3, s0);
-  const t2 = xk[k++] ^ applySbox(sbox2, s2, s3, s0, s1);
-  const t3 = xk[k++] ^ applySbox(sbox2, s3, s0, s1, s2);
+  let t0 = xk[k++] ^ applySbox(sbox2, s0, s1, s2, s3), t1 = xk[k++] ^ applySbox(sbox2, s1, s2, s3, s0), t2 = xk[k++] ^ applySbox(sbox2, s2, s3, s0, s1), t3 = xk[k++] ^ applySbox(sbox2, s3, s0, s1, s2);
   return { s0: t0, s1: t1, s2: t2, s3: t3 };
 }
 function ctr32(xk, isLE2, nonce, src, dst) {
-  abytes2(nonce, BLOCK_SIZE2, "nonce");
-  abytes2(src);
-  dst = getOutput(src.length, dst);
-  const ctr = nonce;
-  const c32 = u32(ctr);
-  const view = createView2(ctr);
-  const src32 = u32(src);
-  const dst32 = u32(dst);
-  const ctrPos = isLE2 ? 0 : 12;
-  const srcLen = src.length;
-  let ctrNum = view.getUint32(ctrPos, isLE2);
+  abytes2(nonce, BLOCK_SIZE2, "nonce"), abytes2(src), dst = getOutput(src.length, dst);
+  let ctr = nonce, c32 = u32(ctr), view = createView2(ctr), src32 = u32(src), dst32 = u32(dst), ctrPos = isLE2 ? 0 : 12, srcLen = src.length, ctrNum = view.getUint32(ctrPos, isLE2);
   for (let i = 0; i + 4 <= src32.length; i += 4) {
-    const { s0, s1, s2, s3 } = encrypt(xk, swap8IfBE(c32[0]), swap8IfBE(c32[1]), swap8IfBE(c32[2]), swap8IfBE(c32[3]));
-    dst32[i + 0] = src32[i + 0] ^ swap8IfBE(s0);
-    dst32[i + 1] = src32[i + 1] ^ swap8IfBE(s1);
-    dst32[i + 2] = src32[i + 2] ^ swap8IfBE(s2);
-    dst32[i + 3] = src32[i + 3] ^ swap8IfBE(s3);
-    ctrNum = ctrNum + 1 >>> 0;
-    view.setUint32(ctrPos, ctrNum, isLE2);
+    let { s0, s1, s2, s3 } = encrypt(xk, swap8IfBE(c32[0]), swap8IfBE(c32[1]), swap8IfBE(c32[2]), swap8IfBE(c32[3]));
+    dst32[i + 0] = src32[i + 0] ^ swap8IfBE(s0), dst32[i + 1] = src32[i + 1] ^ swap8IfBE(s1), dst32[i + 2] = src32[i + 2] ^ swap8IfBE(s2), dst32[i + 3] = src32[i + 3] ^ swap8IfBE(s3), ctrNum = ctrNum + 1 >>> 0, view.setUint32(ctrPos, ctrNum, isLE2);
   }
-  const start = BLOCK_SIZE2 * Math.floor(src32.length / BLOCK_SIZE32);
+  let start = BLOCK_SIZE2 * Math.floor(src32.length / BLOCK_SIZE32);
   if (start < srcLen) {
-    const { s0, s1, s2, s3 } = encrypt(xk, swap8IfBE(c32[0]), swap8IfBE(c32[1]), swap8IfBE(c32[2]), swap8IfBE(c32[3]));
-    const b32 = new Uint32Array([s0, s1, s2, s3]);
+    let { s0, s1, s2, s3 } = encrypt(xk, swap8IfBE(c32[0]), swap8IfBE(c32[1]), swap8IfBE(c32[2]), swap8IfBE(c32[3])), b32 = new Uint32Array([s0, s1, s2, s3]);
     swap32IfBE(b32);
-    const buf = u8(b32);
+    let buf = u8(b32);
     for (let i = start, pos = 0; i < srcLen; i++, pos++)
       dst[i] = src[i] ^ buf[pos];
     clean2(b32);
@@ -3173,120 +2390,82 @@ function ctr32(xk, isLE2, nonce, src, dst) {
   return dst;
 }
 function computeTag(fn, isLE2, key, data, AAD) {
-  const aadLength = AAD ? AAD.length : 0;
-  const h = fn.create(key, data.length + aadLength);
-  if (AAD)
-    h.update(AAD);
-  const num = u64Lengths(8 * data.length, 8 * aadLength, isLE2);
-  h.update(data);
-  h.update(num);
-  const res = h.digest();
-  clean2(num);
-  return res;
+  let aadLength = AAD ? AAD.length : 0, h = fn.create(key, data.length + aadLength);
+  AAD && h.update(AAD);
+  let num = u64Lengths(8 * data.length, 8 * aadLength, isLE2);
+  h.update(data), h.update(num);
+  let res = h.digest();
+  return clean2(num), res;
 }
-var gcm = /* @__PURE__ */ wrapCipher({ blockSize: 16, nonceLength: 12, tagLength: 16, withAAD: true, varSizeNonce: true }, function aesgcm(key, nonce, AAD) {
+var gcm = /* @__PURE__ */ wrapCipher({ blockSize: 16, nonceLength: 12, tagLength: 16, withAAD: !0, varSizeNonce: !0 }, function(key, nonce, AAD) {
   if (nonce.length < 8)
     throw new Error("aes/gcm: invalid nonce length");
-  const tagLength = 16;
+  let tagLength = 16;
   function _computeTag(authKey, tagMask, data) {
-    const tag = computeTag(ghash, false, authKey, data, AAD);
+    let tag = computeTag(ghash, !1, authKey, data, AAD);
     for (let i = 0; i < tagMask.length; i++)
       tag[i] ^= tagMask[i];
     return tag;
   }
   function deriveKeys() {
-    const xk = expandKeyLE(key);
-    const authKey = EMPTY_BLOCK.slice();
-    const counter = EMPTY_BLOCK.slice();
-    ctr32(xk, false, counter, counter, authKey);
-    if (nonce.length === 12) {
+    let xk = expandKeyLE(key), authKey = EMPTY_BLOCK.slice(), counter = EMPTY_BLOCK.slice();
+    if (ctr32(xk, !1, counter, counter, authKey), nonce.length === 12)
       counter.set(nonce);
-    } else {
-      const nonceLen = EMPTY_BLOCK.slice();
-      const view = createView2(nonceLen);
-      view.setBigUint64(8, BigInt(nonce.length * 8), false);
-      const g = ghash.create(authKey).update(nonce).update(nonceLen);
-      g.digestInto(counter);
-      g.destroy();
+    else {
+      let nonceLen = EMPTY_BLOCK.slice();
+      createView2(nonceLen).setBigUint64(8, BigInt(nonce.length * 8), !1);
+      let g = ghash.create(authKey).update(nonce).update(nonceLen);
+      g.digestInto(counter), g.destroy();
     }
-    const tagMask = ctr32(xk, false, counter, EMPTY_BLOCK);
+    let tagMask = ctr32(xk, !1, counter, EMPTY_BLOCK);
     return { xk, authKey, counter, tagMask };
   }
   return {
     encrypt(plaintext) {
-      const { xk, authKey, counter, tagMask } = deriveKeys();
-      const out = new Uint8Array(plaintext.length + tagLength);
-      const toClean = [xk, authKey, counter, tagMask];
-      if (!isAligned32(plaintext))
-        toClean.push(plaintext = copyBytes(plaintext));
-      ctr32(xk, false, counter, plaintext, out.subarray(0, plaintext.length));
-      const tag = _computeTag(authKey, tagMask, out.subarray(0, out.length - tagLength));
-      toClean.push(tag);
-      out.set(tag, plaintext.length);
-      clean2(...toClean);
-      return out;
+      let { xk, authKey, counter, tagMask } = deriveKeys(), out = new Uint8Array(plaintext.length + tagLength), toClean = [xk, authKey, counter, tagMask];
+      isAligned32(plaintext) || toClean.push(plaintext = copyBytes(plaintext)), ctr32(xk, !1, counter, plaintext, out.subarray(0, plaintext.length));
+      let tag = _computeTag(authKey, tagMask, out.subarray(0, out.length - tagLength));
+      return toClean.push(tag), out.set(tag, plaintext.length), clean2(...toClean), out;
     },
     decrypt(ciphertext) {
-      const { xk, authKey, counter, tagMask } = deriveKeys();
-      const toClean = [xk, authKey, tagMask, counter];
-      if (!isAligned32(ciphertext))
-        toClean.push(ciphertext = copyBytes(ciphertext));
-      const data = ciphertext.subarray(0, -tagLength);
-      const passedTag = ciphertext.subarray(-tagLength);
-      const tag = _computeTag(authKey, tagMask, data);
-      toClean.push(tag);
-      if (!equalBytes(tag, passedTag)) {
-        clean2(...toClean);
-        throw new Error("aes-gcm: invalid tag");
-      }
-      const out = ctr32(xk, false, counter, data);
-      clean2(...toClean);
-      return out;
+      let { xk, authKey, counter, tagMask } = deriveKeys(), toClean = [xk, authKey, tagMask, counter];
+      isAligned32(ciphertext) || toClean.push(ciphertext = copyBytes(ciphertext));
+      let data = ciphertext.subarray(0, -tagLength), passedTag = ciphertext.subarray(-tagLength), tag = _computeTag(authKey, tagMask, data);
+      if (toClean.push(tag), !equalBytes(tag, passedTag))
+        throw clean2(...toClean), new Error("aes-gcm: invalid tag");
+      let out = ctr32(xk, !1, counter, data);
+      return clean2(...toClean), out;
     }
   };
 });
 
 // mobile/shell/lock.js
-var PIN_ITERATIONS = 6e5;
-var PIN_LENGTH = 6;
-var PIN_KEY_BYTES = 32;
-var PIN_MIN_ITERATIONS = 1e5;
-var PIN_MAX_ITERATIONS = 1e7;
-var DEVICE_META = "pin-device";
-var BACKGROUND_LOCK_MS = 5 * 60 * 1e3;
-var PIN_WAIT_FROM = 5;
-var PIN_WAIT_CAP_S = 900;
-var VERIFIER_TEXT = new TextEncoder().encode("plenum-pin-check/1");
-var VERIFIER_AAD = new TextEncoder().encode("plenum-lock-verifier");
+var PIN_ITERATIONS = 6e5, PIN_LENGTH = 6, PIN_KEY_BYTES = 32, PIN_MIN_ITERATIONS = 1e5, PIN_MAX_ITERATIONS = 1e7, DEVICE_META = "pin-device", BACKGROUND_LOCK_MS = 300 * 1e3, PIN_WAIT_FROM = 5, PIN_WAIT_CAP_S = 900, VERIFIER_TEXT = new TextEncoder().encode("plenum-pin-check/1"), VERIFIER_AAD = new TextEncoder().encode("plenum-lock-verifier");
 function pinWaitSeconds(failures) {
-  if (!Number.isSafeInteger(failures) || failures < PIN_WAIT_FROM) return 0;
-  return Math.min(PIN_WAIT_CAP_S, 30 * 2 ** (failures - PIN_WAIT_FROM));
+  return !Number.isSafeInteger(failures) || failures < PIN_WAIT_FROM ? 0 : Math.min(PIN_WAIT_CAP_S, 30 * 2 ** (failures - PIN_WAIT_FROM));
 }
 var b64u = {
   enc(bytes) {
     let bin = "";
-    for (const b of bytes) bin += String.fromCharCode(b);
+    for (let b of bytes) bin += String.fromCharCode(b);
     return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   },
   dec(text) {
-    const s = String(text).replace(/-/g, "+").replace(/_/g, "/");
-    const bin = atob(s + "=".repeat((4 - s.length % 4) % 4));
-    const out = new Uint8Array(bin.length);
+    let s = String(text).replace(/-/g, "+").replace(/_/g, "/"), bin = atob(s + "=".repeat((4 - s.length % 4) % 4)), out = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
 };
 function isValidPin(pin) {
-  return typeof pin === "string" && new RegExp(`^[0-9]{${PIN_LENGTH}}$`).test(pin);
+  return typeof pin == "string" && new RegExp(`^[0-9]{${PIN_LENGTH}}$`).test(pin);
 }
 function wrapKey(keyBytes, pinKey, computerId) {
-  const iv = randomBytes(12);
-  const ct = gcm(pinKey, iv, new TextEncoder().encode(`plenum-key/${computerId}`)).encrypt(keyBytes);
+  let iv = randomBytes(12), ct = gcm(pinKey, iv, new TextEncoder().encode(`plenum-key/${computerId}`)).encrypt(keyBytes);
   return { v: 1, iv: b64u.enc(iv), ct: b64u.enc(ct) };
 }
 function unwrapKey(wrap, pinKey, computerId) {
   if (!wrap || wrap.v !== 1) throw new Error("bad wrap");
-  const plain = gcm(pinKey, b64u.dec(wrap.iv), new TextEncoder().encode(`plenum-key/${computerId}`)).decrypt(b64u.dec(wrap.ct));
+  let plain = gcm(pinKey, b64u.dec(wrap.iv), new TextEncoder().encode(`plenum-key/${computerId}`)).decrypt(b64u.dec(wrap.ct));
   if (plain.byteLength !== PIN_KEY_BYTES) throw new Error("bad key");
   return plain;
 }
@@ -3296,15 +2475,15 @@ function derivePinKey(pin, salt, iterations = PIN_ITERATIONS) {
 function createPasskeyGate({ credentials = globalThis.navigator?.credentials, PublicKeyCredentialCtor = globalThis.PublicKeyCredential, rpId = globalThis.location?.hostname ?? "localhost", random = randomBytes } = {}) {
   return {
     async available() {
-      if (!credentials || !PublicKeyCredentialCtor) return false;
+      if (!credentials || !PublicKeyCredentialCtor) return !1;
       try {
-        return await PublicKeyCredentialCtor.isUserVerifyingPlatformAuthenticatorAvailable?.() === true;
+        return await PublicKeyCredentialCtor.isUserVerifyingPlatformAuthenticatorAvailable?.() === !0;
       } catch {
-        return false;
+        return !1;
       }
     },
     async register() {
-      const cred = await credentials.create({
+      let cred = await credentials.create({
         publicKey: {
           challenge: random(32),
           rp: { name: "Plenum", id: rpId },
@@ -3318,7 +2497,7 @@ function createPasskeyGate({ credentials = globalThis.navigator?.credentials, Pu
       return b64u.enc(new Uint8Array(cred.rawId));
     },
     async verify(credentialId) {
-      const assertion = await credentials.get({
+      let assertion = await credentials.get({
         publicKey: {
           challenge: random(32),
           allowCredentials: [{ type: "public-key", id: b64u.dec(credentialId) }],
@@ -3326,112 +2505,79 @@ function createPasskeyGate({ credentials = globalThis.navigator?.credentials, Pu
           timeout: 6e4
         }
       });
-      return assertion !== null && assertion !== void 0;
+      return assertion != null;
     }
   };
 }
 function createBiometricGate({ plugin = null } = {}) {
   return {
     async available() {
-      if (!plugin) return false;
+      if (!plugin) return !1;
       try {
-        const answer = await plugin.checkBiometry();
-        return answer?.isAvailable === true;
+        return (await plugin.checkBiometry())?.isAvailable === !0;
       } catch {
-        return false;
+        return !1;
       }
     },
     async verify(reason = "Unlock Plenum") {
-      if (!plugin) return false;
+      if (!plugin) return !1;
       try {
-        await plugin.authenticate({ reason, allowDeviceCredential: true, cancelTitle: "Cancel", iosFallbackTitle: "Use passcode" });
-        return true;
+        return await plugin.authenticate({ reason, allowDeviceCredential: !0, cancelTitle: "Cancel", iosFallbackTitle: "Use passcode" }), !0;
       } catch {
-        return false;
+        return !1;
       }
     }
   };
 }
 function createLock({ store, now = () => Date.now(), biometric = null, passkey = null, iterations = PIN_ITERATIONS, subtle = globalThis.crypto?.subtle ?? null, mono = () => globalThis.performance?.now?.() ?? Date.now() } = {}) {
   if (!store) throw new TypeError("createLock needs the store");
-  let backgroundAt = null;
-  let locked = false;
-  let settings = null;
-  let pinKeyHeld = null;
-  let monoUntil = 0;
-  let queue = Promise.resolve();
-  const serial = (fn) => {
-    const run = queue.then(fn, fn);
-    queue = run.catch(() => {
-    });
-    return run;
-  };
-  const readSettings = async () => {
-    if (!settings) settings = await store.meta.get("lock") ?? { mode: "off", failures: 0, lockedUntil: 0 };
-    return settings;
-  };
-  const writeSettings = async (next) => {
-    settings = next;
-    await store.meta.put("lock", next);
-  };
-  const plainKeys = async (pinKey) => {
-    const out = /* @__PURE__ */ new Map();
-    for (const rec of await store.list()) {
-      if (typeof rec.myPriv === "string") out.set(rec.id, b64u.dec(rec.myPriv));
-      else if (rec.myPriv && pinKey) out.set(rec.id, unwrapKey(rec.myPriv, pinKey, rec.id));
-    }
+  let backgroundAt = null, locked = !1, settings = null, pinKeyHeld = null, monoUntil = 0, queue = Promise.resolve(), serial = (fn) => {
+    let run = queue.then(fn, fn);
+    return queue = run.catch(() => {
+    }), run;
+  }, readSettings = async () => (settings || (settings = await store.meta.get("lock") ?? { mode: "off", failures: 0, lockedUntil: 0 }), settings), writeSettings = async (next) => {
+    settings = next, await store.meta.put("lock", next);
+  }, plainKeys = async (pinKey) => {
+    let out = /* @__PURE__ */ new Map();
+    for (let rec of await store.list())
+      typeof rec.myPriv == "string" ? out.set(rec.id, b64u.dec(rec.myPriv)) : rec.myPriv && pinKey && out.set(rec.id, unwrapKey(rec.myPriv, pinKey, rec.id));
     return out;
-  };
-  const lockout = (s) => {
-    const wall = s.lockedUntil > now() ? Math.ceil((s.lockedUntil - now()) / 1e3) : 0;
-    const steady = monoUntil > mono() ? Math.ceil((monoUntil - mono()) / 1e3) : 0;
+  }, lockout = (s) => {
+    let wall = s.lockedUntil > now() ? Math.ceil((s.lockedUntil - now()) / 1e3) : 0, steady = monoUntil > mono() ? Math.ceil((monoUntil - mono()) / 1e3) : 0;
     return Math.max(wall, steady);
-  };
-  const api = {
+  }, api = {
     // What the lock screen and Settings show. No key material.
     async status() {
-      const s = await readSettings();
+      let s = await readSettings();
       return {
         mode: s.mode,
         locked,
         failures: s.failures ?? 0,
         waitSec: lockout(s),
-        biometricAvailable: biometric ? await biometric.available() : false,
-        passkeyAvailable: passkey ? await passkey.available() : false
+        biometricAvailable: biometric ? await biometric.available() : !1,
+        passkeyAvailable: passkey ? await passkey.available() : !1
       };
     },
     // Called once at launch: a lock that is on starts locked.
     async lockOnLaunch() {
-      const s = await readSettings();
-      locked = s.mode !== "off";
-      return locked;
+      return locked = (await readSettings()).mode !== "off", locked;
     },
     isLocked: () => locked,
     lock() {
-      locked = true;
-      pinKeyHeld = null;
-      return true;
+      return locked = !0, pinKeyHeld = null, !0;
     },
     onBackground() {
       backgroundAt = now();
     },
     async onForeground() {
-      const s = await readSettings();
-      if (s.mode !== "off" && backgroundAt !== null && now() - backgroundAt >= BACKGROUND_LOCK_MS) {
-        locked = true;
-        pinKeyHeld = null;
-      }
-      backgroundAt = null;
-      return locked;
+      return (await readSettings()).mode !== "off" && backgroundAt !== null && now() - backgroundAt >= BACKGROUND_LOCK_MS && (locked = !0, pinKeyHeld = null), backgroundAt = null, locked;
     },
     // The record as it must rest in the store: in PIN mode its private key is wrapped under the PIN key held while unlocked. It refuses
     // (throws 'locked') when the PIN key is not held, so a key is never written plain under a PIN.
     async protect(record) {
-      const s = await readSettings();
-      if (s.mode !== "pin") return record;
+      if ((await readSettings()).mode !== "pin") return record;
       if (!pinKeyHeld) throw new Error("locked");
-      if (typeof record.myPriv !== "string") return record;
-      return { ...record, myPriv: wrapKey(b64u.dec(record.myPriv), pinKeyHeld, record.id) };
+      return typeof record.myPriv != "string" ? record : { ...record, myPriv: wrapKey(b64u.dec(record.myPriv), pinKeyHeld, record.id) };
     },
     // The public calls that read or write lock state run one at a time (serial above). The bodies are the *Inner functions below.
     enableBiometric: (...a) => serial(() => enableBiometricInner(...a)),
@@ -3444,179 +2590,125 @@ function createLock({ store, now = () => Date.now(), biometric = null, passkey =
   };
   async function deviceKey(create) {
     if (!subtle || store.kind !== "web") return null;
-    const have = await store.meta.get(DEVICE_META);
-    if (have && typeof have === "object" && have.type === "secret") return have;
+    let have = await store.meta.get(DEVICE_META);
+    if (have && typeof have == "object" && have.type === "secret") return have;
     if (!create) return null;
-    const made = await subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    await store.meta.put(DEVICE_META, made);
-    return made;
+    let made = await subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, !1, ["sign"]);
+    return await store.meta.put(DEVICE_META, made), made;
   }
   async function pinKeyV2(pin, salt, its, key) {
-    const stretched = derivePinKey(pin, salt, its);
-    const mixed = new Uint8Array(await subtle.sign("HMAC", key, stretched));
-    stretched.fill(0);
-    return mixed;
+    let stretched = derivePinKey(pin, salt, its), mixed = new Uint8Array(await subtle.sign("HMAC", key, stretched));
+    return stretched.fill(0), mixed;
   }
   async function enableBiometricInner() {
-    settings = null;
-    if (!biometric || !await biometric.available()) return { ok: false, reason: "unavailable" };
-    if (!await biometric.verify("Turn on app lock for Plenum")) return { ok: false, reason: "cancelled" };
-    await writeSettings({ mode: "biometric", failures: 0, lockedUntil: 0 });
-    return { ok: true };
+    return settings = null, !biometric || !await biometric.available() ? { ok: !1, reason: "unavailable" } : await biometric.verify("Turn on app lock for Plenum") ? (await writeSettings({ mode: "biometric", failures: 0, lockedUntil: 0 }), { ok: !0 }) : { ok: !1, reason: "cancelled" };
   }
   async function unlockBiometricInner() {
-    settings = null;
-    const s = await readSettings();
-    if (s.mode !== "biometric") return { ok: false, reason: "mode" };
-    if (!await biometric.verify()) return { ok: false, reason: "cancelled" };
-    locked = false;
-    return { ok: true, keys: await plainKeys(null) };
+    return settings = null, (await readSettings()).mode !== "biometric" ? { ok: !1, reason: "mode" } : await biometric.verify() ? (locked = !1, { ok: !0, keys: await plainKeys(null) }) : { ok: !1, reason: "cancelled" };
   }
   async function setPinInner(pin) {
-    settings = null;
-    if (!isValidPin(pin)) return { ok: false, reason: "format" };
-    const current = await readSettings();
-    if (current.mode !== "off") return { ok: false, reason: "mode" };
-    const salt = randomBytes(16);
-    const dk = await deviceKey(true);
-    const pinKey = dk ? await pinKeyV2(pin, salt, iterations, dk) : derivePinKey(pin, salt, iterations);
-    const nonce = randomBytes(12);
-    const ct = gcm(pinKey, nonce, VERIFIER_AAD).encrypt(VERIFIER_TEXT);
-    const keys = await plainKeys(null);
-    for (const rec of await store.list()) {
-      const key = keys.get(rec.id);
+    if (settings = null, !isValidPin(pin)) return { ok: !1, reason: "format" };
+    if ((await readSettings()).mode !== "off") return { ok: !1, reason: "mode" };
+    let salt = randomBytes(16), dk = await deviceKey(!0), pinKey = dk ? await pinKeyV2(pin, salt, iterations, dk) : derivePinKey(pin, salt, iterations), nonce = randomBytes(12), ct = gcm(pinKey, nonce, VERIFIER_AAD).encrypt(VERIFIER_TEXT), keys = await plainKeys(null);
+    for (let rec of await store.list()) {
+      let key = keys.get(rec.id);
       if (!key) continue;
-      const next = { ...rec, myPriv: wrapKey(key, pinKey, rec.id) };
+      let next = { ...rec, myPriv: wrapKey(key, pinKey, rec.id) };
       await store.put(next);
     }
-    await store.meta.put("pin", { v: dk ? 2 : 1, salt: b64u.enc(salt), iterations, nonce: b64u.enc(nonce), ct: b64u.enc(ct) });
-    await writeSettings({ mode: "pin", failures: 0, lockedUntil: 0 });
-    pinKeyHeld = pinKey;
-    return { ok: true, keys };
+    return await store.meta.put("pin", { v: dk ? 2 : 1, salt: b64u.enc(salt), iterations, nonce: b64u.enc(nonce), ct: b64u.enc(ct) }), await writeSettings({ mode: "pin", failures: 0, lockedUntil: 0 }), pinKeyHeld = pinKey, { ok: !0, keys };
   }
   async function unlockPinInner(pin) {
     settings = null;
-    const s = await readSettings();
-    if (s.mode !== "pin") return { ok: false, reason: "mode" };
-    if (!isValidPin(pin)) return { ok: false, reason: "format" };
-    if (lockout(s) > 0) return { ok: false, reason: "wait", waitSec: lockout(s), failures: s.failures };
-    const pinRecord = await store.meta.get("pin");
-    if (!pinRecord) return { ok: false, reason: "mode" };
-    if (!Number.isSafeInteger(pinRecord.iterations) || pinRecord.iterations < Math.min(PIN_MIN_ITERATIONS, iterations) || pinRecord.iterations > PIN_MAX_ITERATIONS) {
-      return { ok: false, reason: "damaged" };
-    }
-    const salt = b64u.dec(pinRecord.salt);
-    let pinKey;
+    let s = await readSettings();
+    if (s.mode !== "pin") return { ok: !1, reason: "mode" };
+    if (!isValidPin(pin)) return { ok: !1, reason: "format" };
+    if (lockout(s) > 0) return { ok: !1, reason: "wait", waitSec: lockout(s), failures: s.failures };
+    let pinRecord = await store.meta.get("pin");
+    if (!pinRecord) return { ok: !1, reason: "mode" };
+    if (!Number.isSafeInteger(pinRecord.iterations) || pinRecord.iterations < Math.min(PIN_MIN_ITERATIONS, iterations) || pinRecord.iterations > PIN_MAX_ITERATIONS)
+      return { ok: !1, reason: "damaged" };
+    let salt = b64u.dec(pinRecord.salt), pinKey;
     if (pinRecord.v === 2) {
-      const dk = await deviceKey(false);
-      if (!dk) return { ok: false, reason: "damaged" };
+      let dk = await deviceKey(!1);
+      if (!dk) return { ok: !1, reason: "damaged" };
       pinKey = await pinKeyV2(pin, salt, pinRecord.iterations, dk);
-    } else {
+    } else
       pinKey = derivePinKey(pin, salt, pinRecord.iterations);
-    }
-    let right = false;
+    let right = !1;
     try {
-      const plain = gcm(pinKey, b64u.dec(pinRecord.nonce), VERIFIER_AAD).decrypt(b64u.dec(pinRecord.ct));
+      let plain = gcm(pinKey, b64u.dec(pinRecord.nonce), VERIFIER_AAD).decrypt(b64u.dec(pinRecord.ct));
       right = plain.length === VERIFIER_TEXT.length && plain.every((b, i) => b === VERIFIER_TEXT[i]);
     } catch {
-      right = false;
+      right = !1;
     }
     if (!right) {
-      const failures = (s.failures ?? 0) + 1;
-      const wait = pinWaitSeconds(failures);
-      monoUntil = wait > 0 ? mono() + wait * 1e3 : 0;
-      await writeSettings({ ...s, failures, lockedUntil: wait > 0 ? now() + wait * 1e3 : 0 });
-      return { ok: false, reason: "wrong", failures, waitSec: wait };
+      let failures = (s.failures ?? 0) + 1, wait = pinWaitSeconds(failures);
+      return monoUntil = wait > 0 ? mono() + wait * 1e3 : 0, await writeSettings({ ...s, failures, lockedUntil: wait > 0 ? now() + wait * 1e3 : 0 }), { ok: !1, reason: "wrong", failures, waitSec: wait };
     }
     let held = pinKey;
     if (pinRecord.v !== 2 && subtle && store.kind === "web") {
-      const made = await deviceKey(true);
-      const v2 = await pinKeyV2(pin, salt, pinRecord.iterations, made);
-      const keysV1 = await plainKeys(pinKey);
-      for (const rec of await store.list()) {
-        const key = keysV1.get(rec.id);
-        if (!key) continue;
-        await store.put({ ...rec, myPriv: wrapKey(key, v2, rec.id) });
+      let made = await deviceKey(!0), v2 = await pinKeyV2(pin, salt, pinRecord.iterations, made), keysV1 = await plainKeys(pinKey);
+      for (let rec of await store.list()) {
+        let key = keysV1.get(rec.id);
+        key && await store.put({ ...rec, myPriv: wrapKey(key, v2, rec.id) });
       }
-      const nonce = randomBytes(12);
-      const ct = gcm(v2, nonce, VERIFIER_AAD).encrypt(VERIFIER_TEXT);
-      await store.meta.put("pin", { v: 2, salt: pinRecord.salt, iterations: pinRecord.iterations, nonce: b64u.enc(nonce), ct: b64u.enc(ct) });
-      held = v2;
+      let nonce = randomBytes(12), ct = gcm(v2, nonce, VERIFIER_AAD).encrypt(VERIFIER_TEXT);
+      await store.meta.put("pin", { v: 2, salt: pinRecord.salt, iterations: pinRecord.iterations, nonce: b64u.enc(nonce), ct: b64u.enc(ct) }), held = v2;
     }
-    await writeSettings({ ...s, failures: 0, lockedUntil: 0 });
-    locked = false;
-    pinKeyHeld = held;
-    return { ok: true, keys: await plainKeys(held) };
+    return await writeSettings({ ...s, failures: 0, lockedUntil: 0 }), locked = !1, pinKeyHeld = held, { ok: !0, keys: await plainKeys(held) };
   }
   async function enablePasskeyInner() {
-    settings = null;
-    if (!passkey || !await passkey.available()) return { ok: false, reason: "unavailable" };
-    const credentialId = await passkey.register();
-    await store.meta.put("passkey", { id: credentialId });
-    await writeSettings({ mode: "passkey", failures: 0, lockedUntil: 0 });
-    return { ok: true };
+    if (settings = null, !passkey || !await passkey.available()) return { ok: !1, reason: "unavailable" };
+    let credentialId = await passkey.register();
+    return await store.meta.put("passkey", { id: credentialId }), await writeSettings({ mode: "passkey", failures: 0, lockedUntil: 0 }), { ok: !0 };
   }
   async function unlockPasskeyInner() {
-    settings = null;
-    const s = await readSettings();
-    if (s.mode !== "passkey") return { ok: false, reason: "mode" };
-    const record = await store.meta.get("passkey");
-    if (!record || !await passkey.verify(record.id)) return { ok: false, reason: "cancelled" };
-    locked = false;
-    return { ok: true, keys: await plainKeys(null) };
+    if (settings = null, (await readSettings()).mode !== "passkey") return { ok: !1, reason: "mode" };
+    let record = await store.meta.get("passkey");
+    return !record || !await passkey.verify(record.id) ? { ok: !1, reason: "cancelled" } : (locked = !1, { ok: !0, keys: await plainKeys(null) });
   }
   async function disableInner({ pin = null } = {}) {
     settings = null;
-    const s = await readSettings();
+    let s = await readSettings();
     if (s.mode === "biometric") {
-      if (!await biometric?.verify("Turn off app lock for Plenum")) return { ok: false, reason: "cancelled" };
+      if (!await biometric?.verify("Turn off app lock for Plenum")) return { ok: !1, reason: "cancelled" };
     } else if (s.mode === "passkey") {
-      const rec = await store.meta.get("passkey");
-      if (!rec || !await passkey?.verify(rec.id)) return { ok: false, reason: "cancelled" };
+      let rec = await store.meta.get("passkey");
+      if (!rec || !await passkey?.verify(rec.id)) return { ok: !1, reason: "cancelled" };
     }
     if (s.mode === "pin") {
-      const unlocked = await unlockPinInner(pin);
+      let unlocked = await unlockPinInner(pin);
       if (!unlocked.ok) return unlocked;
-      for (const rec of await store.list()) {
-        const key = unlocked.keys.get(rec.id);
-        if (key) await store.put({ ...rec, myPriv: b64u.enc(key) });
+      for (let rec of await store.list()) {
+        let key = unlocked.keys.get(rec.id);
+        key && await store.put({ ...rec, myPriv: b64u.enc(key) });
       }
-      await store.meta.remove("pin");
-      await store.meta.remove(DEVICE_META);
-    } else if (s.mode === "passkey") {
-      await store.meta.remove("passkey");
-    }
-    await writeSettings({ mode: "off", failures: 0, lockedUntil: 0 });
-    locked = false;
-    pinKeyHeld = null;
-    return { ok: true };
+      await store.meta.remove("pin"), await store.meta.remove(DEVICE_META);
+    } else s.mode === "passkey" && await store.meta.remove("passkey");
+    return await writeSettings({ mode: "off", failures: 0, lockedUntil: 0 }), locked = !1, pinKeyHeld = null, { ok: !0 };
   }
   return api;
 }
 
 // mobile/shell/pairing.js
-var PAIR_FINAL = Object.freeze(["allowed", "denied", "expired", "mismatch", "failed"]);
-var OFFER_TTL_MAX_S = 600;
-var PairingError = class extends Error {
+var PAIR_FINAL = Object.freeze(["allowed", "denied", "expired", "mismatch", "failed"]), OFFER_TTL_MAX_S = 600, PairingError = class extends Error {
   constructor(code, message = code) {
-    super(message);
-    this.name = "PairingError";
-    this.code = code;
+    super(message), this.name = "PairingError", this.code = code;
   }
 };
 function parsePairingText(text) {
-  const raw = String(text ?? "").trim();
+  let raw = String(text ?? "").trim();
   if (!raw) throw new PairingError("not-plenum");
   if (raw.length > 8192) throw new PairingError("not-plenum");
-  let fragment = null;
-  const native = /^plenum:\/\/pair#(.*)$/i.exec(raw);
-  if (native) {
+  let fragment = null, native = /^plenum:\/\/pair#(.*)$/i.exec(raw);
+  if (native)
     fragment = native[1];
-  } else {
-    const hashAt = raw.indexOf("#");
+  else {
+    let hashAt = raw.indexOf("#");
     fragment = hashAt >= 0 ? raw.slice(hashAt + 1) : raw;
   }
-  const m = /(?:^|&)pair=([A-Za-z0-9_-]+)$/.exec(fragment) ?? (native ? /^([A-Za-z0-9_-]+)$/.exec(fragment) : null);
+  let m = /(?:^|&)pair=([A-Za-z0-9_-]+)$/.exec(fragment) ?? (native ? /^([A-Za-z0-9_-]+)$/.exec(fragment) : null);
   if (!m) throw new PairingError("not-plenum");
   let parsed;
   try {
@@ -3627,26 +2719,22 @@ function parsePairingText(text) {
   return validatePayload(parsed);
 }
 function validatePayload(p) {
-  if (!p || typeof p !== "object" || Array.isArray(p)) throw new PairingError("not-plenum");
+  if (!p || typeof p != "object" || Array.isArray(p)) throw new PairingError("not-plenum");
   if (p.v !== 1) throw new PairingError("version");
-  const key32 = (value) => typeof value === "string" && /^[A-Za-z0-9_-]+$/.test(value) && b64uToBytes(value).byteLength === 32;
+  let key32 = (value) => typeof value == "string" && /^[A-Za-z0-9_-]+$/.test(value) && b64uToBytes(value).byteLength === 32;
   if (!key32(p.pub) || !key32(p.psk)) throw new PairingError("not-plenum");
-  if (typeof p.offer !== "string" || !/^[0-9a-f]{32}$/.test(p.offer)) throw new PairingError("not-plenum");
-  const ttl = Number(p.ttl ?? 120);
+  if (typeof p.offer != "string" || !/^[0-9a-f]{32}$/.test(p.offer)) throw new PairingError("not-plenum");
+  let ttl = Number(p.ttl ?? 120);
   if (!Number.isFinite(ttl) || ttl <= 0 || ttl > OFFER_TTL_MAX_S) throw new PairingError("expired");
   if (!Array.isArray(p.carriers) || p.carriers.length === 0) throw new PairingError("no-carrier");
-  const carriers = [];
-  const kinds = /* @__PURE__ */ new Set();
-  for (const c of p.carriers) {
-    if (!c || !["lan", "tailscale", "relay"].includes(c.kind) || kinds.has(c.kind)) continue;
-    kinds.add(c.kind);
-    carriers.push(Array.isArray(c.urls) ? { ...c, urls: c.urls.slice(0, 4) } : c);
-    if (carriers.length === 3) break;
-  }
+  let carriers = [], kinds = /* @__PURE__ */ new Set();
+  for (let c of p.carriers)
+    if (!(!c || !["lan", "tailscale", "relay"].includes(c.kind) || kinds.has(c.kind)) && (kinds.add(c.kind), carriers.push(Array.isArray(c.urls) ? { ...c, urls: c.urls.slice(0, 4) } : c), carriers.length === 3))
+      break;
   if (!carriers.length) throw new PairingError("no-carrier");
   return {
     v: 1,
-    name: typeof p.name === "string" ? p.name.slice(0, 60) : "Plenum computer",
+    name: typeof p.name == "string" ? p.name.slice(0, 60) : "Plenum computer",
     pub: p.pub,
     psk: p.psk,
     offer: p.offer,
@@ -3656,11 +2744,10 @@ function validatePayload(p) {
   };
 }
 function pageCandidates(pageUrl, payload) {
-  const m = /^(https?):\/\/([^/]+)\/p\/([0-9a-f]{32})\//.exec(String(pageUrl ?? ""));
+  let m = /^(https?):\/\/([^/]+)\/p\/([0-9a-f]{32})\//.exec(String(pageUrl ?? ""));
   if (!m) return [];
-  const url = `${m[1] === "https" ? "wss" : "ws"}://${m[2]}/b/${m[3]}`;
-  const listed = (payload?.carriers ?? []).some((c) => (Array.isArray(c.urls) ? c.urls : [c.url]).includes(url));
-  return listed ? [] : [{ kind: "lan", url }];
+  let url = `${m[1] === "https" ? "wss" : "ws"}://${m[2]}/b/${m[3]}`;
+  return (payload?.carriers ?? []).some((c) => (Array.isArray(c.urls) ? c.urls : [c.url]).includes(url)) ? [] : [{ kind: "lan", url }];
 }
 function startPairing({
   payload,
@@ -3673,81 +2760,61 @@ function startPairing({
   onState = () => {
   }
 } = {}) {
-  if (!payload || typeof payload !== "object") throw new PairingError("not-plenum");
-  const worker = createWorker();
-  let current = { state: "starting", code: null, tried: [], reason: null };
-  let saving = Promise.resolve();
-  let finished = false;
-  let resolveDone;
-  const done = new Promise((resolve) => {
+  if (!payload || typeof payload != "object") throw new PairingError("not-plenum");
+  let worker = createWorker(), current = { state: "starting", code: null, tried: [], reason: null }, saving = Promise.resolve(), finished = !1, resolveDone, done = new Promise((resolve) => {
     resolveDone = resolve;
-  });
-  const extraUrls = pageCandidates(pageUrl, payload);
-  const finish = (value) => {
-    if (finished) return;
-    finished = true;
-    resolveDone(value);
-    setTimeout(() => {
+  }), extraUrls = pageCandidates(pageUrl, payload), finish = (value) => {
+    finished || (finished = !0, resolveDone(value), setTimeout(() => {
       try {
         worker.terminate();
       } catch {
       }
-    }, 0);
-  };
-  const set = (patch) => {
+    }, 0));
+  }, set = (patch) => {
     current = { ...current, ...patch };
     try {
       onState({ ...current });
     } catch {
     }
   };
-  worker.onmessage = (event) => {
-    const msg = event?.data;
-    if (!msg || typeof msg !== "object") return;
-    if (msg.op === "counter") {
-      answerCounter(store, msg, (reply) => worker.postMessage(reply));
-      return;
-    }
-    if (msg.op === "paired") {
-      saving = Promise.resolve().then(async () => {
-        if (!store) return true;
-        const record = prepareRecord ? await prepareRecord(msg.computer) : msg.computer;
-        await store.put(record);
-        return true;
-      }).catch(() => false);
-      return;
-    }
-    if (msg.op !== "pairState") return;
-    if (msg.state === "confirm") {
-      set({ state: "confirm", code: msg.code ?? null });
-      return;
-    }
-    if (msg.state === "allowed") {
-      saving.then((ok) => {
-        if (!ok) {
-          set({ state: "failed", reason: "save" });
-          finish({ ...current });
+  return worker.onmessage = (event) => {
+    let msg = event?.data;
+    if (!(!msg || typeof msg != "object")) {
+      if (msg.op === "counter") {
+        answerCounter(store, msg, (reply) => worker.postMessage(reply));
+        return;
+      }
+      if (msg.op === "paired") {
+        saving = Promise.resolve().then(async () => {
+          if (!store) return !0;
+          let record = prepareRecord ? await prepareRecord(msg.computer) : msg.computer;
+          return await store.put(record), !0;
+        }).catch(() => !1);
+        return;
+      }
+      if (msg.op === "pairState") {
+        if (msg.state === "confirm") {
+          set({ state: "confirm", code: msg.code ?? null });
           return;
         }
-        set({ state: "allowed", reason: null });
-        finish({ ...current, computerId: msg.computerId ?? null });
-      });
-      return;
+        if (msg.state === "allowed") {
+          saving.then((ok) => {
+            if (!ok) {
+              set({ state: "failed", reason: "save" }), finish({ ...current });
+              return;
+            }
+            set({ state: "allowed", reason: null }), finish({ ...current, computerId: msg.computerId ?? null });
+          });
+          return;
+        }
+        PAIR_FINAL.includes(msg.state) && (set({ state: msg.state, tried: msg.tried ?? current.tried, reason: msg.reason ?? null }), finish({ ...current }));
+      }
     }
-    if (PAIR_FINAL.includes(msg.state)) {
-      set({ state: msg.state, tried: msg.tried ?? current.tried, reason: msg.reason ?? null });
-      finish({ ...current });
-    }
-  };
-  worker.onerror = () => {
-    set({ state: "failed", reason: "worker" });
-    finish({ ...current });
-  };
-  set({ state: "starting" });
-  worker.postMessage({ op: "pair", payload, device, caps: caps ?? void 0, extraUrls });
-  return {
+  }, worker.onerror = () => {
+    set({ state: "failed", reason: "worker" }), finish({ ...current });
+  }, set({ state: "starting" }), worker.postMessage({ op: "pair", payload, device, caps: caps ?? void 0, extraUrls }), {
     cancel() {
-      if (!finished) worker.postMessage({ op: "pairCancel" });
+      finished || worker.postMessage({ op: "pairCancel" });
     },
     done,
     state: () => ({ ...current })
@@ -3755,47 +2822,43 @@ function startPairing({
 }
 
 // mobile/shell/carriers.js
-var CARRIER_KINDS = Object.freeze(["lan", "tailscale", "relay"]);
-var MAX_URLS_PER_KIND = 4;
-var MAX_URL_LENGTH = 512;
+var CARRIER_KINDS = Object.freeze(["lan", "tailscale", "relay"]), MAX_URLS_PER_KIND = 4, MAX_URL_LENGTH = 512;
 function ipv4Of(hostname) {
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  let m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
   if (!m) return null;
-  const parts = m.slice(1).map(Number);
+  let parts = m.slice(1).map(Number);
   return parts.every((n) => n <= 255) ? parts : null;
 }
 function isLoopback(hostname) {
-  if (hostname === "localhost" || hostname === "[::1]") return true;
-  const v4 = ipv4Of(hostname);
+  if (hostname === "localhost" || hostname === "[::1]") return !0;
+  let v4 = ipv4Of(hostname);
   return v4 !== null && v4[0] === 127;
 }
 function isPrivateV4([a, b]) {
   return a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 169 && b === 254 || a === 100 && b >= 64 && b <= 127;
 }
 function isPrivateV6(hostname) {
-  if (!hostname.startsWith("[") || !hostname.endsWith("]")) return false;
-  const first = hostname.slice(1, -1).split(":")[0];
-  if (!/^[0-9a-f]{1,4}$/.test(first)) return false;
-  const value = parseInt(first, 16);
+  if (!hostname.startsWith("[") || !hostname.endsWith("]")) return !1;
+  let first = hostname.slice(1, -1).split(":")[0];
+  if (!/^[0-9a-f]{1,4}$/.test(first)) return !1;
+  let value = parseInt(first, 16);
   return value >= 64512 && value <= 65023 || value >= 65152 && value <= 65215;
 }
 function carrierUrlOk(kind, url) {
-  if (!CARRIER_KINDS.includes(kind) || typeof url !== "string" || url.length > MAX_URL_LENGTH) return false;
+  if (!CARRIER_KINDS.includes(kind) || typeof url != "string" || url.length > MAX_URL_LENGTH) return !1;
   let parsed;
   try {
     parsed = new URL(url);
   } catch {
-    return false;
+    return !1;
   }
-  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return false;
-  if (parsed.username || parsed.password) return false;
-  const host = parsed.hostname;
-  if (isLoopback(host)) return true;
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:" || parsed.username || parsed.password) return !1;
+  let host = parsed.hostname;
+  if (isLoopback(host)) return !0;
   if (kind === "relay") return parsed.protocol === "wss:";
   if (kind === "tailscale") return parsed.protocol === "wss:" && host.endsWith(".ts.net");
-  const v4 = ipv4Of(host);
-  if (v4) return isPrivateV4(v4);
-  return isPrivateV6(host) || host.endsWith(".local");
+  let v4 = ipv4Of(host);
+  return v4 ? isPrivateV4(v4) : isPrivateV6(host) || host.endsWith(".local");
 }
 function hostLabel(url) {
   try {
@@ -3805,73 +2868,42 @@ function hostLabel(url) {
   }
 }
 function usableCarriers(carriers) {
-  const out = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const entry of Array.isArray(carriers) ? carriers : []) {
-    if (!entry || typeof entry !== "object" || !CARRIER_KINDS.includes(entry.kind) || seen.has(entry.kind)) continue;
+  let out = [], seen = /* @__PURE__ */ new Set();
+  for (let entry of Array.isArray(carriers) ? carriers : []) {
+    if (!entry || typeof entry != "object" || !CARRIER_KINDS.includes(entry.kind) || seen.has(entry.kind)) continue;
     seen.add(entry.kind);
-    const listed = Array.isArray(entry.urls) ? entry.urls : entry.url ? [entry.url] : [];
-    const urls = listed.filter((url) => carrierUrlOk(entry.kind, url)).slice(0, MAX_URLS_PER_KIND);
-    if (urls.length) out.push({ kind: entry.kind, urls });
+    let urls = (Array.isArray(entry.urls) ? entry.urls : entry.url ? [entry.url] : []).filter((url) => carrierUrlOk(entry.kind, url)).slice(0, MAX_URLS_PER_KIND);
+    urls.length && out.push({ kind: entry.kind, urls });
   }
   return out;
 }
 
 // mobile/shell/stop.js
-var STOP_DONE_MS = 1600;
-var STOP_WATCHDOG_MS = 65e3;
-var STOP_STATES = Object.freeze(["idle", "sending", "queued", "done", "failed"]);
-var plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+var STOP_STATES = Object.freeze(["idle", "sending", "queued", "done", "failed"]), plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 function stopResultText(ack, computerName = "this computer") {
-  const replies = Number(ack?.cancelled) || 0;
-  const runs = Number(ack?.drivesStopped) || 0;
-  const agents = Number(ack?.agentsStopped) || 0;
-  const cards = Number(ack?.cardsDenied) || 0;
+  let replies = Number(ack?.cancelled) || 0, runs = Number(ack?.drivesStopped) || 0, agents = Number(ack?.agentsStopped) || 0, cards = Number(ack?.cardsDenied) || 0;
   if (!replies && !runs && !agents && !cards) return `Nothing was running on ${computerName}.`;
-  const parts = [];
-  if (replies) parts.push(plural(replies, "reply", "replies"));
-  if (runs) parts.push(plural(runs, "computer run", "computer runs"));
-  if (agents) parts.push(plural(agents, "agent", "agents"));
-  const tail = cards ? ` ${plural(cards, "card", "cards")} denied.` : "";
+  let parts = [];
+  replies && parts.push(plural(replies, "reply", "replies")), runs && parts.push(plural(runs, "computer run", "computer runs")), agents && parts.push(plural(agents, "agent", "agents"));
+  let tail = cards ? ` ${plural(cards, "card", "cards")} denied.` : "";
   return `Stopped everything on ${computerName}: ${parts.join(", ")}.${tail}`;
 }
 var STOP_FAILURE_TEXT = Object.freeze({
   title: "Could not reach the computer",
   body: "The phone tried for 60 seconds. At the computer, press Stop on the bar or Ctrl+Alt+Esc. Moving the mouse also pauses a computer run."
-});
-var STOP_QUEUED_TEXT = "Stop will be sent when the computer is reachable. Trying for 60 seconds.";
-var STOP_NOT_ACCEPTED = (computer) => `${computer} did not accept this Stop. This phone may have been removed there. At the computer, press Stop on the bar or Ctrl+Alt+Esc.`;
-var STOP_NEEDS_UNLOCK = "Unlock Plenum to send this Stop. It goes out as soon as Plenum unlocks.";
+}), STOP_QUEUED_TEXT = "Stop will be sent when the computer is reachable. Trying for 60 seconds.", STOP_NOT_ACCEPTED = (computer) => `${computer} did not accept this Stop. This phone may have been removed there. At the computer, press Stop on the bar or Ctrl+Alt+Esc.`, STOP_NEEDS_UNLOCK = "Unlock Plenum to send this Stop. It goes out as soon as Plenum unlocks.";
 function createStopController({ channel, clock = globalThis, computerName = "" } = {}) {
-  if (!channel || typeof channel.stop !== "function") throw new TypeError("createStopController needs a channel");
-  let state = "idle";
-  let lastAck = null;
-  let lastError = null;
-  let timer = null;
-  const subs = /* @__PURE__ */ new Set();
-  const set = (next, extra = {}) => {
-    state = next;
-    if (extra.ack !== void 0) lastAck = extra.ack;
-    if (extra.error !== void 0) lastError = extra.error;
-    const view = { state, ack: lastAck, error: lastError, text: textFor(next, lastAck, lastError) };
-    for (const fn of Array.from(subs)) {
+  if (!channel || typeof channel.stop != "function") throw new TypeError("createStopController needs a channel");
+  let state = "idle", lastAck = null, lastError = null, timer = null, subs = /* @__PURE__ */ new Set(), set = (next, extra = {}) => {
+    state = next, extra.ack !== void 0 && (lastAck = extra.ack), extra.error !== void 0 && (lastError = extra.error);
+    let view = { state, ack: lastAck, error: lastError, text: textFor(next, lastAck, lastError) };
+    for (let fn of Array.from(subs))
       try {
         fn(view);
       } catch {
       }
-    }
-  };
-  const textFor = (s, ack, error) => {
-    if (s === "done") return stopResultText(ack, computerName || "this computer");
-    if (s === "queued") return STOP_QUEUED_TEXT;
-    if (s === "failed" && error === "unknown") return STOP_NOT_ACCEPTED(computerName || "this computer");
-    if (s === "failed") return `${STOP_FAILURE_TEXT.title}. ${STOP_FAILURE_TEXT.body}`;
-    if (s === "sending") return "Stopping everything on the computer";
-    return error ? String(error) : "";
-  };
-  const unsubscribe = channel.onStopState?.((view) => {
-    if (state === "sending" && view.state === "queued") set("queued");
-    if (state === "queued" && view.state === "sent") set("sending");
+  }, textFor = (s, ack, error) => s === "done" ? stopResultText(ack, computerName || "this computer") : s === "queued" ? STOP_QUEUED_TEXT : s === "failed" && error === "unknown" ? STOP_NOT_ACCEPTED(computerName || "this computer") : s === "failed" ? `${STOP_FAILURE_TEXT.title}. ${STOP_FAILURE_TEXT.body}` : s === "sending" ? "Stopping everything on the computer" : error ? String(error) : "", unsubscribe = channel.onStopState?.((view) => {
+    state === "sending" && view.state === "queued" && set("queued"), state === "queued" && view.state === "sent" && set("sending");
   });
   return {
     get state() {
@@ -3891,40 +2923,27 @@ function createStopController({ channel, clock = globalThis, computerName = "" }
     // Presses Stop. Resolves with the view that ended the press ('done' or 'failed'). `project` limits the stop to one project.
     async press(project = null) {
       if (state === "sending" || state === "queued") return this.view;
-      clock.clearTimeout(timer);
-      timer = null;
-      set("sending", { error: null });
-      let watchdog = null;
-      const silent = new Promise((_, reject) => {
-        watchdog = clock.setTimeout(() => reject(Object.assign(new Error("unreachable"), { code: "unreachable" })), STOP_WATCHDOG_MS);
+      clock.clearTimeout(timer), timer = null, set("sending", { error: null });
+      let watchdog = null, silent = new Promise((_, reject) => {
+        watchdog = clock.setTimeout(() => reject(Object.assign(new Error("unreachable"), { code: "unreachable" })), 65e3);
       });
       try {
-        const ack = await Promise.race([channel.stop(project), silent]);
-        clock.clearTimeout(watchdog);
-        set("done", { ack, error: null });
-        timer = clock.setTimeout(() => {
-          timer = null;
-          if (state === "done") set("idle");
-        }, STOP_DONE_MS);
+        let ack = await Promise.race([channel.stop(project), silent]);
+        clock.clearTimeout(watchdog), set("done", { ack, error: null }), timer = clock.setTimeout(() => {
+          timer = null, state === "done" && set("idle");
+        }, 1600);
       } catch (err) {
-        clock.clearTimeout(watchdog);
-        set("failed", { error: err?.code ?? "unreachable" });
+        clock.clearTimeout(watchdog), set("failed", { error: err?.code ?? "unreachable" });
       }
       return this.view;
     },
     dispose() {
-      clock.clearTimeout(timer);
-      timer = null;
-      unsubscribe?.();
-      subs.clear();
+      clock.clearTimeout(timer), timer = null, unsubscribe?.(), subs.clear();
     }
   };
 }
 
 // mobile/shell/debug.js
-var RING_LINES = 500;
-var LINE_MAX = 2048;
-var SEND_MAX_LINES = 100;
 var PATTERNS = [
   [/x-plenum-token\s*[:=]\s*\S+/gi, "x-plenum-token: [redacted]"],
   [/\b[0-9a-fA-F]{48,}\b/g, "[redacted-hex]"],
@@ -3936,57 +2955,48 @@ var PATTERNS = [
 ];
 function redactLine(text) {
   let out = String(text ?? "");
-  for (const [re, to] of PATTERNS) out = out.replace(re, to);
-  out = out.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
-  return out.slice(0, LINE_MAX);
+  for (let [re, to] of PATTERNS) out = out.replace(re, to);
+  return out = out.replace(/[\u0000-\u001f\u007f]+/g, " ").trim(), out.slice(0, 2048);
 }
-function createDebugLog({ now = () => Date.now(), capacity = RING_LINES } = {}) {
-  const ring = [];
-  const subs = /* @__PURE__ */ new Set();
-  const notify = () => {
-    for (const fn of Array.from(subs)) {
+function createDebugLog({ now = () => Date.now(), capacity = 500 } = {}) {
+  let ring = [], subs = /* @__PURE__ */ new Set(), notify = () => {
+    for (let fn of Array.from(subs))
       try {
         fn();
       } catch {
       }
-    }
   };
   return {
     // Adds one line. Returns the stored line, or null when there was nothing left after redaction.
     log(text, level = "info") {
-      const line = redactLine(text);
+      let line = redactLine(text);
       if (!line) return null;
-      const entry = { at: now(), level, text: line };
-      ring.push(entry);
-      while (ring.length > capacity) ring.shift();
-      notify();
-      return entry;
+      let entry = { at: now(), level, text: line };
+      for (ring.push(entry); ring.length > capacity; ) ring.shift();
+      return notify(), entry;
     },
     lines() {
       return ring.map((l) => ({ ...l }));
     },
     clear() {
-      ring.length = 0;
-      notify();
+      ring.length = 0, notify();
     },
     subscribe(fn) {
-      subs.add(fn);
-      return () => subs.delete(fn);
+      return subs.add(fn), () => subs.delete(fn);
     },
     // Posts the most recent lines to the computer, one request each (POST /_bridge/log takes { line }). `request` is channel.request.
     // Resolves with the number of lines the computer answered for.
-    async sendToComputer(request, count = SEND_MAX_LINES) {
-      const picked = ring.slice(-Math.max(0, Math.min(count, SEND_MAX_LINES)));
-      let accepted = 0;
-      for (const entry of picked) {
-        const body = JSON.stringify({ line: `[phone ${entry.level}] ${entry.text}`.slice(0, LINE_MAX) });
+    async sendToComputer(request, count = 100) {
+      let picked = ring.slice(-Math.max(0, Math.min(count, 100))), accepted = 0;
+      for (let entry of picked) {
+        let body = JSON.stringify({ line: `[phone ${entry.level}] ${entry.text}`.slice(0, 2048) });
         try {
-          const res = await request({ method: "POST", path: "/_bridge/log", headers: { "content-type": "application/json" } }, body);
+          let res = await request({ method: "POST", path: "/_bridge/log", headers: { "content-type": "application/json" } }, body);
           try {
             await res.body?.cancel();
           } catch {
           }
-          if (res.status === 200) accepted += 1;
+          res.status === 200 && (accepted += 1);
         } catch {
           break;
         }
@@ -3996,190 +3006,22 @@ function createDebugLog({ now = () => Date.now(), capacity = RING_LINES } = {}) 
   };
 }
 
-// mobile/shell/selftest.js
-var STEP_NAMES = Object.freeze(["connect", "ui-pull", "chat-echo", "approval", "stop"]);
-var decoder = new TextDecoder();
-async function readAll(body, limit = 1e6) {
-  const reader = body.getReader();
-  const parts = [];
-  let total = 0;
-  for (; ; ) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(value);
-    total += value.byteLength;
-    if (total > limit) {
-      await reader.cancel().catch(() => {
-      });
-      break;
-    }
-  }
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.byteLength;
-  }
-  return decoder.decode(out);
-}
-var withTimeout = (promise, ms, label) => new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
-  promise.then((v) => {
-    clearTimeout(timer);
-    resolve(v);
-  }, (e) => {
-    clearTimeout(timer);
-    reject(e);
-  });
-});
-async function waitFor(fn, ms, label, step = 100) {
-  const end = Date.now() + ms;
-  for (; ; ) {
-    const value = fn();
-    if (value) return value;
-    if (Date.now() > end) throw new Error(`${label} timed out`);
-    await new Promise((resolve) => setTimeout(resolve, step));
-  }
-}
-async function runSelfTest({ channel, project, approvalWaitMs = 15e3, connectMs = 15e3, log = () => {
-}, now = () => Date.now() } = {}) {
-  if (!channel) throw new TypeError("runSelfTest needs a channel");
-  const started = now();
-  const steps = [];
-  const step = async (name, fn) => {
-    const t0 = now();
-    try {
-      const detail = await fn();
-      steps.push({ name, ok: true, ms: now() - t0, detail: detail ?? "" });
-    } catch (err) {
-      steps.push({ name, ok: false, ms: now() - t0, detail: String(err?.message ?? err).slice(0, 200) });
-    }
-  };
-  await step("connect", async () => {
-    await waitFor(() => channel.state.status === "connected" && channel.hello, connectMs, "the connection");
-    return `protocol ${channel.hello?.protocol?.major}.${channel.hello?.protocol?.minor}`;
-  });
-  await step("ui-pull", async () => {
-    const res = await withTimeout(channel.request({ method: "GET", path: "/" }), 15e3, "GET /");
-    const text = await readAll(res.body, 4e6);
-    if (res.status !== 200) throw new Error(`status ${res.status}`);
-    if (!/<html/i.test(text)) throw new Error("no page");
-    return `${text.length} characters`;
-  });
-  let chatProject = project ?? null;
-  await step("chat-echo", async () => {
-    if (!chatProject) {
-      const st = await withTimeout(channel.request({ method: "GET", path: "/api/state" }), 1e4, "GET /api/state");
-      const parsed = JSON.parse(await readAll(st.body));
-      chatProject = parsed?.projects?.[0]?.id ?? null;
-    }
-    if (!chatProject) throw new Error("no project");
-    const res = await withTimeout(channel.request(
-      { method: "POST", path: "/api/chat", headers: { "content-type": "application/json" } },
-      JSON.stringify({ project: chatProject, message: "selftest: say echo" })
-    ), 2e4, "POST /api/chat");
-    const text = await withTimeout(readAll(res.body), 2e4, "the reply");
-    if (res.status !== 200) throw new Error(`status ${res.status}`);
-    if (!/Echo/.test(text)) throw new Error("no echo in the reply");
-    return "the echo model answered";
-  });
-  await step("approval", async () => {
-    const events = await channel.request({ method: "GET", path: "/api/events" });
-    let found = null;
-    let buffer = "";
-    const reader = events.body.getReader();
-    const until = now() + approvalWaitMs;
-    try {
-      while (!found && now() < until) {
-        const read = await Promise.race([reader.read(), new Promise((resolve) => setTimeout(() => resolve({ done: true, timeout: true }), Math.max(0, until - now())))]);
-        if (read.done) break;
-        buffer += decoder.decode(read.value, { stream: true });
-        let cut = buffer.indexOf("\n\n");
-        while (cut >= 0 && !found) {
-          const block = buffer.slice(0, cut);
-          buffer = buffer.slice(cut + 2);
-          for (const line of block.split("\n")) {
-            if (!line.startsWith("data: ")) continue;
-            let value = null;
-            try {
-              value = JSON.parse(line.slice(6));
-            } catch {
-              value = null;
-            }
-            if (value?.type === "approval" && typeof value.approvalId === "string" && value.action === void 0) {
-              found = value;
-              break;
-            }
-          }
-          cut = buffer.indexOf("\n\n");
-        }
-      }
-    } finally {
-      try {
-        await reader.cancel();
-      } catch {
-      }
-    }
-    if (!found) throw new Error("no approval card came in the wait");
-    const answer = await withTimeout(channel.request(
-      { method: "POST", path: "/api/approve", headers: { "content-type": "application/json" } },
-      JSON.stringify({ approvalId: found.approvalId, allow: false })
-    ), 1e4, "POST /api/approve");
-    await readAll(answer.body);
-    if (answer.status !== 200) throw new Error(`status ${answer.status}`);
-    return "denied from the phone";
-  });
-  await step("stop", async () => {
-    if (!chatProject) throw new Error("no project");
-    const res = await withTimeout(channel.request(
-      { method: "POST", path: "/api/chat", headers: { "content-type": "application/json" } },
-      JSON.stringify({ project: chatProject, message: "selftest: stop me" })
-    ), 2e4, "POST /api/chat");
-    const reader = res.body.getReader();
-    await withTimeout(reader.read(), 2e4, "the first chunk");
-    const ack = await withTimeout(channel.stop(chatProject), 15e3, "STOP");
-    if (!ack?.id) throw new Error("no STOP_ACK");
-    try {
-      await withTimeout((async () => {
-        for (; ; ) {
-          const r = await reader.read();
-          if (r.done) return;
-        }
-      })(), 1e4, "the stream end");
-    } catch {
-      await reader.cancel().catch(() => {
-      });
-    }
-    return `cancelled ${ack.cancelled}, agents ${ack.agentsStopped}, cards ${ack.cardsDenied}`;
-  });
-  const report = {
-    kind: "plenum-shell-selftest",
-    ok: steps.length === STEP_NAMES.length && steps.every((s) => s.ok),
-    passed: steps.filter((s) => s.ok).length,
-    total: STEP_NAMES.length,
-    ms: now() - started,
-    steps
-  };
-  try {
-    log(`selftest ${JSON.stringify(report)}`);
-  } catch {
-  }
-  return report;
-}
-
 // mobile/shell/push.js
 init_core();
-var ID = /^[A-Za-z0-9_.-]{1,80}$/;
-var FIRST_LINE_MAX = 200;
+var ID = /^[A-Za-z0-9_.-]{1,80}$/, FIRST_LINE_MAX = 200;
 function pushAvailable(env = globalThis) {
-  const nav = env.navigator;
-  return Boolean(env.isSecureContext && nav && "serviceWorker" in nav && env.PushManager && env.Notification);
+  let nav = env.navigator;
+  return !!(env.isSecureContext && nav && "serviceWorker" in nav && env.PushManager && env.Notification);
 }
 function cleanLine(value) {
   return String(value ?? "").replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").trim().slice(0, FIRST_LINE_MAX);
 }
 function parseNotificationHash(hash) {
-  const text = String(hash ?? "").replace(/^#/, "");
+  let text = String(hash ?? "").replace(/^#/, ""), named = /&computer=([A-Za-z0-9_.-]{1,80})$/.exec(text);
+  if (named) {
+    let link = parseNotificationHash(text.slice(0, named.index));
+    return link ? { ...link, computer: named[1] } : null;
+  }
   if (text === "stop") return { kind: "stop" };
   if (text === "home") return { kind: "home" };
   if (text === "waiting") return { kind: "waiting" };
@@ -4196,41 +3038,55 @@ function parseNotificationHash(hash) {
       }
       return { kind: "approve", id: m[2], line };
     }
-    if (m[3] !== void 0) return null;
-    return { kind: m[1], id: m[2] };
+    return m[3] !== void 0 ? null : { kind: m[1], id: m[2] };
   }
-  m = /^chat=([A-Za-z0-9_.-]{1,80})$/.exec(text);
-  if (m) return { kind: "chat", project: m[1] };
-  return null;
+  return m = /^chat=([A-Za-z0-9_.-]{1,80})$/.exec(text), m ? { kind: "chat", project: m[1] } : null;
 }
 function isRouteLink(link) {
-  return Boolean(link) && ["waiting", "handover", "chat", "settings", "home"].includes(link.kind);
+  return !!link && ["waiting", "handover", "chat", "settings", "home"].includes(link.kind);
 }
 async function subscribeWebPush({ registration, applicationServerKey, request, deviceId, notification, env = globalThis } = {}) {
-  if (!pushAvailable(env) || !registration?.pushManager) return { ok: false, state: "unsupported", status: 0 };
-  if (!applicationServerKey || typeof request !== "function" || !deviceId) return { ok: false, state: "failed", status: 0 };
-  const permission = await (notification ?? env.Notification).requestPermission();
-  if (permission !== "granted") return { ok: false, state: "denied", status: 0 };
+  if (!pushAvailable(env) || !registration?.pushManager) return { ok: !1, state: "unsupported", status: 0 };
+  if (!applicationServerKey || typeof request != "function" || !deviceId) return { ok: !1, state: "failed", status: 0 };
+  if (await (notification ?? env.Notification).requestPermission() !== "granted") return { ok: !1, state: "denied", status: 0 };
+  let key = bytesFromB64u(applicationServerKey), held = null;
+  try {
+    held = await registration.pushManager.getSubscription?.() ?? null;
+  } catch {
+    held = null;
+  }
+  if (held && !sameKey(held.options?.applicationServerKey, key)) return { ok: !1, state: "other-computer", status: 0 };
   let subscription;
   try {
-    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesFromB64u(applicationServerKey) });
-  } catch {
-    return { ok: false, state: "failed", status: 0 };
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly: !0, applicationServerKey: key });
+  } catch (err) {
+    return { ok: !1, state: err?.name === "InvalidStateError" ? "other-computer" : "failed", status: 0 };
   }
-  const json = subscription.toJSON ? subscription.toJSON() : subscription;
-  const body = JSON.stringify({ id: deviceId, subscription: { endpoint: json.endpoint, keys: json.keys } });
-  const res = await request({ method: "POST", path: "/api/phones/push", headers: { "content-type": "application/json" } }, body);
+  let json = subscription.toJSON ? subscription.toJSON() : subscription, body = JSON.stringify({ id: deviceId, subscription: { endpoint: json.endpoint, keys: json.keys } }), res = await request({ method: "POST", path: "/api/phones/push", headers: { "content-type": "application/json" } }, body);
   try {
     await res.body?.cancel();
   } catch {
   }
-  if (res.status !== 200) return { ok: false, state: "failed", status: res.status };
-  return { ok: true, state: "on", status: res.status };
+  return res.status !== 200 ? { ok: !1, state: "failed", status: res.status } : { ok: !0, state: "on", status: res.status, endpoint: typeof json.endpoint == "string" ? json.endpoint : "" };
+}
+function sameKey(held, key) {
+  if (!held) return !0;
+  let a = held instanceof Uint8Array ? held : ArrayBuffer.isView(held) ? new Uint8Array(held.buffer, held.byteOffset, held.byteLength) : new Uint8Array(held);
+  if (a.length !== key.length) return !1;
+  for (let i = 0; i < a.length; i++) if (a[i] !== key[i]) return !1;
+  return !0;
+}
+async function dropWebPush({ registration, endpoint, applicationServerKey = null } = {}) {
+  if (!endpoint && !applicationServerKey || !registration?.pushManager) return !1;
+  try {
+    let held = await registration.pushManager.getSubscription?.();
+    return !held || (endpoint ? held.endpoint !== endpoint : !(held.options?.applicationServerKey && sameKey(held.options.applicationServerKey, bytesFromB64u(applicationServerKey)))) ? !1 : await held.unsubscribe?.() !== !1;
+  } catch {
+    return !1;
+  }
 }
 function bytesFromB64u(text) {
-  const s = String(text).replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(s + "=".repeat((4 - s.length % 4) % 4));
-  const out = new Uint8Array(bin.length);
+  let s = String(text).replace(/-/g, "+").replace(/_/g, "/"), bin = atob(s + "=".repeat((4 - s.length % 4) % 4)), out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
@@ -4238,17 +3094,14 @@ var ANDROID_CHANNELS = Object.freeze([
   Object.freeze({ id: "plenum-approvals", name: "Approvals and your turn", importance: 4 }),
   Object.freeze({ id: "plenum-finished", name: "Finished and failed runs", importance: 3 }),
   Object.freeze({ id: "plenum-limits", name: "Spend and plan limits", importance: 3 })
-]);
-var ENDPOINT_WAIT_MS = 15e3;
+]), ENDPOINT_WAIT_MS = 15e3;
 function unifiedPushSubscription(event) {
-  const endpoint = parseEndpointEvent(event);
-  if (!endpoint.keys) return null;
-  return { subscription: { kind: "unifiedpush", endpoint: endpoint.url, keys: { p256dh: endpoint.keys.pubKey, auth: endpoint.keys.auth } } };
+  let endpoint = parseEndpointEvent(event);
+  return endpoint.keys ? { subscription: { kind: "unifiedpush", endpoint: endpoint.url, keys: { p256dh: endpoint.keys.pubKey, auth: endpoint.keys.auth } } } : null;
 }
 function notificationFor(payload) {
-  const names = payload.actions.map((a) => a.action);
-  const routes = {};
-  for (const a of payload.actions) routes[a.action] = a.route;
+  let names = payload.actions.map((a) => a.action), routes = {};
+  for (let a of payload.actions) routes[a.action] = a.route;
   return {
     title: payload.title,
     body: payload.body,
@@ -4257,50 +3110,44 @@ function notificationFor(payload) {
     actions: payload.actions.map((a) => ({
       id: a.action,
       title: a.title,
-      requiresAuthentication: true,
+      requiresAuthentication: !0,
       destructive: a.action !== "approve",
-      foreground: false
+      foreground: !1
     })),
-    extra: { tap: payload.tap, routes, line: payload.firstLine ?? "" }
+    extra: { tap: payload.tap, routes, line: payload.firstLine ?? "", computer: payload.ids?.computer ?? "" }
   };
 }
 function notificationId(tag) {
   let h = 0;
-  for (const ch of String(tag ?? "plenum")) h = h * 31 + ch.charCodeAt(0) | 0;
+  for (let ch of String(tag ?? "plenum")) h = h * 31 + ch.charCodeAt(0) | 0;
   return Math.abs(h) % 2147483e3 + 1;
 }
 function createAndroidPush({
   native,
   requestOf,
   vapidOf = () => null,
-  isVisible = () => true,
+  isVisible = () => !0,
   onLink = () => {
   },
+  pendingStore = null,
   log = () => {
   },
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (id) => clearTimeout(id)
 } = {}) {
-  const up = native?.UnifiedPush ?? null;
-  const local = native?.LocalNotifications ?? null;
-  let started = false;
-  let waiting = null;
-  let lastEndpoint = null;
-  let failure = null;
-  let posted = false;
-  const types = /* @__PURE__ */ new Set();
+  let up = native?.UnifiedPush ?? null, local = native?.LocalNotifications ?? null, started = !1, waiting = null, lastEndpoint = null, failure = null, posted = !1, pending = null, types = /* @__PURE__ */ new Set();
   async function post(body) {
-    const request = requestOf?.();
-    if (typeof request !== "function") return { ok: false, status: 0 };
+    let request = requestOf?.();
+    if (typeof request != "function") return { ok: !1, status: 0 };
     try {
-      const res = await request({ method: "POST", path: "/api/phones/push", headers: { "content-type": "application/json" } }, JSON.stringify(body));
+      let res = await request({ method: "POST", path: "/api/phones/push", headers: { "content-type": "application/json" } }, JSON.stringify(body));
       try {
         await res.body?.cancel();
       } catch {
       }
       return { ok: res.status === 200, status: res.status };
     } catch {
-      return { ok: false, status: 0 };
+      return { ok: !1, status: 0 };
     }
   }
   async function onEndpoint(event) {
@@ -4311,24 +3158,28 @@ function createAndroidPush({
       body = null;
     }
     if (!body) {
-      failure = "endpoint";
-      waiting?.resolve({ ok: false, reason: "endpoint" });
+      failure = "endpoint", waiting?.resolve({ ok: !1, reason: "endpoint" });
       return;
     }
-    lastEndpoint = body.subscription.endpoint;
-    const out = await post(body);
-    posted = out.ok;
-    if (out.ok) failure = null;
-    waiting?.resolve(out.ok ? { ok: true, reason: null } : { ok: false, reason: "failed" });
+    lastEndpoint = body.subscription.endpoint, pending = body;
+    try {
+      await pendingStore?.save(body);
+    } catch {
+    }
+    let out = await post(body);
+    if (posted = out.ok, out.ok) {
+      failure = null, pending = null;
+      try {
+        await pendingStore?.clear();
+      } catch {
+      }
+    }
+    waiting?.resolve(out.ok ? { ok: !0, reason: null } : { ok: !1, reason: "failed" });
   }
   async function showLocal(payload) {
     if (!local?.schedule) return;
-    const note = notificationFor(payload);
-    if (note.actionTypeId && !types.has(note.actionTypeId)) {
-      types.add(note.actionTypeId);
-      await local.registerActionTypes?.({ types: [{ id: note.actionTypeId, actions: note.actions }] });
-    }
-    await local.schedule({
+    let note = notificationFor(payload);
+    note.actionTypeId && !types.has(note.actionTypeId) && (types.add(note.actionTypeId), await local.registerActionTypes?.({ types: [{ id: note.actionTypeId, actions: note.actions }] })), await local.schedule({
       notifications: [{
         id: notificationId(payload.tag),
         title: note.title,
@@ -4346,115 +3197,117 @@ function createAndroidPush({
     } catch {
       return;
     }
-    if (!parsed.payload) return;
-    if (!isVisible()) return;
-    try {
-      await showLocal(parsed.payload);
-    } catch (err) {
-      log(`push: local notification ${err?.code ?? "failed"}`);
-    }
+    if (parsed.payload && isVisible())
+      try {
+        await showLocal(parsed.payload);
+      } catch (err) {
+        log(`push: local notification ${err?.code ?? "failed"}`);
+      }
   }
   function onAction(event) {
-    const extra = event?.notification?.extra ?? {};
-    const id = String(event?.actionId ?? "tap");
-    const route = id === "tap" ? extra.tap : extra.routes?.[id];
-    if (typeof route !== "string") return;
-    const link = routeForAction({ action: id === "tap" ? "tap" : id, route }, extra.line ? String(extra.line) : "");
-    onLink(String(link).replace(/^\//, ""));
+    let extra = event?.notification?.extra ?? {}, id = String(event?.actionId ?? "tap"), route = id === "tap" ? extra.tap : extra.routes?.[id];
+    if (typeof route != "string") return;
+    let link = routeForAction({ action: id === "tap" ? "tap" : id, route }, extra.line ? String(extra.line) : ""), computer = id !== "tap" && typeof extra.computer == "string" ? extra.computer.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) : "";
+    onLink(String(link).replace(/^\//, ""), computer);
   }
   return {
     // Channels, action types and listeners. Safe to call again; a plugin that is missing does nothing.
     async start() {
-      if (started || !up) return false;
-      started = true;
+      if (started || !up) return !1;
+      started = !0;
       try {
-        for (const c of ANDROID_CHANNELS) await local?.createChannel?.({ id: c.id, name: c.name, importance: c.importance, visibility: 0 });
-        await up.addListener("endpoint", onEndpoint);
-        await up.addListener("message", onMessage);
-        await up.addListener("registrationFailed", (event) => {
-          failure = String(event?.reason ?? "INTERNAL_ERROR");
-          waiting?.resolve({ ok: false, reason: "registration" });
-        });
-        await up.addListener("unregistered", () => {
-          posted = false;
-          lastEndpoint = null;
-        });
-        await local?.addListener?.("localNotificationActionPerformed", onAction);
+        for (let c of ANDROID_CHANNELS) await local?.createChannel?.({ id: c.id, name: c.name, importance: c.importance, visibility: 0 });
+        if (await up.addListener("endpoint", onEndpoint), await up.addListener("message", onMessage), await up.addListener("registrationFailed", (event) => {
+          failure = String(event?.reason ?? "INTERNAL_ERROR"), waiting?.resolve({ ok: !1, reason: "registration" });
+        }), await up.addListener("unregistered", () => {
+          posted = !1, lastEndpoint = null, pending = null, Promise.resolve(pendingStore?.clear?.()).catch(() => {
+          });
+        }), await local?.addListener?.("localNotificationActionPerformed", onAction), !pending && pendingStore) {
+          let kept = await pendingStore.load().catch(() => null);
+          kept?.subscription?.kind === "unifiedpush" && typeof kept.subscription.endpoint == "string" && (pending = kept);
+        }
       } catch (err) {
-        log(`push: start ${err?.code ?? "failed"}`);
-        return false;
+        return log(`push: start ${err?.code ?? "failed"}`), !1;
       }
-      return true;
+      return !0;
     },
     // What the settings line shows: whether UnifiedPush is on this phone, which push app, and whether the computer has the subscription.
     async state() {
-      if (!up) return { supported: false, distributor: null, registered: false, failure };
+      if (!up) return { supported: !1, distributor: null, registered: !1, failure };
       try {
-        const s = await up.getState();
-        return { supported: s?.supported !== false, distributor: s?.distributor ?? null, registered: posted, endpoint: Boolean(lastEndpoint) || Object.keys(s?.endpoints ?? {}).length > 0, failure };
+        let s = await up.getState();
+        return { supported: s?.supported !== !1, distributor: s?.distributor ?? null, registered: posted, endpoint: !!lastEndpoint || Object.keys(s?.endpoints ?? {}).length > 0, failure };
       } catch {
-        return { supported: false, distributor: null, registered: false, failure };
+        return { supported: !1, distributor: null, registered: !1, failure };
       }
     },
     // The system chooser for the push app (when more than one is installed, or none is chosen).
     async chooseDistributor() {
-      if (!up) return { ok: false, reason: "unavailable" };
+      if (!up) return { ok: !1, reason: "unavailable" };
       try {
-        const out = await up.pickDistributor();
-        return { ok: out?.ok !== false, reason: null };
+        return { ok: (await up.pickDistributor())?.ok !== !1, reason: null };
       } catch {
-        return { ok: false, reason: "failed" };
+        return { ok: !1, reason: "failed" };
       }
     },
     // Turn on: the permissions (after a tap), a push app, then register. Resolves once the computer has the subscription.
     async enable() {
-      if (!up) return { ok: false, reason: "unavailable" };
+      if (!up) return { ok: !1, reason: "unavailable" };
       await this.start();
       try {
-        const granted = await up.requestNotificationPermission();
-        if (granted?.granted === false) return { ok: false, reason: "denied" };
+        if ((await up.requestNotificationPermission())?.granted === !1) return { ok: !1, reason: "denied" };
         await local?.requestPermissions?.();
-        const s = await up.getState();
-        if (s?.supported === false) return { ok: false, reason: "unavailable" };
+        let s = await up.getState();
+        if (s?.supported === !1) return { ok: !1, reason: "unavailable" };
         if (!s?.distributor) {
-          const list = await up.getDistributors();
-          const names = list?.distributors ?? [];
-          if (list?.saved) {
-          } else if (names.length === 1) {
-            await up.chooseDistributor({ packageName: names[0] });
-          } else if (names.length === 0) {
-            return { ok: false, reason: "no-distributor" };
-          } else {
-            const picked = await up.pickDistributor();
-            if (picked?.ok === false) return { ok: false, reason: "no-distributor" };
-          }
+          let list = await up.getDistributors(), names = list?.distributors ?? [];
+          if (!list?.saved)
+            if (names.length === 1)
+              await up.chooseDistributor({ packageName: names[0] });
+            else {
+              if (names.length === 0)
+                return { ok: !1, reason: "no-distributor" };
+              if ((await up.pickDistributor())?.ok === !1) return { ok: !1, reason: "no-distributor" };
+            }
         }
-        const answer = new Promise((resolve) => {
-          const timer = setTimer(() => resolve({ ok: false, reason: "timeout" }), ENDPOINT_WAIT_MS);
+        let answer = new Promise((resolve) => {
+          let timer = setTimer(() => resolve({ ok: !1, reason: "timeout" }), ENDPOINT_WAIT_MS);
           waiting = { resolve: (value) => {
-            clearTimer(timer);
-            waiting = null;
-            resolve(value);
+            clearTimer(timer), waiting = null, resolve(value);
           } };
-        });
-        const vapid = vapidOf();
-        await up.register({ instance: "default", messageForDistributor: "Plenum", ...vapid ? { vapid } : {} });
-        return await answer;
+        }), vapid = vapidOf();
+        return await up.register({ instance: "default", messageForDistributor: "Plenum", ...vapid ? { vapid } : {} }), await answer;
       } catch (err) {
-        waiting = null;
-        return { ok: false, reason: err?.code === "VAPID_REQUIRED" ? "vapid" : "failed" };
+        return waiting = null, { ok: !1, reason: err?.code === "VAPID_REQUIRED" ? "vapid" : "failed" };
       }
+    },
+    // B-129: an endpoint the computer did not get (no channel when the push app gave it, or the computer refused) is sent again. app.js calls this at
+    // every HELLO. The computer replaces the phone's subscription with each body, so a second send is harmless. Nothing is sent after a turn off.
+    async resend() {
+      if (posted || !pending) return { ok: posted, reason: null };
+      let out = await post(pending);
+      if (posted = out.ok, out.ok) {
+        pending = null, failure = null;
+        try {
+          await pendingStore?.clear();
+        } catch {
+        }
+      }
+      return { ok: out.ok, reason: out.ok ? null : "failed" };
     },
     // Turn off: the computer forgets the subscription and the push app registration ends.
     async disable() {
-      if (!up) return { ok: false, reason: "unavailable" };
-      const out = await post({ subscription: null });
+      if (!up) return { ok: !1, reason: "unavailable" };
+      let out = await post({ subscription: null });
       try {
         await up.unregister({ instance: "default" });
       } catch {
       }
-      posted = false;
-      lastEndpoint = null;
+      posted = !1, lastEndpoint = null, pending = null;
+      try {
+        await pendingStore?.clear();
+      } catch {
+      }
       return { ok: out.ok, reason: out.ok ? null : "failed" };
     },
     // Test hooks: the handlers the listeners call.
@@ -4464,45 +3317,31 @@ function createAndroidPush({
 
 // mobile/shell/device.js
 function isLanPage(win) {
-  const loc = win?.location ?? {};
-  if (["localhost", "127.0.0.1", "[::1]", "::1"].includes(String(loc.hostname ?? ""))) return false;
-  return win?.isSecureContext === false || String(loc.protocol ?? "") === "http:";
+  let loc = win?.location ?? {};
+  return ["localhost", "127.0.0.1", "[::1]", "::1"].includes(String(loc.hostname ?? "")) ? !1 : win?.isSecureContext === !1 || String(loc.protocol ?? "") === "http:";
 }
 function isNative(win) {
-  return win?.Capacitor?.isNativePlatform?.() === true;
+  return win?.Capacitor?.isNativePlatform?.() === !0;
 }
 function platformFor(win) {
-  const cap = win?.Capacitor;
-  if (cap?.isNativePlatform?.() !== true) return "web";
-  return String(cap.getPlatform?.() ?? "ios") === "android" ? "android" : "ios";
+  let cap = win?.Capacitor;
+  return cap?.isNativePlatform?.() !== !0 ? "web" : String(cap.getPlatform?.() ?? "ios") === "android" ? "android" : "ios";
 }
 function capsFor(win) {
-  if (isNative(win)) return ["ui-bundled", "artifacts-picture", "push-none", "share", "save", "camera", "lan-control"];
-  return isLanPage(win) ? ["ui-from-desktop", "artifacts-picture", "push-none", "share", "save"] : ["ui-from-desktop", "artifacts-iframe", "push-webpush", "share", "save"];
+  return isNative(win) ? ["ui-bundled", "artifacts-picture", "push-none", "share", "save", "camera", "lan-control"] : isLanPage(win) ? ["ui-from-desktop", "artifacts-picture", "push-none", "share", "save"] : ["ui-from-desktop", "artifacts-iframe", "push-webpush", "share", "save"];
 }
 function appKindFor(win) {
-  if (isNative(win)) return { app: platformFor(win), name: "This phone" };
-  if (isLanPage(win)) return { app: "lan-web", name: "This browser" };
-  return { app: "pwa", name: "This phone (web app)" };
+  return isNative(win) ? { app: platformFor(win), name: "This phone" } : isLanPage(win) ? { app: "lan-web", name: "This browser" } : { app: "pwa", name: "This phone (web app)" };
 }
 function pageKindFor(win) {
-  const root = win?.document?.documentElement;
-  if (!root || typeof root.hasAttribute !== "function") return "shell";
-  if (root.hasAttribute("data-shell-page")) return "shell";
-  if (typeof root.getAttribute === "function" && root.getAttribute("data-surface") === "phone") return "ui";
-  return "shell";
+  let root = win?.document?.documentElement;
+  return !root || typeof root.hasAttribute != "function" || root.hasAttribute("data-shell-page") ? "shell" : typeof root.getAttribute == "function" && root.getAttribute("data-surface") === "phone" ? "ui" : "shell";
 }
 
 // lib/remote/ui-manifest.mjs
-var MANIFEST_PATH = "/_bridge/ui-manifest";
-var SHELL_BASE = "/shell/";
-var SHELL_ENTRY = "shell.js";
-var UI_STATIC_PATHS = Object.freeze(["/", "/app.js", "/markdown.js", "/music.js", "/style.css", "/icon.png", "/mark.svg", "/ext.js"]);
-var UI_PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; worker-src 'self'; base-uri 'none'; form-action 'self'";
-var EXT_PATH = /^\/ext(?:-[a-z0-9-]{1,60})?\.(?:js|css)$/;
-var STATIC_SET = new Set(UI_STATIC_PATHS);
-var SHELL_BASE_OK = /^\/(?:[A-Za-z0-9._-]+\/)*$/;
-var TYPES = Object.freeze({
+var MANIFEST_PATH = "/_bridge/ui-manifest", SHELL_BASE = "/shell/", SHELL_ENTRY = "shell.js", UI_STATIC_PATHS = Object.freeze(["/", "/app.js", "/markdown.js", "/music.js", "/style.css", "/icon.png", "/mark.svg", "/ext.js"]), UI_PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; worker-src 'self'; base-uri 'none'; form-action 'self'";
+var EXT_PATH = /^\/ext(?:-[a-z0-9-]{1,60})?\.(?:js|css)$/, STATIC_SET = new Set(UI_STATIC_PATHS);
+var SHELL_BASE_OK = /^\/(?:[A-Za-z0-9._-]+\/)*$/, TYPES = Object.freeze({
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -4513,65 +3352,47 @@ function fileNameFor(urlPath) {
   return urlPath === "/" ? "index.html" : urlPath.slice(1);
 }
 function contentTypeFor(name) {
-  const dot = name.lastIndexOf(".");
+  let dot = name.lastIndexOf(".");
   return TYPES[dot >= 0 ? name.slice(dot).toLowerCase() : ""] ?? "application/octet-stream";
 }
 function isUiPath(pathname) {
   return STATIC_SET.has(pathname) || EXT_PATH.test(pathname);
 }
 function manifestHash(files, sha256Hex2, meta = {}) {
-  const rows = files.map((f) => [f.path, f.sha256, f.size]);
+  let rows = files.map((f) => [f.path, f.sha256, f.size]);
   return sha256Hex2(JSON.stringify([String(meta.desktopVersion ?? ""), meta.generation ?? null, rows]));
 }
 function rewriteIndex(html, ctx = {}) {
-  const shellBase = ctx.shellBase ?? SHELL_BASE;
-  if (typeof shellBase !== "string" || !SHELL_BASE_OK.test(shellBase)) throw new Error("shellBase must be a path such as /shell/");
-  const text = String(html);
+  let shellBase = ctx.shellBase ?? SHELL_BASE;
+  if (typeof shellBase != "string" || !SHELL_BASE_OK.test(shellBase)) throw new Error("shellBase must be a path such as /shell/");
+  let text = String(html);
   if (!/<script\b[^>]*\bsrc="\/app\.js"/i.test(text)) throw new Error("The index has no app.js tag.");
   let out = text.replace(/<html\b([^>]*)>/i, (whole, attrs) => `<html${attrs.replace(/\s+data-surface="[^"]*"/i, "")} data-surface="phone">`);
-  out = out.replace(/(<meta\b[^>]*\bname="viewport"[^>]*\bcontent=")([^"]*)(")/i, (whole, open, content, close) => /viewport-fit=/.test(content) ? whole : `${open}${content}, viewport-fit=cover${close}`);
-  if (!/http-equiv="Content-Security-Policy"/i.test(out)) {
-    const meta = `<meta http-equiv="Content-Security-Policy" content="${UI_PAGE_CSP}">`;
+  if (out = out.replace(/(<meta\b[^>]*\bname="viewport"[^>]*\bcontent=")([^"]*)(")/i, (whole, open, content, close) => /viewport-fit=/.test(content) ? whole : `${open}${content}, viewport-fit=cover${close}`), !/http-equiv="Content-Security-Policy"/i.test(out)) {
+    let meta = `<meta http-equiv="Content-Security-Policy" content="${UI_PAGE_CSP}">`;
     if (/<meta\b[^>]*\bcharset=[^>]*>/i.test(out)) out = out.replace(/(<meta\b[^>]*\bcharset=[^>]*>)/i, (whole) => `${whole}
   ${meta}`);
     else if (/<head\b[^>]*>/i.test(out)) out = out.replace(/(<head\b[^>]*>)/i, (whole) => `${whole}
   ${meta}`);
     else throw new Error("The index has no <head>.");
   }
-  const shimTags = [
+  let shimTags = [
     `<script src="${shellBase}boot.js"><\/script>`,
     `<script type="module" src="${shellBase}${SHELL_ENTRY}"><\/script>`
   ].filter((tag) => !out.includes(tag));
-  if (shimTags.length) {
-    out = out.replace(/([ \t]*)<script\b/i, (whole, indent) => `${shimTags.map((tag) => `${indent}${tag}
-`).join("")}${whole}`);
-  }
-  return out;
+  return shimTags.length && (out = out.replace(/([ \t]*)<script\b/i, (whole, indent) => `${shimTags.map((tag) => `${indent}${tag}
+`).join("")}${whole}`)), out;
 }
 
 // mobile/shell/ui-loader.js
-var CACHE_PREFIX = "plenum-ui-";
-var ACTIVE_CACHE = "plenum-ui-active";
-var ACTIVE_PATH = "/__plenum/active.json";
-var SHA_HEADER = "x-plenum-sha256";
-var SIZE_HEADER = "x-plenum-size";
-var MAX_FILE_BYTES = 16 * 1024 * 1024;
-var MAX_MANIFEST_BYTES = 1024 * 1024;
-var BOOT_FILE = "shell/boot.js";
-var SHELL_FILES = Object.freeze([BOOT_FILE, "shell/shell.js", "shell/channel.worker.js", "shell/styles.css"]);
-var utf82 = new TextEncoder();
-var utf8Decode = new TextDecoder();
-var HEX64 = /^[0-9a-f]{64}$/;
-var UiError = class extends Error {
+var CACHE_PREFIX = "plenum-ui-", ACTIVE_CACHE = "plenum-ui-active", ACTIVE_PATH = "/__plenum/active.json", SHA_HEADER = "x-plenum-sha256", SIZE_HEADER = "x-plenum-size", MAX_FILE_BYTES = 16 * 1024 * 1024, MAX_MANIFEST_BYTES = 1024 * 1024, BOOT_FILE = "shell/boot.js", SHELL_FILES = Object.freeze([BOOT_FILE, "shell/shell.js", "shell/channel.worker.js", "shell/styles.css"]), utf82 = new TextEncoder(), utf8Decode = new TextDecoder(), HEX64 = /^[0-9a-f]{64}$/, UiError = class extends Error {
   constructor(code, message) {
-    super(message ?? code);
-    this.name = "UiError";
-    this.code = code;
+    super(message ?? code), this.name = "UiError", this.code = code;
   }
 };
 function hexOf(bytes) {
   let out = "";
-  for (const b of bytes) out += b.toString(16).padStart(2, "0");
+  for (let b of bytes) out += b.toString(16).padStart(2, "0");
   return out;
 }
 function sha256Hex(bytes) {
@@ -4580,83 +3401,65 @@ function sha256Hex(bytes) {
 function verifyBytes(bytes, entry) {
   if (bytes.byteLength !== entry.size) throw new UiError("size", `${entry.path} is ${bytes.byteLength} bytes, not ${entry.size}`);
   if (sha256Hex(bytes) !== entry.sha256) throw new UiError("verify", `${entry.path} does not match the manifest`);
-  return true;
+  return !0;
 }
 function checkManifest(value) {
-  const bad = (why) => new UiError("manifest", `The computer sent a damaged UI manifest (${why}).`);
-  if (!value || typeof value !== "object" || !Array.isArray(value.files) || typeof value.hash !== "string") throw bad("shape");
-  const seen = /* @__PURE__ */ new Set();
-  const files = [];
-  for (const f of value.files) {
-    if (!f || typeof f.path !== "string" || !isUiPath(f.path)) throw bad("path");
+  let bad = (why) => new UiError("manifest", `The computer sent a damaged UI manifest (${why}).`);
+  if (!value || typeof value != "object" || !Array.isArray(value.files) || typeof value.hash != "string") throw bad("shape");
+  let seen = /* @__PURE__ */ new Set(), files = [];
+  for (let f of value.files) {
+    if (!f || typeof f.path != "string" || !isUiPath(f.path)) throw bad("path");
     if (seen.has(f.path)) throw bad("duplicate");
-    if (typeof f.sha256 !== "string" || !HEX64.test(f.sha256)) throw bad("sha256");
+    if (typeof f.sha256 != "string" || !HEX64.test(f.sha256)) throw bad("sha256");
     if (!Number.isInteger(f.size) || f.size < 0 || f.size > MAX_FILE_BYTES) throw bad("size");
-    seen.add(f.path);
-    files.push({ path: f.path, sha256: f.sha256, size: f.size, type: typeof f.type === "string" ? f.type.slice(0, 100) : "application/octet-stream" });
+    seen.add(f.path), files.push({ path: f.path, sha256: f.sha256, size: f.size, type: typeof f.type == "string" ? f.type.slice(0, 100) : "application/octet-stream" });
   }
   if (!seen.has("/")) throw bad("no index");
   files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  const desktopVersion = String(value.desktopVersion ?? "");
+  let desktopVersion = String(value.desktopVersion ?? "");
   if (desktopVersion.length > 40) throw bad("version");
-  const generation = value.generation === null || value.generation === void 0 ? null : value.generation;
+  let generation = value.generation === null || value.generation === void 0 ? null : value.generation;
   if (generation !== null && !Number.isInteger(generation)) throw bad("generation");
-  const hashText = (text) => sha256Hex(utf82.encode(text));
-  if (manifestHash(files, hashText, { desktopVersion, generation }) !== value.hash) throw bad("hash");
+  if (manifestHash(files, (text) => sha256Hex(utf82.encode(text)), { desktopVersion, generation }) !== value.hash) throw bad("hash");
   return { desktopVersion, generation, hash: value.hash, files };
 }
 function cacheNameFor(manifest) {
-  const slug = (text) => String(text).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 40);
+  let slug = (text) => String(text).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 40);
   return `${CACHE_PREFIX}${slug(manifest.desktopVersion || "dev")}-${manifest.generation ?? 0}-${slug(manifest.hash.slice(0, 16))}`;
 }
-function diffFiles(previousFiles, next, hasCopy = () => false) {
-  const before = new Map((previousFiles ?? []).map((f) => [f.path, f.sha256]));
-  const changed = [];
-  const reused = [];
-  for (const f of next.files) {
-    if (before.get(f.path) === f.sha256 && hasCopy(f)) reused.push(f.path);
-    else changed.push(f);
-  }
-  const keep = new Set(next.files.map((f) => f.path));
-  const removed = [...before.keys()].filter((p) => !keep.has(p));
+function diffFiles(previousFiles, next, hasCopy = () => !1) {
+  let before = new Map((previousFiles ?? []).map((f) => [f.path, f.sha256])), changed = [], reused = [];
+  for (let f of next.files)
+    before.get(f.path) === f.sha256 && hasCopy(f) ? reused.push(f.path) : changed.push(f);
+  let keep = new Set(next.files.map((f) => f.path)), removed = [...before.keys()].filter((p) => !keep.has(p));
   return { changed, reused, removed };
 }
 function shouldReload({ loadedHash, nextHash, reloadedFor }) {
-  if (!loadedHash || !nextHash || loadedHash === nextHash) return false;
-  return reloadedFor !== nextHash;
+  return !loadedHash || !nextHash || loadedHash === nextHash ? !1 : reloadedFor !== nextHash;
 }
-async function readAll2(body, cap = MAX_FILE_BYTES) {
-  const reader = body.getReader();
-  const parts = [];
-  let total = 0;
+async function readAll(body, cap = MAX_FILE_BYTES) {
+  let reader = body.getReader(), parts = [], total = 0;
   for (; ; ) {
-    const { done, value } = await reader.read();
+    let { done, value } = await reader.read();
     if (done) break;
-    total += value.byteLength;
-    if (total > cap) {
-      reader.cancel().catch(() => {
-      });
-      throw new UiError("size", "The file is larger than the UI allows.");
-    }
+    if (total += value.byteLength, total > cap)
+      throw reader.cancel().catch(() => {
+      }), new UiError("size", "The file is larger than the UI allows.");
     parts.push(value);
   }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.byteLength;
-  }
+  let out = new Uint8Array(total), offset = 0;
+  for (let part of parts)
+    out.set(part, offset), offset += part.byteLength;
   return out;
 }
 function computerOf(value) {
-  return typeof value === "string" ? value : null;
+  return typeof value == "string" ? value : null;
 }
 function webStorage(caches) {
-  const slotOn = (cache) => ({
+  let slotOn = (cache) => ({
     async get(path) {
-      const res = await cache.match(path);
-      if (!res) return null;
-      return { bytes: new Uint8Array(await res.arrayBuffer()), sha256: res.headers.get(SHA_HEADER), size: Number(res.headers.get(SIZE_HEADER)) };
+      let res = await cache.match(path);
+      return res ? { bytes: new Uint8Array(await res.arrayBuffer()), sha256: res.headers.get(SHA_HEADER), size: Number(res.headers.get(SIZE_HEADER)) } : null;
     },
     async put(path, bytes, entry) {
       await cache.put(path, new Response(bytes, {
@@ -4666,70 +3469,60 @@ function webStorage(caches) {
   });
   return {
     async readActive() {
-      const cache = await caches.open(ACTIVE_CACHE);
-      const res = await cache.match(ACTIVE_PATH);
-      const record = res ? JSON.parse(await res.text()) : null;
+      let res = await (await caches.open(ACTIVE_CACHE)).match(ACTIVE_PATH), record = res ? JSON.parse(await res.text()) : null;
       return record ? { ...record, computerId: computerOf(record.computerId) } : null;
     },
     async writeActive(record) {
-      const cache = await caches.open(ACTIVE_CACHE);
-      await cache.put(ACTIVE_PATH, new Response(JSON.stringify(record), { headers: { "content-type": "application/json", "cache-control": "no-store" } }));
+      await (await caches.open(ACTIVE_CACHE)).put(ACTIVE_PATH, new Response(JSON.stringify(record), { headers: { "content-type": "application/json", "cache-control": "no-store" } }));
     },
     async openSlot(name) {
       return slotOn(await caches.open(name));
     },
     async dropSlot(name) {
-      if (name !== ACTIVE_CACHE) await caches.delete(name);
+      name !== ACTIVE_CACHE && await caches.delete(name);
     },
     async dropSlotsExcept(name) {
-      for (const key of await caches.keys()) {
-        if (key.startsWith(CACHE_PREFIX) && key !== ACTIVE_CACHE && key !== name) await caches.delete(key);
-      }
+      for (let key of await caches.keys())
+        key.startsWith(CACHE_PREFIX) && key !== ACTIVE_CACHE && key !== name && await caches.delete(key);
     },
     async activate() {
     }
   };
 }
 async function bundledShellFiles(readBundled) {
-  const out = [];
+  let out = [];
   if (!readBundled) return out;
-  for (const rel of SHELL_FILES) {
+  for (let rel of SHELL_FILES) {
     let bytes = null;
     try {
       bytes = await readBundled(rel);
     } catch {
       bytes = null;
     }
-    if (bytes && bytes.byteLength) out.push({ path: `/${rel}`, bytes });
+    bytes && bytes.byteLength && out.push({ path: `/${rel}`, bytes });
   }
   return out;
 }
 function androidStorage({ files, webView, root = "plenum-ui" }) {
-  const base = (name) => `${root}/${name}`;
-  const slotOn = (name) => ({
+  let base = (name) => `${root}/${name}`, slotOn = (name) => ({
     async get(path) {
-      const bytes = await files.read(`${base(name)}/${fileNameFor(path)}`);
-      if (!bytes) return null;
-      return { bytes, sha256: null, size: bytes.byteLength };
+      let bytes = await files.read(`${base(name)}/${fileNameFor(path)}`);
+      return bytes ? { bytes, sha256: null, size: bytes.byteLength } : null;
     },
     async put(path, bytes) {
       await files.write(`${base(name)}/${fileNameFor(path)}`, bytes);
     }
   });
   async function activate(record, { readBundled, shellBase } = {}) {
-    const dir = base(record.cacheName);
-    const index = await files.read(`${dir}/index.html`);
+    let dir = base(record.cacheName), index = await files.read(`${dir}/index.html`);
     if (!index) throw new UiError("storage", "The index is missing.");
-    for (const file of await bundledShellFiles(readBundled)) await files.write(`${dir}/${fileNameFor(file.path)}`, file.bytes);
-    const html = rewriteIndex(utf8Decode.decode(index), { shellBase });
-    await files.write(`${dir}/index.html`, utf82.encode(html));
-    await webView?.persistServerBasePath({ path: dir });
-    await webView?.setServerBasePath({ path: dir });
+    for (let file of await bundledShellFiles(readBundled)) await files.write(`${dir}/${fileNameFor(file.path)}`, file.bytes);
+    let html = rewriteIndex(utf8Decode.decode(index), { shellBase });
+    await files.write(`${dir}/index.html`, utf82.encode(html)), await webView?.persistServerBasePath({ path: dir }), await webView?.setServerBasePath({ path: dir });
   }
   return {
     async readActive() {
-      const bytes = await files.read(`${root}/active.json`);
-      const record = bytes ? JSON.parse(utf8Decode.decode(bytes)) : null;
+      let bytes = await files.read(`${root}/active.json`), record = bytes ? JSON.parse(utf8Decode.decode(bytes)) : null;
       return record ? { ...record, computerId: computerOf(record.computerId) } : null;
     },
     async writeActive(record) {
@@ -4745,17 +3538,12 @@ function androidStorage({ files, webView, root = "plenum-ui" }) {
     // A complete record the WebView does not serve (its persist or set was lost) is activated again. A WebView without
     // getServerBasePath is left alone.
     async ensureActive(record, opts = {}) {
-      if (!webView?.getServerBasePath) return false;
-      const current = await webView.getServerBasePath();
-      if (current?.path === base(record.cacheName)) return false;
-      await activate(record, opts);
-      return true;
+      return !webView?.getServerBasePath || (await webView.getServerBasePath())?.path === base(record.cacheName) ? !1 : (await activate(record, opts), !0);
     },
     async dropSlotsExcept(name) {
-      const dirs = await files.listDirs?.(root) ?? [];
-      for (const dir of dirs) {
-        if (dir !== name && dir.startsWith(CACHE_PREFIX)) await files.removeDir(base(dir));
-      }
+      let dirs = await files.listDirs?.(root) ?? [];
+      for (let dir of dirs)
+        dir !== name && dir.startsWith(CACHE_PREFIX) && await files.removeDir(base(dir));
     }
   };
 }
@@ -4769,19 +3557,16 @@ function createUiLoader({
   log = () => {
   }
 } = {}) {
-  if (!channel || typeof channel.request !== "function") throw new TypeError("createUiLoader needs a channel");
+  if (!channel || typeof channel.request != "function") throw new TypeError("createUiLoader needs a channel");
   if (!storage) throw new TypeError("createUiLoader needs a storage");
   async function fetchFile(path, max) {
-    const res = await channel.request({ method: "GET", path, headers: { accept: "*/*" } }, null, { scope: "shell" });
-    if (res.status !== 200) {
-      res.cancel?.();
-      throw new UiError("fetch", `${path}: the computer answered ${res.status}`);
-    }
-    return readAll2(res.body, max);
+    let res = await channel.request({ method: "GET", path, headers: { accept: "*/*" } }, null, { scope: "shell" });
+    if (res.status !== 200)
+      throw res.cancel?.(), new UiError("fetch", `${path}: the computer answered ${res.status}`);
+    return readAll(res.body, max);
   }
   async function fetchManifest() {
-    const bytes = await fetchFile(MANIFEST_PATH, MAX_MANIFEST_BYTES);
-    let value;
+    let bytes = await fetchFile(MANIFEST_PATH, MAX_MANIFEST_BYTES), value;
     try {
       value = JSON.parse(utf8Decode.decode(bytes));
     } catch {
@@ -4790,14 +3575,8 @@ function createUiLoader({
     return checkManifest(value);
   }
   async function alreadyCurrent(prev, loadedHash, computerId = null) {
-    const reload = shouldReload({ loadedHash, nextHash: prev.hash, reloadedFor: prev.reloadedFor ?? null });
-    const owner = computerOf(computerId);
-    const moved = computerOf(prev.computerId) !== owner;
-    let record = prev;
-    if (reload || moved) {
-      record = { ...prev, computerId: owner, ...reload ? { reloadedFor: prev.hash } : {} };
-      await storage.writeActive(record);
-    }
+    let reload = shouldReload({ loadedHash, nextHash: prev.hash, reloadedFor: prev.reloadedFor ?? null }), owner = computerOf(computerId), moved = computerOf(prev.computerId) !== owner, record = prev;
+    (reload || moved) && (record = { ...prev, computerId: owner, ...reload ? { reloadedFor: prev.hash } : {} }, await storage.writeActive(record));
     try {
       await storage.ensureActive?.(prev, { readBundled, shellBase });
     } catch (err) {
@@ -4807,89 +3586,61 @@ function createUiLoader({
   }
   async function pull({ loadedHash = null, computerId = null } = {}) {
     if (platform === "ios") throw new UiError("refused", "iOS runs the bundled UI; desktop files are refused.");
-    const next = await fetchManifest();
-    const prev = await storage.readActive();
+    let next = await fetchManifest(), prev = await storage.readActive();
     if (prev && prev.hash === next.hash && prev.complete) return alreadyCurrent(prev, loadedHash, computerId);
-    const cacheName = cacheNameFor(next);
-    const slot = await storage.openSlot(cacheName);
-    const previousSlot = prev && prev.cacheName !== cacheName ? await storage.openSlot(prev.cacheName) : null;
-    const diff = diffFiles(prev?.files ?? null, next, () => previousSlot !== null);
-    const changed = [];
+    let cacheName = cacheNameFor(next), slot = await storage.openSlot(cacheName), previousSlot = prev && prev.cacheName !== cacheName ? await storage.openSlot(prev.cacheName) : null, diff = diffFiles(prev?.files ?? null, next, () => previousSlot !== null), changed = [];
     try {
-      for (const entry of diff.changed) {
-        const have = await slot.get(entry.path);
+      for (let entry of diff.changed) {
+        let have = await slot.get(entry.path);
         if (have && have.size === entry.size && sha256Hex(have.bytes) === entry.sha256) continue;
-        const bytes = await fetchFile(entry.path, MAX_FILE_BYTES);
-        verifyBytes(bytes, entry);
-        await slot.put(entry.path, bytes, entry);
-        changed.push(entry.path);
+        let bytes = await fetchFile(entry.path, MAX_FILE_BYTES);
+        verifyBytes(bytes, entry), await slot.put(entry.path, bytes, entry), changed.push(entry.path);
       }
-      for (const path of diff.reused) {
-        const old = await previousSlot.get(path);
-        const entry = next.files.find((f) => f.path === path);
-        if (old && old.bytes.byteLength === entry.size && sha256Hex(old.bytes) === entry.sha256) {
+      for (let path of diff.reused) {
+        let old = await previousSlot.get(path), entry = next.files.find((f) => f.path === path);
+        if (old && old.bytes.byteLength === entry.size && sha256Hex(old.bytes) === entry.sha256)
           await slot.put(path, old.bytes, entry);
-        } else {
-          const bytes = await fetchFile(path, MAX_FILE_BYTES);
-          verifyBytes(bytes, entry);
-          await slot.put(path, bytes, entry);
-          changed.push(path);
+        else {
+          let bytes = await fetchFile(path, MAX_FILE_BYTES);
+          verifyBytes(bytes, entry), await slot.put(path, bytes, entry), changed.push(path);
         }
       }
-      for (const file of await bundledShellFiles(readBundled)) {
+      for (let file of await bundledShellFiles(readBundled))
         await slot.put(file.path, file.bytes, { type: contentTypeFor(fileNameFor(file.path)), sha256: sha256Hex(file.bytes), size: file.bytes.byteLength });
-      }
     } catch (err) {
-      await storage.dropSlot(cacheName).catch(() => {
-      });
-      log(`ui: ${err.code ?? "error"}`);
-      throw err;
+      throw await storage.dropSlot(cacheName).catch(() => {
+      }), log(`ui: ${err.code ?? "error"}`), err;
     }
-    const reload = shouldReload({ loadedHash, nextHash: next.hash, reloadedFor: prev?.reloadedFor ?? null });
-    const record = {
+    let reload = shouldReload({ loadedHash, nextHash: next.hash, reloadedFor: prev?.reloadedFor ?? null }), record = {
       hash: next.hash,
       generation: next.generation,
       desktopVersion: next.desktopVersion,
       cacheName,
-      complete: true,
+      complete: !0,
       reloadedFor: reload ? next.hash : prev?.reloadedFor ?? null,
       files: next.files,
       pulledAt: now(),
       computerId: computerOf(computerId)
     };
-    await storage.writeActive(record);
-    await storage.activate?.(record, { readBundled, shellBase });
-    await storage.dropSlotsExcept(cacheName);
-    return { status: "updated", hash: next.hash, generation: next.generation, changed, reload, record };
+    return await storage.writeActive(record), await storage.activate?.(record, { readBundled, shellBase }), await storage.dropSlotsExcept(cacheName), { status: "updated", hash: next.hash, generation: next.generation, changed, reload, record };
   }
   return {
     pull,
     // The HELLO's uiManifestHash decides whether anything needs fetching: equal hashes need no manifest request at all.
     async check({ helloHash = null, loadedHash = null, computerId = null } = {}) {
       if (platform === "ios") throw new UiError("refused", "iOS runs the bundled UI; desktop files are refused.");
-      const prev = await storage.readActive();
-      if (prev && prev.complete && helloHash && prev.hash === helloHash) return alreadyCurrent(prev, loadedHash, computerId);
-      return pull({ loadedHash, computerId });
+      let prev = await storage.readActive();
+      return prev && prev.complete && helloHash && prev.hash === helloHash ? alreadyCurrent(prev, loadedHash, computerId) : pull({ loadedHash, computerId });
     },
     current: () => storage.readActive()
   };
 }
 
 // mobile/shell/ui-host.js
-var SHELL_QUERY = "shell";
-var SHELL_PAGE_KEY = "plenum-shell-page";
-var SHELL_BASE_KEY = "plenum-shell-base";
-var SHELL_LINK_KEY = "plenum-shell-link";
-var UI_ROOT = "plenum-ui";
-var BUNDLED_UI_FOLDER = "ui";
-var SW_WAIT_MS = 4e3;
-var DATA = "DATA";
+var SHELL_QUERY = "shell", SHELL_PAGE_KEY = "plenum-shell-page", SHELL_BASE_KEY = "plenum-shell-base", SHELL_LINK_KEY = "plenum-shell-link", UI_ROOT = "plenum-ui", BUNDLED_UI_FOLDER = "ui", SW_WAIT_MS = 4e3, DATA = "DATA";
 function causeOf(error) {
-  const code = error?.code ?? "";
-  if (code === "worker") return "worker";
-  if (code === "fetch") return "not-sent";
-  if (code === "cancelled" || code === "closed" || code === "stopped" || code === "offline") return "stopped";
-  return "checksum";
+  let code = error?.code ?? "";
+  return code === "worker" ? "worker" : code === "fetch" ? "not-sent" : code === "cancelled" || code === "closed" || code === "stopped" || code === "offline" ? "stopped" : "checksum";
 }
 function toBase64(bytes) {
   let text = "";
@@ -4897,8 +3648,7 @@ function toBase64(bytes) {
   return globalThis.btoa(text);
 }
 function fromBase64(text) {
-  const bin = globalThis.atob(String(text));
-  const out = new Uint8Array(bin.length);
+  let bin = globalThis.atob(String(text)), out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
@@ -4906,26 +3656,25 @@ var stripFileScheme = (uri) => String(uri ?? "").replace(/^file:\/\//, "").repla
 function filesOver(filesystem) {
   return {
     async write(rel, bytes) {
-      await filesystem.writeFile({ path: rel, data: toBase64(bytes), directory: DATA, recursive: true });
+      await filesystem.writeFile({ path: rel, data: toBase64(bytes), directory: DATA, recursive: !0 });
     },
     async read(rel) {
       try {
-        const out = await filesystem.readFile({ path: rel, directory: DATA });
-        return typeof out?.data === "string" ? fromBase64(out.data) : null;
+        let out = await filesystem.readFile({ path: rel, directory: DATA });
+        return typeof out?.data == "string" ? fromBase64(out.data) : null;
       } catch {
         return null;
       }
     },
     async removeDir(rel) {
       try {
-        await filesystem.rmdir({ path: rel, directory: DATA, recursive: true });
+        await filesystem.rmdir({ path: rel, directory: DATA, recursive: !0 });
       } catch {
       }
     },
     async listDirs(rel) {
       try {
-        const out = await filesystem.readdir({ path: rel, directory: DATA });
-        return (out?.files ?? []).filter((f) => f.type === "directory" || f.type === void 0).map((f) => String(f.name ?? f));
+        return ((await filesystem.readdir({ path: rel, directory: DATA }))?.files ?? []).filter((f) => f.type === "directory" || f.type === void 0).map((f) => String(f.name ?? f));
       } catch {
         return [];
       }
@@ -4933,41 +3682,33 @@ function filesOver(filesystem) {
   };
 }
 function webViewOver({ webView, filesystem }) {
-  let dataRoot = null;
-  let noted = null;
-  const root = async () => {
+  let dataRoot = null, noted = null, root = async () => {
     if (dataRoot === null) {
-      const out = await filesystem.getUri({ path: "", directory: DATA });
+      let out = await filesystem.getUri({ path: "", directory: DATA });
       dataRoot = stripFileScheme(out?.uri);
     }
     return dataRoot;
-  };
-  const absolute = async (rel) => `${await root()}/${String(rel).replace(/^\/+/, "")}`;
+  }, absolute = async (rel) => `${await root()}/${String(rel).replace(/^\/+/, "")}`;
   return {
     async persistServerBasePath({ path }) {
       noted = path;
     },
     async setServerBasePath({ path }) {
-      const target = await absolute(path ?? noted);
-      const set = webView.setServerBasePath({ path: target });
-      const keep = webView.persistServerBasePath?.();
+      let target = await absolute(path ?? noted), set = webView.setServerBasePath({ path: target }), keep = webView.persistServerBasePath?.();
       await Promise.all([set, keep]);
     },
     async getServerBasePath() {
-      const out = await webView.getServerBasePath();
-      const abs = String(out?.path ?? "");
-      const prefix = `${await root()}/`;
+      let out = await webView.getServerBasePath(), abs = String(out?.path ?? ""), prefix = `${await root()}/`;
       return { path: abs.startsWith(prefix) ? abs.slice(prefix.length) : abs };
     }
   };
 }
 function bundledReader(fetchImpl, base) {
   return async (rel) => {
-    const name = String(rel).replace(/^shell\//, "");
+    let name = String(rel).replace(/^shell\//, "");
     try {
-      const res = await fetchImpl(new URL(name, base).href, { cache: "no-store" });
-      if (!res.ok) return null;
-      return new Uint8Array(await res.arrayBuffer());
+      let res = await fetchImpl(new URL(name, base).href, { cache: "no-store" });
+      return res.ok ? new Uint8Array(await res.arrayBuffer()) : null;
     } catch {
       return null;
     }
@@ -4982,54 +3723,49 @@ function createUiHost({
   },
   linkStore = null,
   // { put(text), take() }: where a link for the shell page waits on the apps (never web storage)
+  stopHandoff = null,
+  // B-120: { pending(), park(pending), unpark() }: a Stop still queued or sending here goes with the page to the shell page
   swWaitMs = SW_WAIT_MS,
   loaderFactory = createUiLoader,
   // the Node suites pass a fake loader
   setTimer = (fn, ms) => env.setTimeout(fn, ms),
   clearTimer = (id) => env.clearTimeout(id)
 } = {}) {
-  const location = () => env.location;
-  const session = () => {
+  let location = () => env.location, session = () => {
     try {
       return env.sessionStorage ?? null;
     } catch {
       return null;
     }
-  };
-  const remember = (key, value) => {
+  }, remember = (key, value) => {
     try {
       session()?.setItem(key, value);
     } catch {
     }
-  };
-  const recall = (key) => {
+  }, recall = (key) => {
     try {
       return session()?.getItem(key) ?? null;
     } catch {
       return null;
     }
-  };
-  const durable = () => {
+  }, durable = () => {
     try {
       return env.localStorage ?? null;
     } catch {
       return null;
     }
-  };
-  const rememberDurable = (key, value) => {
+  }, rememberDurable = (key, value) => {
     try {
       durable()?.setItem(key, value);
     } catch {
     }
-  };
-  const recallDurable = (key) => {
+  }, recallDurable = (key) => {
     try {
       return durable()?.getItem(key) ?? null;
     } catch {
       return null;
     }
-  };
-  const isShellPage = (value) => typeof value === "string" && /^\/(?![/\\])[^#\s]*\?shell(?:&[^#\s]*)?$/.test(value);
+  }, isShellPage = (value) => typeof value == "string" && /^\/(?![/\\])[^#\s]*\?shell(?:&[^#\s]*)?$/.test(value);
   function androidStore() {
     if (!native?.Filesystem || !native?.WebView) throw new UiError("storage", "The app-data folder is not available.");
     return androidStorage({
@@ -5039,49 +3775,42 @@ function createUiHost({
     });
   }
   function buildLoader() {
-    const channel = channelOf();
+    let channel = channelOf();
     if (!channel) throw new UiError("offline", "The phone is not connected.");
     if (kind === "android") {
-      const storage = androidStore();
-      const base = location().href;
+      let storage = androidStore(), base = location().href;
       return loaderFactory({ channel, storage, platform: "android", shellBase: "/shell/", readBundled: bundledReader(env.fetch.bind(env), base) });
     }
     if (!env.caches) throw new UiError("worker", "This browser cannot keep Plenum's screens.");
     return loaderFactory({ channel, storage: webStorage(env.caches), platform: "web", shellBase: "/shell/" });
   }
   async function workerControls() {
-    const sw = env.navigator?.serviceWorker;
-    if (!sw) return false;
-    if (sw.controller) return true;
+    let sw = env.navigator?.serviceWorker;
+    if (!sw) return !1;
+    if (sw.controller) return !0;
     try {
       await Promise.race([sw.ready, new Promise((_, reject) => setTimer(() => reject(new Error("timeout")), swWaitMs))]);
     } catch {
-      return Boolean(sw.controller);
+      return !!sw.controller;
     }
-    if (sw.controller) return true;
-    return new Promise((resolve) => {
-      let timer = null;
-      const done = () => {
-        if (timer !== null) clearTimer(timer);
-        resolve(Boolean(sw.controller));
+    return sw.controller ? !0 : new Promise((resolve) => {
+      let timer = null, done = () => {
+        timer !== null && clearTimer(timer), resolve(!!sw.controller);
       };
-      sw.addEventListener?.("controllerchange", done, { once: true });
-      timer = setTimer(done, swWaitMs);
+      sw.addEventListener?.("controllerchange", done, { once: !0 }), timer = setTimer(done, swWaitMs);
     });
   }
   function shellUrl() {
-    for (const saved of [recall(SHELL_PAGE_KEY), recallDurable(SHELL_PAGE_KEY)]) {
+    for (let saved of [recall(SHELL_PAGE_KEY), recallDurable(SHELL_PAGE_KEY)])
       if (isShellPage(saved)) return saved;
-    }
     return `/?${SHELL_QUERY}`;
   }
   return {
     kind,
     // The shell page, before it leaves for the UI: remembers where its screens are.
     rememberShellPage() {
-      const page = `${location().pathname}?${SHELL_QUERY}`;
-      remember(SHELL_PAGE_KEY, page);
-      rememberDurable(SHELL_PAGE_KEY, page);
+      let page = `${location().pathname}?${SHELL_QUERY}`;
+      remember(SHELL_PAGE_KEY, page), rememberDurable(SHELL_PAGE_KEY, page);
     },
     // True when the page was opened for the shell's own screens (/?shell): it stays on them and does not go to the UI.
     staysOnShell() {
@@ -5092,47 +3821,33 @@ function createUiHost({
     } } = {}) {
       onProgress({ done: 0, total: 1 });
       try {
-        if (kind === "lan") {
-          this.rememberShellPage();
-          location().replace("/");
-          return { ok: true, status: "lan", navigated: true };
-        }
+        if (kind === "lan")
+          return this.rememberShellPage(), location().replace("/"), { ok: !0, status: "lan", navigated: !0 };
         if (kind === "ios") {
-          const webView = native?.WebView;
+          let webView = native?.WebView;
           if (!webView?.getServerBasePath || !webView?.setServerBasePath) throw new UiError("storage", "The app cannot switch to its bundled screens.");
-          const here = await webView.getServerBasePath();
-          const base = String(here?.path ?? "").replace(/\/+$/, "");
+          let here = await webView.getServerBasePath(), base = String(here?.path ?? "").replace(/\/+$/, "");
           if (!base) throw new UiError("storage", "The bundled screens are not where the app expects them.");
-          remember(SHELL_BASE_KEY, base);
-          await webView.setServerBasePath({ path: `${base}/${BUNDLED_UI_FOLDER}` });
-          return { ok: true, status: "bundled", navigated: true };
+          return remember(SHELL_BASE_KEY, base), await webView.setServerBasePath({ path: `${base}/${BUNDLED_UI_FOLDER}` }), { ok: !0, status: "bundled", navigated: !0 };
         }
-        const loader = buildLoader();
-        const result = await loader.check({ helloHash: hello?.uiManifestHash ?? null, loadedHash, computerId });
-        onProgress({ done: 1, total: 1 });
-        if (kind === "android") {
-          return { ok: true, status: result.status, navigated: true, reload: result.reload };
-        }
+        let result = await buildLoader().check({ helloHash: hello?.uiManifestHash ?? null, loadedHash, computerId });
+        if (onProgress({ done: 1, total: 1 }), kind === "android")
+          return { ok: !0, status: result.status, navigated: !0, reload: result.reload };
         if (!await workerControls()) throw new UiError("worker", "No service worker controls this page.");
-        this.rememberShellPage();
-        location().replace("/");
-        return { ok: true, status: result.status, navigated: true, reload: result.reload };
+        return this.rememberShellPage(), location().replace("/"), { ok: !0, status: result.status, navigated: !0, reload: result.reload };
       } catch (error) {
-        log(`ui: ${error?.code ?? "error"}`);
-        return { ok: false, cause: causeOf(error), code: error?.code ?? "error" };
+        return log(`ui: ${error?.code ?? "error"}`), { ok: !1, cause: causeOf(error), code: error?.code ?? "error" };
       }
     },
     // On the UI page: asks whether the computer has a newer UI. { ok, changed, reload }. The page reloads once per new UI (the loader's
     // shouldReload keeps the count), and the caller does the reload.
     async refresh({ hello, loadedHash = null, computerId = null } = {}) {
-      if (kind === "lan" || kind === "ios") return { ok: true, changed: false, reload: false };
+      if (kind === "lan" || kind === "ios") return { ok: !0, changed: !1, reload: !1 };
       try {
-        const loader = buildLoader();
-        const result = await loader.check({ helloHash: hello?.uiManifestHash ?? null, loadedHash, computerId });
-        return { ok: true, changed: result.status === "updated", reload: result.reload === true };
+        let result = await buildLoader().check({ helloHash: hello?.uiManifestHash ?? null, loadedHash, computerId });
+        return { ok: !0, changed: result.status === "updated", reload: result.reload === !0 };
       } catch (error) {
-        log(`ui: ${error?.code ?? "error"}`);
-        return { ok: false, changed: false, reload: false, cause: causeOf(error) };
+        return log(`ui: ${error?.code ?? "error"}`), { ok: !1, changed: !1, reload: !1, cause: causeOf(error) };
       }
     },
     // Which computer the UI on this page came from (one UI per computer): the active record's computerId on web and Android (null when it is not
@@ -5141,9 +3856,8 @@ function createUiHost({
     async uiComputerId() {
       if (kind === "lan" || kind === "ios") return "any";
       try {
-        const storage = kind === "android" ? androidStore() : env.caches ? webStorage(env.caches) : null;
-        const record = storage ? await storage.readActive() : null;
-        return typeof record?.computerId === "string" && record.computerId ? record.computerId : null;
+        let storage = kind === "android" ? androidStore() : env.caches ? webStorage(env.caches) : null, record = storage ? await storage.readActive() : null;
+        return typeof record?.computerId == "string" && record.computerId ? record.computerId : null;
       } catch {
         return null;
       }
@@ -5152,54 +3866,61 @@ function createUiHost({
     async loadedHash() {
       if (kind !== "web" || !env.caches) return null;
       try {
-        const record = await webStorage(env.caches).readActive();
-        return record?.complete === true ? record.hash : null;
+        let record = await webStorage(env.caches).readActive();
+        return record?.complete === !0 ? record.hash : null;
       } catch {
         return null;
       }
     },
     // Whether a complete copy of the UI is on the phone, for "Use the copy in this app".
     async hasCopy() {
-      if (kind === "ios") return true;
-      if (kind === "lan") return false;
-      return await this.loadedHash() !== null;
+      return kind === "ios" ? !0 : kind === "lan" ? !1 : await this.loadedHash() !== null;
     },
     // Uses the copy that is already on the phone, without asking the computer.
     async useCopy() {
-      if (kind === "ios") return this.show({});
-      if (kind === "web" && await this.loadedHash() !== null && await workerControls()) {
-        this.rememberShellPage();
-        location().replace("/");
-        return { ok: true, status: "copy", navigated: true };
-      }
-      return { ok: false, cause: "worker", code: "worker" };
+      return kind === "ios" ? this.show({}) : kind === "web" && await this.loadedHash() !== null && await workerControls() ? (this.rememberShellPage(), location().replace("/"), { ok: !0, status: "copy", navigated: !0 }) : { ok: !1, cause: "worker", code: "worker" };
     },
     // From the UI page back to the shell's screens. link (a pairing link, #settings, #computers, #connect=<id>) rides along: in the address on web
     // and LAN pages (the '#...' part only), in the linkStore for the apps (the shell page takes it out once, within two minutes).
+    //
+    // B-120: a Stop that is still queued or sending lives in this page's channel worker, which ends with the page. It is left in the store
+    // (the shell page sends it, if it is under a minute old) before the page goes. Only the page that is leaving does this, and it takes
+    // the note back when the page does not go.
     async openShell(link = "") {
-      const text = typeof link === "string" ? link : "";
-      if (kind === "web" || kind === "lan") {
-        location().assign(`${shellUrl()}${text.startsWith("#") ? text : ""}`);
-        return true;
+      let text = typeof link == "string" ? link : "", parked = !1;
+      try {
+        let pending = stopHandoff?.pending?.() ?? null;
+        pending && (await stopHandoff.park(pending), parked = !0);
+      } catch {
+        parked = !1;
       }
-      const webView = native?.WebView;
-      if (!webView) return false;
-      const base = kind === "android" ? null : recall(SHELL_BASE_KEY);
-      const switchPage = kind === "android" ? webView.setServerAssetPath ? () => webView.setServerAssetPath({ path: "public" }) : null : base && webView.setServerBasePath ? () => webView.setServerBasePath({ path: base }) : null;
-      if (!switchPage) return false;
-      if (text) await linkStore?.put(text);
+      let unpark = async () => {
+        if (parked)
+          try {
+            await stopHandoff.unpark();
+          } catch {
+          }
+      };
+      if (kind === "web" || kind === "lan")
+        return location().assign(`${shellUrl()}${text.startsWith("#") ? text : ""}`), !0;
+      let webView = native?.WebView;
+      if (!webView)
+        return await unpark(), !1;
+      let base = kind === "android" ? null : recall(SHELL_BASE_KEY), switchPage = kind === "android" ? webView.setServerAssetPath ? () => webView.setServerAssetPath({ path: "public" }) : null : base && webView.setServerBasePath ? () => webView.setServerBasePath({ path: base }) : null;
+      if (!switchPage)
+        return await unpark(), !1;
+      text && await linkStore?.put(text);
       try {
         await switchPage();
       } catch (error) {
-        if (text) {
+        if (text)
           try {
             await linkStore?.take();
           } catch {
           }
-        }
-        throw error;
+        throw await unpark(), error;
       }
-      return true;
+      return !0;
     }
   };
 }
@@ -5210,19 +3931,13 @@ function cloneDeep(value) {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 function pictureSrc(svg) {
-  const text = String(svg ?? "");
-  if (!/^\s*<svg[\s>]/.test(text) || /<script/i.test(text)) return null;
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`;
+  let text = String(svg ?? "");
+  return !/^\s*<svg[\s>]/.test(text) || /<script/i.test(text) ? null : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`;
 }
 function createReplay(session) {
-  const original = cloneDeep(session) ?? {};
-  let state = cloneDeep(original);
-  if (!Array.isArray(state.runs)) state.runs = [];
-  if (!Array.isArray(state.approvals)) state.approvals = [];
-  if (!Array.isArray(state.agents)) state.agents = [];
-  if (!Array.isArray(state.artifacts)) state.artifacts = [];
-  let stoppedCount = 0;
-  const view = () => ({
+  let original = cloneDeep(session) ?? {}, state = cloneDeep(original);
+  Array.isArray(state.runs) || (state.runs = []), Array.isArray(state.approvals) || (state.approvals = []), Array.isArray(state.agents) || (state.agents = []), Array.isArray(state.artifacts) || (state.artifacts = []);
+  let stoppedCount = 0, view = () => ({
     computer: { name: String(state.computer?.name ?? "Demo computer"), desktopVersion: String(state.computer?.desktopVersion ?? "") },
     projects: cloneDeep(state.projects ?? []),
     runs: state.runs.map((r) => ({ ...r, state: RUN_STATES.includes(r.state) ? r.state : "finished" })),
@@ -5234,42 +3949,26 @@ function createReplay(session) {
     stoppedCount
   });
   function decide(id, decision) {
-    const card = state.approvals.find((a) => a.id === id);
-    if (!card) return { ok: false, reason: "unknown" };
-    if (card.state !== "waiting") return { ok: false, reason: "not-waiting" };
-    if (decision !== "approve" && decision !== "deny") return { ok: false, reason: "decision" };
+    let card = state.approvals.find((a) => a.id === id);
+    if (!card) return { ok: !1, reason: "unknown" };
+    if (card.state !== "waiting") return { ok: !1, reason: "not-waiting" };
+    if (decision !== "approve" && decision !== "deny") return { ok: !1, reason: "decision" };
     card.state = decision === "approve" ? "approved" : "denied";
-    const run = state.runs.find((r) => r.id === card.runId);
-    if (run && run.waitingFor === "approval") {
-      delete run.waitingFor;
-      if (decision === "deny") run.state = "finished";
-    }
-    return { ok: true, reason: null };
+    let run = state.runs.find((r) => r.id === card.runId);
+    return run && run.waitingFor === "approval" && (delete run.waitingFor, decision === "deny" && (run.state = "finished")), { ok: !0, reason: null };
   }
   function stop() {
-    const runs = state.runs.filter((r) => r.state === "running").length;
-    const drives = state.computerRun && state.computerRun.state === "driving" ? 1 : 0;
-    const agents = state.agents.filter((a) => a.state === "running").length;
-    const cards = state.approvals.filter((a) => a.state === "waiting").length;
-    for (const r of state.runs) if (r.state === "running") {
-      r.state = "stopped";
-      delete r.waitingFor;
-    }
-    for (const a of state.agents) if (a.state === "running") a.state = "stopped";
-    if (state.computerRun && state.computerRun.state === "driving") state.computerRun.state = "stopped";
-    for (const a of state.approvals) if (a.state === "waiting") a.state = "denied";
+    let runs = state.runs.filter((r) => r.state === "running").length, drives = state.computerRun && state.computerRun.state === "driving" ? 1 : 0, agents = state.agents.filter((a) => a.state === "running").length, cards = state.approvals.filter((a) => a.state === "waiting").length;
+    for (let r of state.runs) r.state === "running" && (r.state = "stopped", delete r.waitingFor);
+    for (let a of state.agents) a.state === "running" && (a.state = "stopped");
+    state.computerRun && state.computerRun.state === "driving" && (state.computerRun.state = "stopped");
+    for (let a of state.approvals) a.state === "waiting" && (a.state = "denied");
     stoppedCount += 1;
-    const ack = { id: `demo-stop-${stoppedCount}`, cancelled: runs, drivesStopped: drives, agentsStopped: agents, cardsDenied: cards };
-    return { ok: true, ack, text: stopResultText(ack, String(state.computer?.name ?? "Demo computer")) };
+    let ack = { id: `demo-stop-${stoppedCount}`, cancelled: runs, drivesStopped: drives, agentsStopped: agents, cardsDenied: cards };
+    return { ok: !0, ack, text: stopResultText(ack, String(state.computer?.name ?? "Demo computer")) };
   }
   function reset() {
-    state = cloneDeep(original);
-    if (!Array.isArray(state.runs)) state.runs = [];
-    if (!Array.isArray(state.approvals)) state.approvals = [];
-    if (!Array.isArray(state.agents)) state.agents = [];
-    if (!Array.isArray(state.artifacts)) state.artifacts = [];
-    stoppedCount = 0;
-    return view();
+    return state = cloneDeep(original), Array.isArray(state.runs) || (state.runs = []), Array.isArray(state.approvals) || (state.approvals = []), Array.isArray(state.agents) || (state.agents = []), Array.isArray(state.artifacts) || (state.artifacts = []), stoppedCount = 0, view();
   }
   return { view, decide, stop, reset };
 }
@@ -5277,46 +3976,36 @@ function createReplay(session) {
 // mobile/shell/screens/settings.js
 var LOCK_AFTER = Object.freeze([
   Object.freeze({ id: "immediately", ms: 0, label: "Immediately" }),
-  Object.freeze({ id: "m1", ms: 60 * 1e3, label: "1 minute" }),
-  Object.freeze({ id: "m5", ms: 5 * 60 * 1e3, label: "5 minutes" }),
-  Object.freeze({ id: "m15", ms: 15 * 60 * 1e3, label: "15 minutes" }),
-  Object.freeze({ id: "h1", ms: 60 * 60 * 1e3, label: "1 hour" })
-]);
-var DEFAULT_LOCK_AFTER = "m5";
+  Object.freeze({ id: "m1", ms: 6e4, label: "1 minute" }),
+  Object.freeze({ id: "m5", ms: 3e5, label: "5 minutes" }),
+  Object.freeze({ id: "m15", ms: 9e5, label: "15 minutes" }),
+  Object.freeze({ id: "h1", ms: 36e5, label: "1 hour" })
+]), DEFAULT_LOCK_AFTER = "m5";
 function lockAfter(id) {
   return LOCK_AFTER.find((o) => o.id === id) ?? LOCK_AFTER.find((o) => o.id === DEFAULT_LOCK_AFTER);
 }
 var WAY_KINDS = Object.freeze(["lan", "tailscale", "relay"]);
 function moveWay(order, kind, dir) {
-  const list = Array.isArray(order) ? [...order] : [];
-  const i = list.indexOf(kind);
-  const j = i + (dir === "up" ? -1 : 1);
-  if (i < 0 || j < 0 || j >= list.length) return list;
-  [list[i], list[j]] = [list[j], list[i]];
-  return list;
+  let list = Array.isArray(order) ? [...order] : [], i = list.indexOf(kind), j = i + (dir === "up" ? -1 : 1);
+  return i < 0 || j < 0 || j >= list.length || ([list[i], list[j]] = [list[j], list[i]]), list;
 }
 function orderedWays(stored) {
-  const seen = [];
-  for (const kind of Array.isArray(stored) ? stored : []) {
-    if (WAY_KINDS.includes(kind) && !seen.includes(kind)) seen.push(kind);
-  }
-  for (const kind of WAY_KINDS) if (!seen.includes(kind)) seen.push(kind);
+  let seen = [];
+  for (let kind of Array.isArray(stored) ? stored : [])
+    WAY_KINDS.includes(kind) && !seen.includes(kind) && seen.push(kind);
+  for (let kind of WAY_KINDS) seen.includes(kind) || seen.push(kind);
   return seen;
 }
 var APPROVE_MISSING_TEXT = Object.freeze({
   "first-line": 'Turn on "Include the first line" first.',
   "app-lock": "Turn on the app lock first. On the web app that means a PIN or a passkey."
 });
-var TEXT_MIN = 85;
-var TEXT_MAX = 200;
-var TEXT_STEP = 5;
-var TEXT_DEFAULT = 100;
+var TEXT_MIN = 85, TEXT_MAX = 200, TEXT_STEP = 5, TEXT_DEFAULT = 100;
 function clampText(value) {
-  const n = Math.round((Number(value) || TEXT_DEFAULT) / TEXT_STEP) * TEXT_STEP;
+  let n = Math.round((Number(value) || TEXT_DEFAULT) / TEXT_STEP) * TEXT_STEP;
   return Math.min(TEXT_MAX, Math.max(TEXT_MIN, n));
 }
-var THEMES = Object.freeze(["follow", "dark", "light"]);
-var THEME_LABEL = Object.freeze({ follow: "Follow phone", dark: "Dark", light: "Light" });
+var THEMES = Object.freeze(["follow", "dark", "light"]), THEME_LABEL = Object.freeze({ follow: "Follow phone", dark: "Dark", light: "Light" });
 function normaliseTheme(value) {
   return THEMES.includes(value) ? value : "follow";
 }
@@ -5329,27 +4018,25 @@ var PUSH_SWITCHES = Object.freeze([
   Object.freeze({ key: "limits", label: "Spend and plan limits" }),
   Object.freeze({ key: "onlyWhenAway", label: "Only when I am away from {computer}" }),
   Object.freeze({ key: "firstLine", label: "Include the first line" })
-]);
-var PUSH_DEFAULTS = Object.freeze({ approvals: true, finished: true, limits: true, onlyWhenAway: true, firstLine: false });
+]), PUSH_DEFAULTS = Object.freeze({ approvals: !0, finished: !0, limits: !0, onlyWhenAway: !0, firstLine: !1 });
 function pushValues(known) {
-  const out = { ...PUSH_DEFAULTS };
-  for (const { key } of PUSH_SWITCHES) {
-    if (typeof known?.[key] === "boolean") out[key] = known[key];
-  }
+  let out = { ...PUSH_DEFAULTS };
+  for (let { key } of PUSH_SWITCHES)
+    typeof known?.[key] == "boolean" && (out[key] = known[key]);
   return out;
 }
 function normalisePrefs(raw) {
-  const p = raw && typeof raw === "object" ? raw : {};
+  let p = raw && typeof raw == "object" ? raw : {};
   return {
     theme: normaliseTheme(p.theme),
     textSize: p.textSize == null ? null : clampText(p.textSize),
     stopSide: normaliseStopSide(p.stopSide),
-    haptics: p.haptics !== false,
-    hideSwitcher: p.hideSwitcher !== false,
+    haptics: p.haptics !== !1,
+    hideSwitcher: p.hideSwitcher !== !1,
     lockAfter: lockAfter(p.lockAfter).id,
-    dictationOnDevice: p.dictationOnDevice !== false,
-    dictationAllowService: p.dictationAllowService !== false,
-    lanDismissed: p.lanDismissed === true
+    dictationOnDevice: p.dictationOnDevice !== !1,
+    dictationAllowService: p.dictationAllowService !== !1,
+    lanDismissed: p.lanDismissed === !0
   };
 }
 
@@ -5372,7 +4059,7 @@ var session_default = {
       kind: "command",
       firstLine: "npm test -- --watch=false",
       detail: "Runs in my-app. Changes nothing outside the folder.",
-      defaultDeny: false,
+      defaultDeny: !1,
       state: "waiting"
     }
   ],
@@ -5419,37 +4106,32 @@ var session_default = {
 };
 
 // mobile/shell/app.js
-var APP_VERSION = true ? "0.5.0" : "0.0.0";
-var LINK_VERSION = true ? "1.0" : "1.0";
-var DEV_BUILD = true ? false : true;
-var pageStarted = false;
-var PAGE_STARTED_KEY = "__plenumPageStarted";
+var APP_VERSION = "0.6.0", LINK_VERSION = "1.0", DEV_BUILD = !1, pageStarted = !1, PAGE_STARTED_KEY = "__plenumPageStarted";
 function takePageStart() {
-  if (pageStarted || Object.getOwnPropertyDescriptor(globalThis, PAGE_STARTED_KEY) !== void 0) return false;
-  pageStarted = true;
+  if (pageStarted || Object.getOwnPropertyDescriptor(globalThis, PAGE_STARTED_KEY) !== void 0) return !1;
+  pageStarted = !0;
   try {
-    Object.defineProperty(globalThis, PAGE_STARTED_KEY, { value: true });
+    Object.defineProperty(globalThis, PAGE_STARTED_KEY, { value: !0 });
   } catch {
   }
-  return true;
+  return !0;
 }
 var attachShim = (() => {
-  const f = globalThis.__plenumAttachShell;
+  let f = globalThis.__plenumAttachShell;
   try {
     delete globalThis.__plenumAttachShell;
   } catch {
   }
-  return typeof f === "function" ? f : null;
-})();
-var giveShellCore = () => {
+  return typeof f == "function" ? f : null;
+})(), giveShellCore = () => {
 };
-if (typeof document !== "undefined" && document.documentElement?.hasAttribute?.("data-shell-page") && !globalThis.__PLENUM_SHELL_NO_AUTOSTART__) {
-  const handed = new Promise((resolve) => {
+if (typeof document < "u" && document.documentElement?.hasAttribute?.("data-shell-page") && !globalThis.__PLENUM_SHELL_NO_AUTOSTART__) {
+  let handed = new Promise((resolve) => {
     giveShellCore = resolve;
   });
   Object.defineProperty(globalThis, "__plenumTakeShellCore", {
-    configurable: true,
-    enumerable: false,
+    configurable: !0,
+    enumerable: !1,
     value: () => {
       try {
         delete globalThis.__plenumTakeShellCore;
@@ -5459,45 +4141,28 @@ if (typeof document !== "undefined" && document.documentElement?.hasAttribute?.(
     }
   });
 }
-var ACTIVE_META = "active";
-var PREFS_META = "prefs";
-var DEMO_COMPUTER = Object.freeze({ id: "demo", name: "Demo computer", carriers: [], lastCarrier: null, lastSeen: null, pairedAt: null, counter: 0 });
-var utf83 = new TextEncoder();
-var utf8Read = new TextDecoder();
-var STOP_RETRY_MS = 60 * 1e3;
-var APPROVE_META = "approve";
-var STOP_NOTICE = /* @__PURE__ */ new Set(["done", "queued", "failed"]);
-var APPROVE_OFF_META = "approve-off-pending";
-var LINK_META = "shell-link";
-var LINK_TTL_MS = 120 * 1e3;
-var NOTIFICATION_LINK_MAX_AGE_MS = 60 * 1e3;
-var NOTIFICATION_OLD = "That notification is more than a minute old. Open the approval to answer it.";
-var OPEN_SHELL_HASHES = Object.freeze(["", "#settings", "#computers"]);
-var FACADE_PLUGINS = Object.freeze(["App", "TextZoom", "Haptics", "Dictation", "IsolatedPreview", "Browser", "Share", "Filesystem"]);
-var SW_REGISTRATION_WAIT_MS = 3e3;
-var CARD_CHANGED = "That card changed. Open it to answer.";
+var ACTIVE_META = "active", PREFS_META = "prefs", DEMO_COMPUTER = Object.freeze({ id: "demo", name: "Demo computer", carriers: [], lastCarrier: null, lastSeen: null, pairedAt: null, counter: 0 }), utf83 = new TextEncoder(), utf8Read = new TextDecoder(), STOP_RETRY_MS = 60 * 1e3, APPROVE_META = "approve", STOP_NOTICE = /* @__PURE__ */ new Set(["done", "queued", "failed"]), APPROVE_OFF_META = "approve-off-pending", UP_PENDING_META = "up-pending", STOP_META = "pending-stop", LINK_META = "shell-link", LINK_TTL_MS = 120 * 1e3, NOTIFICATION_LINK_MAX_AGE_MS = 60 * 1e3, NOTIFICATION_OLD = "That notification is more than a minute old. Open the approval to answer it.", OPEN_SHELL_HASHES = Object.freeze(["", "#settings", "#computers"]), FACADE_PLUGINS = Object.freeze(["App", "TextZoom", "Haptics", "Dictation", "IsolatedPreview", "Browser", "Share", "Filesystem"]);
+var SW_REGISTRATION_WAIT_MS = 3e3, CARD_CHANGED = "That card changed. Open it to answer.", RECORD_ID = /^[0-9a-f]{64}$/, UNKNOWN_COMPUTER = "That computer is not paired on this phone. Answer it at that computer.", UNKNOWN_COMPUTER_STOP = "That computer is not paired on this phone. Press Stop at that computer.", STOP_NO_KEY = "This phone cannot read its Stop key, so it cannot send Stop from here. Press Stop on your computer.";
 function modeFor(search, devBuild = DEV_BUILD) {
-  const params = new URLSearchParams(String(search ?? ""));
-  if (devBuild === true && params.has("selftest")) return "selftest";
-  return params.has("demo") ? "demo" : "normal";
+  let params = new URLSearchParams(String(search ?? ""));
+  return devBuild === !0 && params.has("selftest") ? "selftest" : params.has("demo") ? "demo" : "normal";
 }
 function frozenCopy(value) {
   if (Array.isArray(value)) return Object.freeze(value.map(frozenCopy));
-  if (value && typeof value === "object") {
-    const out = {};
-    for (const [key, item] of Object.entries(value)) if (item !== void 0) out[key] = frozenCopy(item);
+  if (value && typeof value == "object") {
+    let out = {};
+    for (let [key, item] of Object.entries(value)) item !== void 0 && (out[key] = frozenCopy(item));
     return Object.freeze(out);
   }
   return value;
 }
 function safeState(state) {
-  const s = state ?? {};
-  const hello = s.hello;
+  let s = state ?? {}, hello = s.hello;
   return frozenCopy({
     page: s.page,
-    locked: s.locked === true,
+    locked: s.locked === !0,
     lock: { mode: s.lock?.mode, locked: s.lock?.locked, failures: s.lock?.failures, waitSec: s.lock?.waitSec },
-    lockStop: { ready: s.lockStop?.ready === true, computerName: String(s.lockStop?.computerName ?? "") },
+    lockStop: { ready: s.lockStop?.ready === !0, computerName: String(s.lockStop?.computerName ?? "") },
     connection: { status: s.connection?.status, carrier: s.connection?.carrier, desktopName: s.connection?.desktopName, lastSeen: s.connection?.lastSeen },
     hello: hello ? { desktopName: hello.desktopName, desktopVersion: hello.desktopVersion, deviceId: hello.deviceId, tier: hello.tier, pending: hello.pending } : null,
     stop: { state: s.stop?.state, text: s.stop?.text, seq: s.stop?.seq, ack: s.stop?.ack },
@@ -5520,15 +4185,14 @@ function makeFacade(shell, plugins) {
     state: () => safeState(shell.state()),
     subscribe: (fn) => shell.subscribe((state) => fn(safeState(state))),
     request: (spec, body = null, opts = {}) => {
-      const channel = shell.channel;
-      if (!channel) return Promise.reject(Object.assign(new Error("offline"), { code: "offline" }));
-      return channel.request(spec, body, { signal: opts?.signal ?? null, scope: "page" });
+      let channel = shell.channel;
+      return channel ? channel.request(spec, body, { signal: opts?.signal ?? null, scope: "page" }) : Promise.reject(Object.assign(new Error("offline"), { code: "offline" }));
     },
     stop: (project) => shell.stop(project ?? null),
     lock: () => shell.lockNow(),
     unlock: (method, pin = null) => shell.unlock(method, pin),
     connect: (id) => shell.connect(id),
-    openShell: (hash) => OPEN_SHELL_HASHES.includes(hash) ? shell.openShell(hash) : Promise.resolve(false),
+    openShell: (hash) => OPEN_SHELL_HASHES.includes(hash) ? shell.openShell(hash) : Promise.resolve(!1),
     takeRoute: () => shell.takeRoute(),
     log: (line) => shell.pageLog(line),
     plugin: (name) => FACADE_PLUGINS.includes(name) ? plugins?.[name] ?? null : null
@@ -5542,12 +4206,31 @@ function createLinkStore(meta, now = () => Date.now()) {
     async take() {
       let kept = null;
       try {
-        kept = await meta.get(LINK_META);
-        if (kept !== void 0 && kept !== null) await meta.remove(LINK_META);
+        kept = await meta.get(LINK_META), kept != null && await meta.remove(LINK_META);
       } catch {
         return null;
       }
-      return kept && typeof kept.text === "string" && typeof kept.at === "number" && now() - kept.at < LINK_TTL_MS ? kept.text : null;
+      return kept && typeof kept.text == "string" && typeof kept.at == "number" && now() - kept.at < LINK_TTL_MS ? kept.text : null;
+    }
+  };
+}
+function createParkedStop(meta, now = () => Date.now()) {
+  return {
+    async put(pending) {
+      await meta.put(STOP_META, { at: Number(pending?.at) || now(), computer: String(pending?.computer ?? "").slice(0, 80) });
+    },
+    async unpark() {
+      await meta.remove(STOP_META);
+    },
+    async take() {
+      let kept = null;
+      try {
+        kept = await meta.get(STOP_META), kept != null && await meta.remove(STOP_META);
+      } catch {
+        return null;
+      }
+      let age = kept && typeof kept.at == "number" ? now() - kept.at : 1 / 0;
+      return age >= 0 && age < STOP_RETRY_MS ? { at: kept.at, computer: typeof kept.computer == "string" ? kept.computer : "" } : null;
     }
   };
 }
@@ -5556,15 +4239,14 @@ function cleanName(name) {
 }
 function clearAddressHash(env = globalThis) {
   try {
-    const loc = env.location;
+    let loc = env.location;
     if (!loc || !env.history?.replaceState) return;
     env.history.replaceState(null, "", `${loc.pathname}${loc.search}`);
   } catch {
   }
 }
 function deviceFor(env = globalThis) {
-  const native = isNative(env);
-  const kind = appKindFor(env);
+  let native = isNative(env), kind = appKindFor(env);
   return {
     device: { name: kind.name, platform: platformFor(env), app: kind.app, appVersion: APP_VERSION, uiHash: "" },
     caps: capsFor(env),
@@ -5572,9 +4254,7 @@ function deviceFor(env = globalThis) {
   };
 }
 function demoHello(replayView) {
-  const drive = replayView?.drive && replayView.drive.state === "driving" ? replayView.drive : null;
-  const waiting = (replayView?.approvals ?? []).filter((a) => a.state === "waiting").length;
-  const running = (replayView?.runs ?? []).filter((r) => r.state === "running").length;
+  let drive = replayView?.drive && replayView.drive.state === "driving" ? replayView.drive : null, waiting = (replayView?.approvals ?? []).filter((a) => a.state === "waiting").length, running = (replayView?.runs ?? []).filter((r) => r.state === "running").length;
   return {
     desktopName: replayView?.computer?.name ?? "Demo computer",
     desktopVersion: replayView?.computer?.desktopVersion || "1.4.2",
@@ -5591,39 +4271,32 @@ function demoHello(replayView) {
   };
 }
 async function readText(body, cap = 64 * 1024) {
-  if (!body || typeof body.getReader !== "function") return "";
-  const reader = body.getReader();
-  const chunks = [];
-  let total = 0;
+  if (!body || typeof body.getReader != "function") return "";
+  let reader = body.getReader(), chunks = [], total = 0;
   for (; ; ) {
-    const { value, done } = await reader.read();
+    let { value, done } = await reader.read();
     if (done) break;
-    total += value.byteLength;
-    if (total > cap) {
+    if (total += value.byteLength, total > cap) {
       reader.cancel?.().catch?.(() => {
       });
       break;
     }
     chunks.push(value);
   }
-  const all = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
-  let at = 0;
-  for (const c of chunks) {
-    all.set(c, at);
-    at += c.byteLength;
-  }
+  let all = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0)), at = 0;
+  for (let c of chunks)
+    all.set(c, at), at += c.byteLength;
   return utf8Read.decode(all);
 }
 async function registrationOf(serviceWorker, { wait = SW_REGISTRATION_WAIT_MS, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   if (!serviceWorker) return null;
   try {
-    const found = await serviceWorker.getRegistration?.();
+    let found = await serviceWorker.getRegistration?.();
     if (found) return found;
   } catch {
   }
   if (!serviceWorker.ready) return null;
-  let timer = null;
-  const gave = new Promise((resolve) => {
+  let timer = null, gave = new Promise((resolve) => {
     timer = setTimer(() => resolve(null), wait);
   });
   try {
@@ -5633,9 +4306,8 @@ async function registrationOf(serviceWorker, { wait = SW_REGISTRATION_WAIT_MS, s
   }
 }
 async function registerServiceWorker(env = globalThis) {
-  const sw = env.navigator?.serviceWorker;
-  if (!sw || typeof sw.register !== "function") return null;
-  if (isNative(env) || env.isSecureContext !== true || isLanPage(env)) return null;
+  let sw = env.navigator?.serviceWorker;
+  if (!sw || typeof sw.register != "function" || isNative(env) || env.isSecureContext !== !0 || isLanPage(env)) return null;
   try {
     return await sw.register(new URL("sw.js", String(env.location?.href ?? "https://localhost/")).href, { scope: "/" }) ?? null;
   } catch {
@@ -5665,7 +4337,8 @@ function createShell({
   pageUrl = null,
   mode = "normal",
   debug = createDebugLog(),
-  selftestFn = runSelfTest,
+  selftestFn = null,
+  // the dev build loads ./selftest.js on first use; a release bundle never imports it
   stopClock = globalThis,
   onFatal = () => {
   },
@@ -5677,7 +4350,7 @@ function createShell({
   native = null,
   uiHost = null,
   pageKind = "shell",
-  stay = false,
+  stay = !1,
   initialIntent = null,
   initialLink = null,
   onIntent = () => {
@@ -5685,70 +4358,33 @@ function createShell({
   onReload = () => {
   },
   devBuild = DEV_BUILD,
-  storage = "ok"
+  storage = "ok",
+  parkedStop = null
 } = {}) {
   if (!store) throw new TypeError("createShell needs a store");
-  let computers = [];
-  let activeId = null;
-  let channel = null;
-  let channelState = { status: "idle", carrier: null, desktopName: "", lastSeen: null, since: 0, nextRetryAt: null, failedRounds: 0, failure: null };
-  let hello = null;
-  let stopCtl = null;
-  let stopView = { state: "idle", ack: null, error: null, text: "", seq: 0 };
-  let notice = null;
-  let noticeSeq = 0;
-  let stopSeq = 0;
-  let pendingLink = null;
-  let pendingPair = null;
-  let forceUi = false;
-  let screenRequest = null;
-  let screenSeq = 0;
-  let pairing = null;
-  let pairingFlow = null;
-  let lockStatus = { mode: "off", locked: false, failures: 0, waitSec: 0 };
-  let lockStop = { ready: false, computerName: "" };
-  let lockedCtl = null;
-  let selftest = null;
-  let booted = false;
-  let lockKnown = () => {
-  };
-  const lockRead = new Promise((resolve) => {
+  let computers = [], activeId = null, channel = null, channelState = { status: "idle", carrier: null, desktopName: "", lastSeen: null, since: 0, nextRetryAt: null, failedRounds: 0, failure: null }, hello = null, stopCtl = null, stopView = { state: "idle", ack: null, error: null, text: "", seq: 0 }, notice = null, noticeSeq = 0, stopSeq = 0, pendingLink = null, pendingPair = null, forceUi = !1, screenRequest = null, screenSeq = 0, pairing = null, pairingFlow = null, lockStatus = { mode: "off", locked: !1, failures: 0, waitSec: 0 }, lockStop = { ready: !1, computerName: "" }, lockedCtl = null, lockedFor = null, selftest = null, booted = !1, lockKnown = () => {
+  }, lockRead = new Promise((resolve) => {
     lockKnown = resolve;
-  });
-  let lockUnreadable = false;
-  let loaded = false;
-  let started = false;
-  let prefs = normalisePrefs(null);
-  let pushKnown = null;
-  let approveStored = false;
-  let hiddenAt = null;
-  let pairedSeq = 0;
-  let pairedId = null;
-  let ui = { state: "idle", cause: null, progress: null, hasCopy: false };
-  let loadedUiHash;
-  let refreshingUi = false;
-  let holdUi = false;
-  let leaving = false;
-  let intent = initialIntent && typeof initialIntent === "object" ? { ...initialIntent, seq: 1, taken: false } : null;
-  let intentSeq = intent ? 1 : 0;
-  let dictationState = null;
-  let androidPushState = null;
-  const replay = mode === "demo" ? createReplay(session_default) : null;
-  const unlockedKeys = /* @__PURE__ */ new Map();
-  const subs = /* @__PURE__ */ new Set();
-  const wall = () => typeof stopClock?.now === "function" ? stopClock.now() : Date.now();
-  const androidPush = native && device.platform === "android" && native.UnifiedPush ? createAndroidPush({
+  }), lockUnreadable = !1, loaded = !1, started = !1, prefs = normalisePrefs(null), pushKnown = null, approveStored = !1, hiddenAt = null, pairedSeq = 0, pairedId = null, ui = { state: "idle", cause: null, progress: null, hasCopy: !1 }, loadedUiHash, refreshingUi = !1, holdUi = !1, leaving = !1, intent = initialIntent && typeof initialIntent == "object" ? { ...initialIntent, seq: 1, taken: !1 } : null, intentSeq = intent ? 1 : 0, dictationState = null, androidPushState = null, replay = mode === "demo" ? createReplay(session_default) : null, unlockedKeys = /* @__PURE__ */ new Map(), subs = /* @__PURE__ */ new Set(), wall = () => typeof stopClock?.now == "function" ? stopClock.now() : Date.now(), parked = parkedStop ?? createParkedStop(store.meta, wall), stopPressedAt = null, stopComputer = "";
+  function notePress(id) {
+    stopView.state === "sending" || stopView.state === "queued" || (stopPressedAt = wall(), stopComputer = id ?? "");
+  }
+  let androidPush = native && device.platform === "android" && native.UnifiedPush ? createAndroidPush({
     native,
     requestOf: () => channel?.request,
-    vapidOf: () => typeof hello?.vapidPublicKey === "string" ? hello.vapidPublicKey : null,
+    vapidOf: () => typeof hello?.vapidPublicKey == "string" ? hello.vapidPublicKey : null,
     isVisible: () => pushEnv?.document?.visibilityState !== "hidden",
-    onLink: (link) => {
-      api.handleHash(link).catch(() => {
+    onLink: (link, computer) => {
+      api.handleHash(link, computer).catch(() => {
       });
     },
+    pendingStore: {
+      load: () => store.meta.get(UP_PENDING_META),
+      save: (body) => store.meta.put(UP_PENDING_META, body),
+      clear: () => store.meta.remove(UP_PENDING_META)
+    },
     log: (line) => debug.log(line, "warn")
-  }) : null;
-  const view = () => ({
+  }) : null, view = () => ({
     mode,
     route: route(),
     page: pageKind,
@@ -5777,39 +4413,27 @@ function createShell({
     screenRequest: screenRequest ? { ...screenRequest } : null,
     dictation: dictationState ? { ...dictationState } : null,
     androidPush: androidPushState ? { ...androidPushState } : null
-  });
-  let snapshot = view();
-  const refresh = () => {
-    if (replay) hello = demoHello(replay.view());
-    snapshot = view();
-    for (const fn of Array.from(subs)) {
+  }), snapshot = view(), refresh = () => {
+    replay && (hello = demoHello(replay.view())), snapshot = view();
+    for (let fn of Array.from(subs))
       try {
         fn(snapshot);
       } catch {
       }
-    }
-    leaveForShellIfNeeded();
-    return snapshot;
+    return leaveForShellIfNeeded(), snapshot;
   };
   function say(text, tone = "info") {
-    noticeSeq += 1;
-    notice = { seq: noticeSeq, text: String(text ?? ""), tone };
+    noticeSeq += 1, notice = { seq: noticeSeq, text: String(text ?? ""), tone };
   }
   function route() {
-    if (mode === "demo") return "demo";
-    if (lockStatus.locked) return "locked";
-    if (pairing && !["allowed", "denied", "expired", "mismatch", "failed"].includes(pairing.state)) return "code";
-    if (mode === "selftest") return "selftest";
-    if (!computers.length) return "welcome";
-    if (computers.length > 1 && !channel) return "computers";
-    return channel ? "connected" : "computers";
+    return mode === "demo" ? "demo" : lockStatus.locked ? "locked" : pairing && !["allowed", "denied", "expired", "mismatch", "failed"].includes(pairing.state) ? "code" : mode === "selftest" ? "selftest" : computers.length ? computers.length > 1 && !channel ? "computers" : channel ? "connected" : "computers" : "welcome";
   }
   function publicHello(h) {
     return {
       desktopName: String(h.desktopName ?? ""),
       desktopVersion: String(h.desktopVersion ?? ""),
       protocol: h.protocol ?? null,
-      deviceId: typeof h.deviceId === "string" ? h.deviceId : "",
+      deviceId: typeof h.deviceId == "string" ? h.deviceId : "",
       tier: h.tier ?? null,
       caps: Array.isArray(h.caps) ? [...h.caps] : [],
       pending: h.pending ?? null,
@@ -5817,161 +4441,137 @@ function createShell({
     };
   }
   async function loadComputers() {
-    const list = await store.publicList();
-    computers = list.map((c) => ({ ...c }));
-    await refreshLockStop();
+    computers = (await store.publicList()).map((c) => ({ ...c })), await refreshLockStop();
   }
   async function lockStopTarget() {
     let id = activeId;
-    if (!id) id = await store.meta.get(ACTIVE_META).catch(() => null);
+    id || (id = await store.meta.get(ACTIVE_META).catch(() => null));
     let record = id ? await store.get(id) : null;
     if (!record) {
-      const list = await store.publicList();
-      if (list.length === 1) record = await store.get(list[0].id);
+      let list = await store.publicList();
+      list.length === 1 && (record = await store.get(list[0].id));
     }
     return record ?? null;
   }
   async function refreshLockStop() {
-    let next = { ready: false, computerName: "" };
+    let next = { ready: !1, computerName: "" };
     try {
-      const target = await lockStopTarget();
-      if (target) next = { ready: publicComputer(target)?.stopReady === true, computerName: String(target.name ?? "") };
+      let target = await lockStopTarget();
+      target && (next = { ready: publicComputer(target)?.stopReady === !0, computerName: String(target.name ?? "") });
     } catch {
     }
     lockStop = next;
   }
   function keyedRecord(record) {
-    if (typeof record.myPriv === "string") return record;
-    const key = unlockedKeys.get(record.id);
-    if (!key) return null;
-    return { ...record, myPriv: bytesToB64u(key) };
+    if (typeof record.myPriv == "string") return record;
+    let key = unlockedKeys.get(record.id);
+    return key ? { ...record, myPriv: bytesToB64u(key) } : null;
   }
   function applyStopView(v) {
-    const changed = v.state !== stopView.state;
-    const seq = changed && STOP_NOTICE.has(v.state) ? ++stopSeq : stopView.seq;
-    stopView = { ...v, seq };
-    if (changed && v.state === "done") say(v.text, "ok");
-    if (changed && v.state === "queued") say(v.text, "warn");
-    refresh();
+    let changed = v.state !== stopView.state, seq = changed && STOP_NOTICE.has(v.state) ? ++stopSeq : stopView.seq;
+    stopView = { ...v, seq }, changed && v.state === "done" && say(v.text, "ok"), changed && v.state === "queued" && say(v.text, "warn"), refresh();
   }
+  let stopOwner = null;
   function bindStop(ch, name) {
-    stopCtl?.dispose();
-    stopCtl = createStopController({ channel: ch, clock: stopClock, computerName: name });
-    stopCtl.subscribe(applyStopView);
+    let busy = stopCtl?.state === "sending" || stopCtl?.state === "queued";
+    busy || stopCtl?.dispose();
+    let ctl = createStopController({ channel: ch, clock: stopClock, computerName: name });
+    stopCtl = ctl;
+    let first = !0;
+    ctl.subscribe((view2) => {
+      first && (first = !1, busy) || stopCtl !== ctl && view2.state !== "done" && view2.state !== "failed" && !(view2.state === "idle" && stopOwner === ctl) || ((view2.state === "done" || view2.state === "failed") && (stopOwner = ctl), applyStopView(view2));
+    });
   }
-  async function lockedStop(project) {
-    if (lockedCtl && (stopView.state === "sending" || stopView.state === "queued")) return lockedCtl.press(project);
-    const target = await lockStopTarget().catch(() => null);
-    if (!target || publicComputer(target)?.stopReady !== true) {
-      say(STOP_NEEDS_UNLOCK, "warn");
-      pendingLink = { text: "#stop", at: wall() };
-      refresh();
-      return { ...stopView, state: "idle", reason: "needs-unlock" };
-    }
-    const listeners = /* @__PURE__ */ new Set();
-    const viaLockedWorker = {
+  async function lockedStop(project, computerId = "") {
+    if (lockedCtl && (stopView.state === "sending" || stopView.state === "queued") && (!computerId || computerId === lockedFor)) return lockedCtl.press(project);
+    let target = computerId ? await store.get(computerId).catch(() => null) : await lockStopTarget().catch(() => null);
+    if (computerId && !target)
+      return say(UNKNOWN_COMPUTER_STOP, "warn"), refresh(), { ...stopView, state: "idle", reason: "unknown-computer" };
+    if (!target || publicComputer(target)?.stopReady !== !0)
+      return lockUnreadable ? (say(STOP_NO_KEY, "warn"), refresh(), { ...stopView, state: "idle", reason: "no-key" }) : (say(STOP_NEEDS_UNLOCK, "warn"), pendingLink = { text: "#stop", at: wall(), ...computerId ? { computer: computerId } : {} }, refresh(), { ...stopView, state: "idle", reason: "needs-unlock" });
+    lockedFor = target.id;
+    let listeners = /* @__PURE__ */ new Set(), viaLockedWorker = {
       stop: () => sendLockedStop({ record: target, store, createWorker, onStopState: (view2) => {
-        for (const fn of Array.from(listeners)) fn(view2);
+        for (let fn of Array.from(listeners)) fn(view2);
       } }),
-      onStopState: (fn) => {
-        listeners.add(fn);
-        return () => listeners.delete(fn);
-      }
+      onStopState: (fn) => (listeners.add(fn), () => listeners.delete(fn))
     };
-    lockedCtl?.dispose();
-    lockedCtl = createStopController({ channel: viaLockedWorker, clock: stopClock, computerName: String(target.name ?? "") });
-    lockedCtl.subscribe(applyStopView);
-    const out = await lockedCtl.press(project);
-    refresh();
-    return out;
+    lockedCtl?.dispose(), lockedCtl = createStopController({ channel: viaLockedWorker, clock: stopClock, computerName: String(target.name ?? "") }), lockedCtl.subscribe(applyStopView), notePress(target.id);
+    let out = await lockedCtl.press(project);
+    return refresh(), out;
+  }
+  async function openComputerFor(id, link) {
+    if (pageKind === "ui" && uiHost) {
+      let uiFor = await uiComputerOf();
+      if (uiFor !== "any" && uiFor !== id) {
+        leaving = !0;
+        let done = await uiHost.openShell(link).catch(() => !1);
+        return done || (leaving = !1), done ? { ok: !0, reason: null, opening: !0 } : { ok: !1, reason: "unavailable" };
+      }
+    }
+    let opened = await connectNow(id);
+    return refresh(), opened;
+  }
+  async function stopOn(id, project = null) {
+    let record = await store.get(id).catch(() => null);
+    if (!record)
+      return say(UNKNOWN_COMPUTER_STOP, "warn"), refresh(), { ...stopView, state: "idle", reason: "unknown-computer" };
+    if (publicComputer(record)?.stopReady === !0) return lockedStop(project, id);
+    let opened = await openComputerFor(id, `#stop&computer=${id}`);
+    return opened.opening ? { ...stopView, state: "idle", reason: "opening" } : opened.ok ? api.stop(project) : (say("Could not open that computer to stop it. Press Stop on that computer.", "warn"), refresh(), { ...stopView, state: "idle", reason: opened.reason ?? "failed" });
   }
   function attachChannel(ch, name) {
-    channel = ch;
-    bindStop(ch, name);
+    channel = ch, bindStop(ch, name);
+    let live = () => channel === ch;
     ch.onState((s) => {
-      channelState = { ...s };
-      if (s.status !== "connected") {
-        hello = null;
-      }
-      refresh();
-    });
-    ch.onEvent((event) => {
-      if (event && event.type === "phone" && event.kind === "revoked") refresh();
-    });
-    ch.onHello((h) => {
-      hello = h;
-      refresh();
-      loadPush();
-      retryApproveOff();
-      refreshLockStop().then(refresh);
-      afterHello();
-    });
-    refresh();
+      live() && (channelState = { ...s }, s.status !== "connected" && (hello = null), refresh());
+    }), ch.onEvent((event) => {
+      live() && (event && event.type === "phone" && event.kind === "revoked" && refresh(), event && event.type === "phone" && event.kind === "tier" && hello && typeof event.tier == "string" && (!hello.deviceId || event.id === hello.deviceId) && (hello = { ...hello, tier: event.tier, ...Array.isArray(event.caps) ? { caps: event.caps.filter((c) => typeof c == "string") } : {} }, refresh()));
+    }), ch.onHello((h) => {
+      live() && (hello = h, refresh(), loadPush(), retryApproveOff(), (Array.isArray(h?.carriers) ? loadComputers() : refreshLockStop()).then(refresh).catch(() => {
+      }), androidPush?.resend().then(async () => {
+        androidPushState = await androidPush.state(), refresh();
+      }).catch(() => {
+      }), afterHello());
+    }), refresh();
   }
   function retireChannel(ch) {
-    if (!ch) return;
-    if (stopView.state === "queued" || stopView.state === "sending") {
-      stopClock.setTimeout(() => ch.close(), STOP_RETRY_MS + 1e3);
-      return;
+    if (ch) {
+      if (stopView.state === "queued" || stopView.state === "sending") {
+        stopClock.setTimeout(() => ch.close(), STOP_RETRY_MS + 1e3);
+        return;
+      }
+      ch.close();
     }
-    ch.close();
   }
   async function loadPush() {
     if (replay || !channel) return;
-    const out = await postJson("/api/phones/push", {});
-    if (out.ok && out.json?.push && typeof out.json.push === "object") {
-      pushKnown = { ...out.json.push };
-      refresh();
-    }
+    let out = await postJson("/api/phones/push", {});
+    out.ok && out.json?.push && typeof out.json.push == "object" && (pushKnown = { ...out.json.push }, refresh());
   }
   async function keepApprove(on) {
-    approveStored = on === true;
-    if (!replay) await store.meta.put(APPROVE_META, approveStored).catch(() => {
+    approveStored = on === !0, replay || await store.meta.put(APPROVE_META, approveStored).catch(() => {
     });
   }
   async function runPendingLink() {
-    const link = pendingLink;
+    let link = pendingLink;
     if (!link) return null;
-    const parsed = parseNotificationHash(link.text);
-    if (lockStatus.locked || lockUnreadable) {
-      if (parsed?.kind !== "stop") return null;
-      pendingLink = null;
-      return api.stop();
-    }
-    pendingLink = null;
-    if ((parsed?.kind === "approve" || parsed?.kind === "deny") && wall() - link.at > NOTIFICATION_LINK_MAX_AGE_MS) {
-      say(NOTIFICATION_OLD, "warn");
-      emitRoute({ kind: "waiting", id: parsed.id });
-      return { ok: false, reason: "expired", kind: parsed.kind };
-    }
-    return api.handleHash(link.text);
+    let parsed = parseNotificationHash(link.text);
+    return lockStatus.locked || lockUnreadable ? parsed?.kind !== "stop" ? null : (pendingLink = null, api.stop(null, link.computer ?? parsed.computer ?? "")) : (pendingLink = null, (parsed?.kind === "approve" || parsed?.kind === "deny") && wall() - link.at > NOTIFICATION_LINK_MAX_AGE_MS ? (say(NOTIFICATION_OLD, "warn"), emitRoute({ kind: "waiting", id: parsed.id }), { ok: !1, reason: "expired", kind: parsed.kind }) : api.handleHash(link.text, link.computer ?? ""));
   }
   async function retryApproveOff() {
-    if (replay) return;
-    const waiting = await store.meta.get(APPROVE_OFF_META).catch(() => null);
-    if (waiting !== true) return;
-    const out = await postJson("/api/phones/push", { approveFromNotifications: false });
-    if (!out.ok) return;
-    await keepApprove(false);
-    await store.meta.remove(APPROVE_OFF_META).catch(() => {
-    });
-    refresh();
+    replay || await store.meta.get(APPROVE_OFF_META).catch(() => null) !== !0 || !(await postJson("/api/phones/push", { approveFromNotifications: !1 })).ok || (await keepApprove(!1), await store.meta.remove(APPROVE_OFF_META).catch(() => {
+    }), refresh());
   }
+  let connectSeq = 0;
   async function connectNow(id) {
-    const record = await store.get(id);
-    if (!record) return { ok: false, reason: "unknown" };
-    const keyed = keyedRecord(record);
-    if (!keyed) return { ok: false, reason: "locked" };
-    if (channel) {
-      retireChannel(channel);
-      channel = null;
-    }
-    hello = null;
-    activeId = id;
-    await store.meta.put(ACTIVE_META, id).catch(() => {
-    });
-    await refreshLockStop();
-    const ch = openChannel({
+    let seq = ++connectSeq, record = await store.get(id);
+    if (!record) return { ok: !1, reason: "unknown" };
+    let keyed = keyedRecord(record);
+    if (!keyed) return { ok: !1, reason: "locked" };
+    if (channel && (retireChannel(channel), channel = null), hello = null, activeId = id, await store.meta.put(ACTIVE_META, id).catch(() => {
+    }), await refreshLockStop(), seq !== connectSeq) return { ok: !1, reason: "superseded" };
+    let ch = openChannel({
       computer: keyed,
       store,
       device,
@@ -5979,149 +4579,120 @@ function createShell({
       createWorker,
       onWorkerError: (line) => debug.log(`channel: ${line}`, "warn")
     });
-    attachChannel(ch, keyed.name);
-    return { ok: true, id };
+    return attachChannel(ch, keyed.name), { ok: !0, id };
   }
   async function postJson(path, body, headers = {}) {
-    if (!channel) return { ok: false, status: 0, json: null, reason: "offline" };
+    if (!channel) return { ok: !1, status: 0, json: null, reason: "offline" };
     try {
-      const res = await channel.request({ method: "POST", path, headers: { "content-type": "application/json", ...headers } }, JSON.stringify(body ?? {}), { scope: "shell" });
-      const text = await readText(res.body);
-      let json = null;
+      let res = await channel.request({ method: "POST", path, headers: { "content-type": "application/json", ...headers } }, JSON.stringify(body ?? {}), { scope: "shell" }), text = await readText(res.body), json = null;
       try {
         json = text ? JSON.parse(text) : null;
       } catch {
         json = null;
       }
-      const ok = res.status >= 200 && res.status < 300;
+      let ok = res.status >= 200 && res.status < 300;
       return { ok, status: res.status, json, reason: ok ? null : json?.error ?? "failed" };
     } catch (err) {
-      return { ok: false, status: 0, json: null, reason: String(err?.code ?? "offline") };
+      return { ok: !1, status: 0, json: null, reason: String(err?.code ?? "offline") };
     }
   }
-  const shellRequest = (ch) => (spec, body, opts) => ch.request(spec, body, { ...opts ?? {}, scope: "shell" });
+  let shellRequest = (ch) => (spec, body, opts) => ch.request(spec, body, { ...opts ?? {}, scope: "shell" });
   function whenConnected(ms = 8e3) {
-    if (!channel) return Promise.resolve(false);
-    if (hello) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      let timer = null;
-      let off = () => {
+    return channel ? hello ? Promise.resolve(!0) : new Promise((resolve) => {
+      let timer = null, off = () => {
+      }, done = (value) => {
+        timer !== null && stopClock.clearTimeout(timer), off(), resolve(value);
       };
-      const done = (value) => {
-        if (timer !== null) stopClock.clearTimeout(timer);
-        off();
-        resolve(value);
-      };
-      timer = stopClock.setTimeout(() => done(false), ms);
-      off = api.subscribe(() => {
-        if (hello) done(true);
-        else if (!channel) done(false);
+      timer = stopClock.setTimeout(() => done(!1), ms), off = api.subscribe(() => {
+        hello ? done(!0) : channel || done(!1);
       });
-    });
+    }) : Promise.resolve(!1);
   }
   async function savePrefs(next) {
-    prefs = normalisePrefs(next);
-    await store.meta.put(PREFS_META, prefs).catch(() => {
-    });
-    return refresh();
+    return prefs = normalisePrefs(next), await store.meta.put(PREFS_META, prefs).catch(() => {
+    }), refresh();
   }
   let appliedHide = null;
   async function applyPrivacy() {
     if (device.platform !== "android" || !native?.PlenumPrivacy?.setHideInSwitcher) return;
-    const enabled = prefs.hideSwitcher !== false;
-    if (appliedHide === enabled) return;
-    try {
-      await native.PlenumPrivacy.setHideInSwitcher({ enabled });
-      appliedHide = enabled;
-    } catch (err) {
-      debug.log(`privacy: ${err?.code ?? "failed"}`, "warn");
-    }
+    let enabled = prefs.hideSwitcher !== !1;
+    if (appliedHide !== enabled)
+      try {
+        await native.PlenumPrivacy.setHideInSwitcher({ enabled }), appliedHide = enabled;
+      } catch (err) {
+        debug.log(`privacy: ${err?.code ?? "failed"}`, "warn");
+      }
   }
   async function loadDictation() {
-    if (!native?.Dictation?.available) return;
-    try {
-      const out = await native.Dictation.available();
-      dictationState = { available: out?.available === true, onDevice: out?.onDevice === true, permission: String(out?.permission ?? "prompt") };
-    } catch {
-      dictationState = { available: false, onDevice: false, permission: "prompt" };
+    if (native?.Dictation?.available) {
+      try {
+        let out = await native.Dictation.available();
+        dictationState = { available: out?.available === !0, onDevice: out?.onDevice === !0, permission: String(out?.permission ?? "prompt") };
+      } catch {
+        dictationState = { available: !1, onDevice: !1, permission: "prompt" };
+      }
+      refresh();
     }
-    refresh();
   }
   async function loadAndroidPush() {
-    if (!androidPush) return;
-    await androidPush.start();
-    androidPushState = await androidPush.state();
-    refresh();
+    androidPush && (await androidPush.start(), androidPushState = await androidPush.state(), refresh());
   }
   function afterHello() {
-    if (!uiHost || replay || mode !== "normal") return;
-    if (pageKind === "ui") {
-      refreshUi();
-      return;
+    if (!(!uiHost || replay || mode !== "normal")) {
+      if (pageKind === "ui") {
+        refreshUi();
+        return;
+      }
+      if (!(lockStatus.locked || holdUi)) {
+        if (forceUi) {
+          forceUi = !1, showUi({ force: !0 });
+          return;
+        }
+        stay || showUi();
+      }
     }
-    if (lockStatus.locked || holdUi) return;
-    if (forceUi) {
-      forceUi = false;
-      showUi({ force: true });
-      return;
-    }
-    if (stay) return;
-    showUi();
   }
-  async function showUi({ force = false } = {}) {
-    if (!uiHost || pageKind !== "shell" || !hello || replay) return { ok: false, reason: "unavailable" };
-    if (ui.state === "loading" || ui.state === "navigating") return { ok: true, reason: null };
-    if (stay && !force) return { ok: false, reason: "stay" };
-    ui = { state: "loading", cause: null, progress: { done: 0, total: 1 }, hasCopy: false };
-    refresh();
-    const out = await uiHost.show({
+  async function showUi({ force = !1 } = {}) {
+    if (!uiHost || pageKind !== "shell" || !hello || replay) return { ok: !1, reason: "unavailable" };
+    if (ui.state === "loading" || ui.state === "navigating") return { ok: !0, reason: null };
+    if (stay && !force) return { ok: !1, reason: "stay" };
+    ui = { state: "loading", cause: null, progress: { done: 0, total: 1 }, hasCopy: !1 }, refresh();
+    let out = await uiHost.show({
       hello,
       computerId: activeId,
       loadedHash: null,
       onProgress: (progress) => {
-        ui = { ...ui, progress };
-        refresh();
+        ui = { ...ui, progress }, refresh();
       }
     });
-    if (out.ok) {
-      ui = { ...ui, state: "navigating", progress: { done: 1, total: 1 } };
-    } else {
-      ui = { state: "failed", cause: out.cause ?? "checksum", progress: null, hasCopy: await uiHost.hasCopy().catch(() => false) };
-    }
-    refresh();
-    return { ok: out.ok, reason: out.ok ? null : out.cause };
+    return out.ok ? ui = { ...ui, state: "navigating", progress: { done: 1, total: 1 } } : ui = { state: "failed", cause: out.cause ?? "checksum", progress: null, hasCopy: await uiHost.hasCopy().catch(() => !1) }, refresh(), { ok: out.ok, reason: out.ok ? null : out.cause };
   }
   async function refreshUi() {
-    if (!uiHost || refreshingUi) return;
-    refreshingUi = true;
-    try {
-      if (loadedUiHash === void 0) loadedUiHash = await uiHost.loadedHash();
-      const out = await uiHost.refresh({ hello, loadedHash: loadedUiHash, computerId: activeId });
-      if (out.ok && out.reload) onReload();
-    } finally {
-      refreshingUi = false;
+    if (!(!uiHost || refreshingUi)) {
+      refreshingUi = !0;
+      try {
+        loadedUiHash === void 0 && (loadedUiHash = await uiHost.loadedHash());
+        let out = await uiHost.refresh({ hello, loadedHash: loadedUiHash, computerId: activeId });
+        out.ok && out.reload && onReload();
+      } finally {
+        refreshingUi = !1;
+      }
     }
   }
   async function uiComputerOf() {
-    return typeof uiHost?.uiComputerId === "function" ? uiHost.uiComputerId() : "any";
+    return typeof uiHost?.uiComputerId == "function" ? uiHost.uiComputerId() : "any";
   }
   function leaveForShellIfNeeded() {
     if (pageKind !== "ui" || !uiHost || leaving || !loaded || mode !== "normal") return;
-    const status = channelState.status;
-    const needs = computers.length === 0 || ["revoked", "update-app", "update-desktop"].includes(status);
-    if (!needs) return;
-    leaving = true;
-    Promise.resolve(uiHost.openShell()).catch(() => {
-      leaving = false;
-    });
+    let status = channelState.status;
+    (computers.length === 0 || ["revoked", "not-known", "update-app", "update-desktop"].includes(status)) && (leaving = !0, Promise.resolve(uiHost.openShell()).catch(() => {
+      leaving = !1;
+    }));
   }
   function emitRoute(link) {
-    intentSeq += 1;
-    intent = { ...link, seq: intentSeq, taken: false };
-    if (pageKind === "shell") onIntent({ ...link });
-    refresh();
+    intentSeq += 1, intent = { ...link, seq: intentSeq, taken: !1 }, pageKind === "shell" && onIntent({ ...link }), refresh();
   }
-  const api = {
+  let api = {
     state: () => snapshot,
     subscribe(fn) {
       subs.add(fn);
@@ -6138,17 +4709,11 @@ function createShell({
     // Launch: reads the lock, the saved computers, the saved active computer and the phone's own preferences. Idempotent.
     async boot() {
       if (booted) return snapshot;
-      booted = true;
-      prefs = normalisePrefs(await store.meta.get(PREFS_META).catch(() => null));
-      approveStored = await store.meta.get(APPROVE_META).catch(() => null) === true;
+      booted = !0, prefs = normalisePrefs(await store.meta.get(PREFS_META).catch(() => null)), approveStored = await store.meta.get(APPROVE_META).catch(() => null) === !0;
       try {
-        if (lock) {
-          await lock.lockOnLaunch();
-          lockStatus = { ...lockStatus, ...await lock.status() };
-        }
+        lock && (await lock.lockOnLaunch(), lockStatus = { ...lockStatus, ...await lock.status() });
       } catch {
-        lockUnreadable = true;
-        lockStatus = { ...lockStatus, mode: "unknown", locked: true };
+        lockUnreadable = !0, lockStatus = { ...lockStatus, mode: "unknown", locked: !0 };
       } finally {
         lockKnown();
       }
@@ -6157,60 +4722,38 @@ function createShell({
       } catch {
         computers = [];
       }
-      loaded = true;
-      applyPrivacy();
-      loadDictation();
-      loadAndroidPush();
-      if (mode === "demo") {
-        computers = [{ ...DEMO_COMPUTER }];
-        activeId = DEMO_COMPUTER.id;
-        channelState = { ...channelState, status: "connected", carrier: "lan", desktopName: "Demo computer", since: Date.now() };
-        return refresh();
-      }
-      const saved = await store.meta.get(ACTIVE_META).catch(() => null);
+      if (loaded = !0, applyPrivacy(), loadDictation(), loadAndroidPush(), mode === "demo")
+        return computers = [{ ...DEMO_COMPUTER }], activeId = DEMO_COMPUTER.id, channelState = { ...channelState, status: "connected", carrier: "lan", desktopName: "Demo computer", since: Date.now() }, refresh();
+      let saved = await store.meta.get(ACTIVE_META).catch(() => null);
       if (lockStatus.locked) return refresh();
       if (mode === "selftest" || computers.length) {
-        const asked = /^#connect=([0-9a-f]{64})$/.exec(pendingLink?.text ?? "")?.[1] ?? null;
-        const target = computers.find((c) => c.id === asked) ?? computers.find((c) => c.id === saved) ?? computers[0];
+        let asked = /^#connect=([0-9a-f]{64})$/.exec(pendingLink?.text ?? "")?.[1] ?? null, target = computers.find((c) => c.id === asked) ?? computers.find((c) => c.id === saved) ?? computers[0];
         if (target) {
           if (pageKind === "ui" && uiHost) {
-            const uiFor = await uiComputerOf();
-            if (uiFor !== "any" && uiFor !== target.id) {
-              await api.openShell(`#connect=${target.id}`);
-              return refresh();
-            }
+            let uiFor = await uiComputerOf();
+            if (uiFor !== "any" && uiFor !== target.id)
+              return await api.openShell(`#connect=${target.id}`), refresh();
           }
-          const opened = await connectNow(target.id);
-          if (!opened.ok) debug.log(`connect: ${opened.reason}`, "warn");
+          let opened = await connectNow(target.id);
+          opened.ok || debug.log(`connect: ${opened.reason}`, "warn");
         }
       }
       return refresh();
     },
     // Pairing from a link. The final state is returned (allowed, denied, expired, mismatch or failed).
     async pair(text, options = {}) {
-      if (mode === "demo") {
-        pairing = { state: "failed", code: null, tried: [], reason: "demo" };
-        refresh();
-        return { ...pairing };
-      }
-      if (lockStatus.locked) {
-        pairing = { state: "failed", code: null, tried: [], reason: "locked" };
-        refresh();
-        return { ...pairing };
-      }
+      if (mode === "demo")
+        return pairing = { state: "failed", code: null, tried: [], reason: "demo" }, refresh(), { ...pairing };
+      if (lockStatus.locked)
+        return pairing = { state: "failed", code: null, tried: [], reason: "locked" }, refresh(), { ...pairing };
       let payload;
       try {
         payload = parsePairingText(text);
       } catch (err) {
-        pairing = { state: "failed", code: null, tried: [], reason: err?.code ?? "not-plenum" };
-        refresh();
-        return { ...pairing };
+        return pairing = { state: "failed", code: null, tried: [], reason: err?.code ?? "not-plenum" }, refresh(), { ...pairing };
       }
-      pairing = { state: "starting", code: null, tried: [], reason: null };
-      refresh();
-      let wrapped = null;
-      const typed = cleanName(options?.name);
-      const flow = startPairing({
+      pairing = { state: "starting", code: null, tried: [], reason: null }, refresh();
+      let wrapped = null, typed = cleanName(options?.name), flow = startPairing({
         payload,
         store,
         createWorker,
@@ -6218,725 +4761,484 @@ function createShell({
         caps,
         pageUrl,
         prepareRecord: async (record) => {
-          const kept = lock ? await lock.protect(record) : record;
-          if (kept !== record) wrapped = { id: record.id, key: b64uToBytes(record.myPriv) };
-          return kept;
+          let kept = lock ? await lock.protect(record) : record;
+          return kept !== record && (wrapped = { id: record.id, key: b64uToBytes(record.myPriv) }), kept;
         },
         onState: (s) => {
-          pairing = { ...s };
-          refresh();
+          pairing = { ...s }, refresh();
         }
       });
       pairingFlow = flow;
-      const final = await flow.done;
-      if (pairingFlow === flow) pairingFlow = null;
-      if (final.state === "allowed") {
+      let final = await flow.done;
+      if (pairingFlow === flow && (pairingFlow = null), final.state === "allowed") {
         await loadComputers();
-        const id = final.computerId ?? computers.at(-1)?.id;
-        pairing = null;
-        pairedSeq += 1;
-        pairedId = id ?? null;
-        holdUi = true;
-        if (wrapped) unlockedKeys.set(wrapped.id, wrapped.key);
-        if (id && !lockStatus.locked) await connectNow(id);
-        refresh();
-        return { ...final, computerId: id ?? null };
+        let id = final.computerId ?? computers.at(-1)?.id;
+        return pairing = null, pairedSeq += 1, pairedId = id ?? null, holdUi = !0, wrapped && unlockedKeys.set(wrapped.id, wrapped.key), id && !lockStatus.locked && await connectNow(id), refresh(), { ...final, computerId: id ?? null };
       }
-      refresh();
-      return { ...final };
+      return refresh(), { ...final };
     },
     async connect(id) {
-      if (lockStatus.locked) return { ok: false, reason: "locked" };
+      if (lockStatus.locked) return { ok: !1, reason: "locked" };
       if (pageKind === "ui" && uiHost) {
-        const uiFor = await uiComputerOf();
-        if (uiFor !== "any" && uiFor !== id) {
-          await api.openShell(`#connect=${id}`);
-          return { ok: true, reason: "opening" };
-        }
+        let uiFor = await uiComputerOf();
+        if (uiFor !== "any" && uiFor !== id)
+          return await api.openShell(`#connect=${id}`), { ok: !0, reason: "opening" };
       }
-      const result = await connectNow(id);
-      refresh();
-      return result;
+      let result = await connectNow(id);
+      return refresh(), result;
     },
-    async stop(project = null) {
+    async stop(project = null, computer = "") {
       if (replay) {
-        const out2 = replay.stop();
-        stopView = { state: "done", ack: out2.ack, error: null, text: out2.text, seq: ++stopSeq };
-        say(out2.text, "ok");
-        refresh();
-        stopClock.setTimeout(() => {
-          if (stopView.state !== "done") return;
-          stopView = { state: "idle", ack: null, error: null, text: "", seq: stopView.seq };
-          refresh();
-        }, STOP_DONE_MS);
-        return { ...stopView };
+        let out2 = replay.stop();
+        return stopView = { state: "done", ack: out2.ack, error: null, text: out2.text, seq: ++stopSeq }, say(out2.text, "ok"), refresh(), stopClock.setTimeout(() => {
+          stopView.state === "done" && (stopView = { state: "idle", ack: null, error: null, text: "", seq: stopView.seq }, refresh());
+        }, 1600), { ...stopView };
       }
-      if (lockStatus.locked || lockUnreadable) return lockedStop(project);
+      let named = RECORD_ID.test(String(computer ?? "")) ? String(computer) : "";
+      if (lockStatus.locked || lockUnreadable) return lockedStop(project, named);
+      if (named && (named !== activeId || !channel)) return stopOn(named, project);
       if (!stopCtl) return { ...stopView, state: "idle", text: "Nothing to stop: no computer is connected." };
-      const out = await stopCtl.press(project);
-      refresh();
-      return out;
+      notePress(activeId);
+      let out = await stopCtl.press(project);
+      return refresh(), out;
     },
     async forget(id) {
-      if (replay) return { ...refresh(), ok: false, reason: "demo" };
-      if (activeId === id && channel) {
-        retireChannel(channel);
-        channel = null;
-        hello = null;
-        channelState = { ...channelState, status: "closed" };
-        activeId = null;
-        await store.meta.remove(ACTIVE_META).catch(() => {
-        });
-      }
-      unlockedKeys.delete(id);
-      await store.remove(id);
-      await loadComputers();
-      return { ...refresh(), ok: true, reason: null };
+      return replay ? { ...refresh(), ok: !1, reason: "demo" } : (activeId === id && (connectSeq += 1, channel && (retireChannel(channel), channel = null, hello = null, channelState = { ...channelState, status: "closed" }), activeId = null, await store.meta.remove(ACTIVE_META).catch(() => {
+      })), unlockedKeys.delete(id), await store.remove(id), await loadComputers(), { ...refresh(), ok: !0, reason: null });
     },
     // Phone settings: the name on this phone only (the computer keeps its own).
     async rename(id, name) {
-      if (replay) return { ok: false, reason: "demo" };
-      const clean3 = cleanName(name);
-      if (!id || !clean3) return { ok: false, reason: "name" };
-      const saved = await store.patchComputer(id, { name: clean3 });
-      if (!saved) return { ok: false, reason: "unknown" };
-      await loadComputers();
-      if (activeId === id) hello = hello ? { ...hello } : null;
-      refresh();
-      return { ok: true, reason: null };
+      if (replay) return { ok: !1, reason: "demo" };
+      let clean3 = cleanName(name);
+      return !id || !clean3 ? { ok: !1, reason: "name" } : await store.patchComputer(id, { name: clean3 }) ? (await loadComputers(), activeId === id && (hello = hello ? { ...hello } : null), refresh(), { ok: !0, reason: null }) : { ok: !1, reason: "unknown" };
     },
     // Ways to reach: Move up and Move down reorder the carriers the record holds. The order is used at the next connection.
     async moveWay(id, kind, dir) {
-      if (replay) return { ok: false, reason: "demo" };
-      const record = await store.get(id);
-      if (!record) return { ok: false, reason: "unknown" };
-      const current = (Array.isArray(record.carriers) ? record.carriers : []).map((c) => c.kind);
-      const order = orderedWays(current);
-      const next = moveWay(order, kind, dir);
-      if (next.join() === order.join()) return { ok: true, reason: null, order: next };
-      const sorted = [...record.carriers].sort((a, b) => next.indexOf(a.kind) - next.indexOf(b.kind));
-      await store.patchComputer(id, { carriers: sorted });
-      await loadComputers();
-      refresh();
-      return { ok: true, reason: null, order: next };
+      if (replay) return { ok: !1, reason: "demo" };
+      let record = await store.get(id);
+      if (!record) return { ok: !1, reason: "unknown" };
+      let current = (Array.isArray(record.carriers) ? record.carriers : []).map((c) => c.kind), order = orderedWays(current), next = moveWay(order, kind, dir);
+      if (next.join() === order.join()) return { ok: !0, reason: null, order: next };
+      let sorted = [...record.carriers].sort((a, b) => next.indexOf(a.kind) - next.indexOf(b.kind));
+      return await store.patchComputer(id, { carriers: sorted }), await loadComputers(), refresh(), { ok: !0, reason: null, order: next };
     },
     // Test them now: the phone reconnects and the carrier that answers is shown in the connection state.
     async testWays(id) {
-      if (replay) return { ok: false, reason: "demo" };
-      if (!channel || activeId !== id) return { ok: false, reason: "offline" };
-      channel.reconnect?.();
-      refresh();
-      return { ok: true, reason: null };
+      return replay ? { ok: !1, reason: "demo" } : !channel || activeId !== id ? { ok: !1, reason: "offline" } : channelState.status === "connected" ? { ok: !1, reason: "connected", carrier: channelState.carrier ?? null } : (channel.reconnect?.(), refresh(), { ok: !0, reason: null });
     },
     // Notifications kept on the computer (POST /api/phones/push). A switch the computer refuses stays where it was.
     async setPush(patch) {
-      if (replay) {
-        pushKnown = { ...pushValues(pushKnown), ...patch };
-        refresh();
-        return { ok: true, reason: null };
-      }
-      const sent = patch.firstLine === false ? { ...patch, approveFromNotifications: false } : { ...patch };
-      const out = await postJson("/api/phones/push", sent);
-      if (out.ok) {
-        pushKnown = { ...pushValues(pushKnown), ...patch };
-        if (sent.approveFromNotifications !== void 0) await keepApprove(sent.approveFromNotifications === true);
-      }
-      refresh();
-      return { ok: out.ok, reason: out.reason };
+      if (replay)
+        return pushKnown = { ...pushValues(pushKnown), ...patch }, refresh(), { ok: !0, reason: null };
+      let sent = patch.firstLine === !1 ? { ...patch, approveFromNotifications: !1 } : { ...patch }, out = await postJson("/api/phones/push", sent);
+      return out.ok && (pushKnown = { ...pushValues(pushKnown), ...patch }, sent.approveFromNotifications !== void 0 && await keepApprove(sent.approveFromNotifications === !0)), refresh(), { ok: out.ok, reason: out.reason };
     },
     // Approve from notifications: asked of the computer, which checks the first line itself (409 when it is off).
     async setApprove(value) {
-      const on = value === true;
-      if (on && !(pushKnown?.firstLine === true)) return { ok: false, reason: "first-line" };
-      if (replay) {
-        approveStored = on;
-        refresh();
-        return { ok: true, reason: null };
-      }
-      const out = await postJson("/api/phones/push", { approveFromNotifications: on });
-      if (out.ok) await keepApprove(on);
-      refresh();
-      return { ok: out.ok, reason: out.reason };
+      let on = value === !0;
+      if (on && pushKnown?.firstLine !== !0) return { ok: !1, reason: "first-line" };
+      if (replay)
+        return approveStored = on, refresh(), { ok: !0, reason: null };
+      let out = await postJson("/api/phones/push", { approveFromNotifications: on });
+      return out.ok && await keepApprove(on), refresh(), { ok: out.ok, reason: out.reason };
     },
     async testPush() {
-      if (replay) return { ok: true, reason: null };
-      const out = await postJson("/api/phones/test-push", {});
-      refresh();
-      return { ok: out.ok, reason: out.reason };
+      if (replay) return { ok: !0, reason: null };
+      let out = await postJson("/api/phones/test-push", {});
+      return refresh(), { ok: out.ok, reason: out.reason };
     },
     // Turn on notifications: the browser's permission (the user gesture is the tap on the screen). The native app asks through its plugin.
     // Web: the permission, then the push subscription, which the computer keeps: "Allowed" means a subscription is on the computer. The
     // computer's VAPID public key comes in its HELLO (vapidPublicKey); without it nothing is subscribed and the answer says so.
     // Android: UnifiedPush through the person's push app (push.js createAndroidPush); the endpoint it gives goes to the computer.
     async enableNotifications() {
-      if (replay) return { ok: true, reason: null };
+      if (replay) return { ok: !0, reason: null };
       if (androidPush) {
-        const out2 = await androidPush.enable();
-        androidPushState = await androidPush.state();
-        refresh();
-        return { ok: out2.ok === true, reason: out2.ok === true ? null : out2.reason ?? "failed" };
+        let out2 = await androidPush.enable();
+        return androidPushState = await androidPush.state(), refresh(), { ok: out2.ok === !0, reason: out2.ok === !0 ? null : out2.reason ?? "failed" };
       }
-      const key = typeof hello?.vapidPublicKey === "string" ? hello.vapidPublicKey : null;
-      if (!key || !channel || !serviceWorker || !notifications) return { ok: false, reason: "unavailable" };
-      const registration = await registrationOf(serviceWorker);
-      if (!registration) return { ok: false, reason: "unavailable" };
-      const out = await subscribeWebPush({
+      let key = typeof hello?.vapidPublicKey == "string" ? hello.vapidPublicKey : null;
+      if (!key || !channel || !serviceWorker || !notifications) return { ok: !1, reason: "unavailable" };
+      let registration = await registrationOf(serviceWorker);
+      if (!registration) return { ok: !1, reason: "unavailable" };
+      let forId = activeId, out = await subscribeWebPush({
         registration,
         applicationServerKey: key,
         request: channel.request,
-        deviceId: typeof hello?.deviceId === "string" && hello.deviceId ? hello.deviceId : activeId,
+        deviceId: typeof hello?.deviceId == "string" && hello.deviceId ? hello.deviceId : activeId,
         notification: notifications,
         env: pushEnv
       });
-      refresh();
-      if (out.ok) return { ok: true, reason: null };
-      if (out.state === "denied") return { ok: false, reason: "denied" };
-      if (out.state === "unsupported") return { ok: false, reason: "unavailable" };
-      return { ok: false, reason: "failed" };
+      return out.ok && out.endpoint && forId && await store.patchComputer(forId, { pushEndpoint: out.endpoint }).catch(() => {
+      }), refresh(), out.ok ? { ok: !0, reason: null } : out.state === "denied" ? { ok: !1, reason: "denied" } : out.state === "other-computer" ? { ok: !1, reason: "other-computer" } : out.state === "unsupported" ? { ok: !1, reason: "unavailable" } : { ok: !1, reason: "failed" };
     },
     notificationPermission() {
       return notifications?.permission ?? "unknown";
     },
     // Android: the person chooses the push app (the system chooser). The settings line reads the answer from state().androidPush.
     async chooseDistributor() {
-      if (!androidPush) return { ok: false, reason: "unavailable" };
-      const out = await androidPush.chooseDistributor();
-      androidPushState = await androidPush.state();
-      refresh();
-      return out;
+      if (!androidPush) return { ok: !1, reason: "unavailable" };
+      let out = await androidPush.chooseDistributor();
+      return androidPushState = await androidPush.state(), refresh(), out;
     },
     // Turn the notifications of this phone off at the computer (the subscription is dropped there).
     async disableNotifications() {
-      if (replay) return { ok: true, reason: null };
+      if (replay) return { ok: !0, reason: null };
       if (androidPush) {
-        const out2 = await androidPush.disable();
-        androidPushState = await androidPush.state();
-        refresh();
-        return out2;
+        let out2 = await androidPush.disable();
+        return androidPushState = await androidPush.state(), refresh(), out2;
       }
-      const out = await postJson("/api/phones/push", { subscription: null });
-      refresh();
-      return { ok: out.ok, reason: out.reason };
+      let out = await postJson("/api/phones/push", { subscription: null });
+      if (out.ok && activeId) {
+        let record = await store.get(activeId).catch(() => null), endpoint = typeof record?.pushEndpoint == "string" ? record.pushEndpoint : "", key = typeof hello?.vapidPublicKey == "string" ? hello.vapidPublicKey : null;
+        if (endpoint || key) {
+          let registration = await registrationOf(serviceWorker).catch(() => null);
+          await dropWebPush({ registration, endpoint, applicationServerKey: endpoint ? null : key }) && endpoint && await store.patchComputer(activeId, { pushEndpoint: null }).catch(() => {
+          });
+        }
+      }
+      return refresh(), { ok: out.ok, reason: out.reason };
     },
     // App lock on: biometric (native), a passkey (web) or a PIN (web, through setPin).
     async enableLock(mode2) {
-      if (!lock) return { ok: false, reason: "unavailable" };
+      if (!lock) return { ok: !1, reason: "unavailable" };
       let result;
       if (mode2 === "biometric") result = await lock.enableBiometric();
       else if (mode2 === "passkey") result = await lock.enablePasskey();
-      else return { ok: false, reason: "mode" };
-      lockStatus = { ...lockStatus, ...await lock.status() };
-      refresh();
-      return { ok: result?.ok === true, reason: result?.reason ?? null };
+      else return { ok: !1, reason: "mode" };
+      return lockStatus = { ...lockStatus, ...await lock.status() }, refresh(), { ok: result?.ok === !0, reason: result?.reason ?? null };
     },
     async setPin(pin) {
-      if (!lock) return { ok: false, reason: "unavailable" };
-      const result = await lock.setPin(String(pin ?? ""));
-      if (result?.ok) for (const [id, key] of result.keys ?? []) unlockedKeys.set(id, key);
-      lockStatus = { ...lockStatus, ...await lock.status() };
-      refresh();
-      return { ok: result?.ok === true, reason: result?.reason ?? null };
+      if (!lock) return { ok: !1, reason: "unavailable" };
+      let result = await lock.setPin(String(pin ?? ""));
+      if (result?.ok) for (let [id, key] of result.keys ?? []) unlockedKeys.set(id, key);
+      return lockStatus = { ...lockStatus, ...await lock.status() }, refresh(), { ok: result?.ok === !0, reason: result?.reason ?? null };
     },
     async lockOff(pin = null) {
-      if (!lock) return { ok: false, reason: "unavailable" };
-      const result = await lock.disable({ pin: pin === null ? null : String(pin) });
-      lockStatus = { ...lockStatus, ...await lock.status() };
-      if (result?.ok && approveStored && !replay) {
-        let told = false;
-        if (channel) {
-          const out = await postJson("/api/phones/push", { approveFromNotifications: false });
-          if (out.ok) {
-            await keepApprove(false);
-            told = true;
-          }
-        }
-        if (!told) await store.meta.put(APPROVE_OFF_META, true).catch(() => {
+      if (!lock) return { ok: !1, reason: "unavailable" };
+      let result = await lock.disable({ pin: pin === null ? null : String(pin) });
+      if (lockStatus = { ...lockStatus, ...await lock.status() }, result?.ok && approveStored && !replay) {
+        let told = !1;
+        channel && (await postJson("/api/phones/push", { approveFromNotifications: !1 })).ok && (await keepApprove(!1), told = !0), told || await store.meta.put(APPROVE_OFF_META, !0).catch(() => {
         });
       }
-      refresh();
-      return { ok: result?.ok === true, reason: result?.reason ?? (result?.ok ? null : "pin") };
+      return refresh(), { ok: result?.ok === !0, reason: result?.reason ?? (result?.ok ? null : "pin") };
     },
     // The phone's own preferences (theme, text size, Stop side, haptics, switcher, lock time, dictation, the LAN strip).
     async setPrefs(patch) {
-      await savePrefs({ ...prefs, ...patch ?? {} });
-      applyPrivacy();
-      return { ok: true, reason: null };
+      return await savePrefs({ ...prefs, ...patch ?? {} }), applyPrivacy(), { ok: !0, reason: null };
     },
     cancelConnect() {
-      if (channel) {
-        retireChannel(channel);
-        channel = null;
-        hello = null;
-        channelState = { ...channelState, status: "closed" };
-        activeId = null;
-        store.meta.remove(ACTIVE_META).catch(() => {
-        });
-        refreshLockStop().then(refresh);
-      }
-      refresh();
-      return { ok: true, reason: null };
+      return connectSeq += 1, channel && (retireChannel(channel), channel = null, hello = null, channelState = { ...channelState, status: "closed" }, activeId = null, store.meta.remove(ACTIVE_META).catch(() => {
+      }), refreshLockStop().then(refresh)), refresh(), { ok: !0, reason: null };
     },
     // Drops a pairing in progress, and a pairing link that waits for review.
     cancelPairing() {
-      const flow = pairingFlow;
-      pairingFlow = null;
-      pendingPair = null;
+      let flow = pairingFlow;
+      pairingFlow = null, pendingPair = null;
       try {
         flow?.cancel?.();
       } catch {
       }
-      pairing = null;
-      refresh();
-      return { ok: true, reason: null };
+      return pairing = null, refresh(), { ok: !0, reason: null };
     },
     // The person pressed Pair on the review screen: the parked link starts pairing. Resolves the final pairing state, or { ok: false, reason: 'none' }.
     async confirmPair() {
-      const parked = pendingPair;
-      if (!parked) return { ok: false, reason: "none" };
-      pendingPair = null;
-      return api.pair(parked.text);
+      let parked2 = pendingPair;
+      return parked2 ? (pendingPair = null, api.pair(parked2.text)) : { ok: !1, reason: "none" };
     },
     // A line from the UI page's console (the facade's log): redacted, kept in the phone's own console and, when connected, sent to the computer.
     pageLog(line) {
-      const entry = debug.log(String(line ?? "").slice(0, 2e3), "page");
-      if (entry && channel && !replay) {
-        channel.request({ method: "POST", path: "/_bridge/log", headers: { "content-type": "application/json" } }, JSON.stringify({ line: entry.text }), { scope: "shell" }).then((answer) => answer.cancel?.(), () => {
-        });
-      }
-      return Boolean(entry);
+      let entry = debug.log(String(line ?? "").slice(0, 2e3), "page");
+      return entry && channel && !replay && channel.request({ method: "POST", path: "/_bridge/log", headers: { "content-type": "application/json" } }, JSON.stringify({ line: entry.text }), { scope: "shell" }).then((answer) => answer.cancel?.(), () => {
+      }), !!entry;
     },
     debugClear() {
-      debug.clear();
-      refresh();
-      return { ok: true, reason: null };
+      return debug.clear(), refresh(), { ok: !0, reason: null };
     },
     // Posts the most recent debug lines to the computer. A phone not connected cannot send (the screen says so).
     async debugSend() {
-      if (replay) return { ok: true, reason: null, n: 0 };
-      if (!channel) return { ok: false, reason: "offline", n: 0 };
-      const n = await debug.sendToComputer(shellRequest(channel), 100).catch(() => 0);
+      if (replay) return { ok: !0, reason: null, n: 0 };
+      if (!channel) return { ok: !1, reason: "offline", n: 0 };
+      let n = await debug.sendToComputer(shellRequest(channel), 100).catch(() => 0);
       return { ok: n > 0, reason: n > 0 ? null : "failed", n };
     },
     async demoDecide(id, decision) {
-      if (!replay) return { ok: false, reason: "not-demo" };
-      const out = replay.decide(id, decision);
-      refresh();
-      return out;
+      if (!replay) return { ok: !1, reason: "not-demo" };
+      let out = replay.decide(id, decision);
+      return refresh(), out;
     },
     demoReset() {
-      if (!replay) return { ok: false, reason: "not-demo" };
-      replay.reset();
-      stopView = { state: "idle", ack: null, error: null, text: "", seq: stopView.seq };
-      refresh();
-      return { ok: true, reason: null };
+      return replay ? (replay.reset(), stopView = { state: "idle", ack: null, error: null, text: "", seq: stopView.seq }, refresh(), { ok: !0, reason: null }) : { ok: !1, reason: "not-demo" };
     },
     async unlock(method, arg = null) {
-      if (!lock) return { ok: false, reason: "unavailable" };
+      if (!lock) return { ok: !1, reason: "unavailable" };
       let result;
       if (method === "biometric") result = await lock.unlockBiometric();
       else if (method === "pin") result = await lock.unlockPin(arg);
       else if (method === "passkey") result = await lock.unlockPasskey();
-      else return { ok: false, reason: "method" };
+      else return { ok: !1, reason: "method" };
       if (result.ok) {
-        for (const [id, key] of result.keys ?? []) unlockedKeys.set(id, key);
-        lockUnreadable = false;
-        lockStatus = { ...lockStatus, ...await lock.status(), locked: false };
-        refresh();
-        const saved = await store.meta.get(ACTIVE_META).catch(() => null);
-        if (saved && computers.some((c) => c.id === saved)) await connectNow(saved);
-        await runPendingLink();
-        refresh();
-      } else {
-        lockStatus = { ...lockStatus, ...await lock.status() };
-        refresh();
-      }
+        for (let [id, key] of result.keys ?? []) unlockedKeys.set(id, key);
+        lockUnreadable = !1, lockStatus = { ...lockStatus, ...await lock.status(), locked: !1 }, refresh();
+        let saved = await store.meta.get(ACTIVE_META).catch(() => null);
+        saved && computers.some((c) => c.id === saved) && await connectNow(saved), await runPendingLink(), refresh();
+      } else
+        lockStatus = { ...lockStatus, ...await lock.status() }, refresh();
       return { ok: result.ok, reason: result.reason ?? null, waitSec: result.waitSec ?? 0, failures: result.failures ?? 0 };
     },
     // Locks the app now. With no lock set there is nothing to unlock with, so nothing happens: the channel stays open and Stop stays reachable
     // (F4: locking without a lock used to close the channel and leave the phone locked until it was relaunched).
     async lockNow() {
-      const status = lock ? await lock.status() : { mode: "off" };
-      if (!lock || status.mode === "off") return { ok: false, reason: "no-lock" };
-      if (channel) {
-        retireChannel(channel);
-        channel = null;
-        hello = null;
-      }
-      unlockedKeys.clear();
-      await refreshLockStop();
-      lock.lock();
-      lockStatus = { ...lockStatus, ...await lock.status(), locked: true };
-      refresh();
-      return { ok: true, reason: null };
+      let status = lock ? await lock.status() : { mode: "off" };
+      return !lock || status.mode === "off" ? { ok: !1, reason: "no-lock" } : (channel && (retireChannel(channel), channel = null, hello = null, channelState = { ...channelState, status: "closed" }), connectSeq += 1, unlockedKeys.clear(), await refreshLockStop(), lock.lock(), lockStatus = { ...lockStatus, ...await lock.status(), locked: !0 }, refresh(), { ok: !0, reason: null });
     },
     // The page went to the background or came back. The lock comes on after the time the person chose (prefs.lockAfter, five
     // minutes by default); "Immediately" locks on every return. The channel reconnects at once on return.
     async visibility(visible) {
-      if (!visible) {
-        hiddenAt = wall();
-        return refresh();
+      if (!visible)
+        return hiddenAt = wall(), refresh();
+      let away = hiddenAt == null ? null : wall() - hiddenAt;
+      if (hiddenAt = null, lock) {
+        let after = lockAfter(prefs.lockAfter).ms;
+        lockStatus.mode !== "off" && away !== null && away >= after && !lockStatus.locked && await api.lockNow();
       }
-      const away = hiddenAt == null ? null : wall() - hiddenAt;
-      hiddenAt = null;
-      if (lock) {
-        const after = lockAfter(prefs.lockAfter).ms;
-        const locked = lockStatus.mode !== "off" && away !== null && away >= after;
-        if (locked && !lockStatus.locked) await api.lockNow();
-      }
-      channel?.reconnect();
-      return refresh();
+      return channel?.reconnect(), refresh();
     },
     async runSelftest(options = {}) {
-      if (!channel) return { ok: false, passed: 0, total: 5, steps: [], reason: "not connected" };
-      selftest = { running: true };
-      refresh();
-      const report = await selftestFn({
+      if (!channel) return { ok: !1, passed: 0, total: 5, steps: [], reason: "not connected" };
+      let run = selftestFn ?? null;
+      if (!run) return { ok: !1, passed: 0, total: 5, steps: [], reason: "not in this build" };
+      selftest = { running: !0 }, refresh();
+      let report = await run({
         channel,
         log: (line) => debug.log(line),
         ...options
       });
-      selftest = { ...report, running: false };
-      if (mode === "selftest") await debug.sendToComputer(shellRequest(channel), 1).catch(() => 0);
-      refresh();
-      return report;
+      return selftest = { ...report, running: !1 }, mode === "selftest" && await debug.sendToComputer(shellRequest(channel), 1).catch(() => 0), refresh(), report;
     },
     // A link the page was opened with, a fragment the service worker posts, a native deep link or a fragment typed into the address bar:
     // a pairing link (#pair=..., plenum://pair#...), or a notification link (see push.js parseNotificationHash). While the app is locked the
     // link waits for the unlock.
-    async handleHash(hash) {
-      const text = String(hash ?? "");
-      if (pageKind === "shell" && (text === "#settings" || text === "#computers")) {
-        if (booted) await lockRead;
-        if (lockStatus.locked || lockUnreadable) {
-          pendingLink = { text, at: wall() };
-          return { ok: false, reason: "locked" };
-        }
-        screenSeq += 1;
-        screenRequest = { screen: text.slice(1), seq: screenSeq };
-        refresh();
-        return { ok: true, reason: null, kind: "screen" };
-      }
-      const connectId = pageKind === "shell" ? /^#connect=([0-9a-f]{64})$/.exec(text)?.[1] ?? null : null;
+    // computerHint (B-117) is the computer a notification came from (the service worker's message carries it apart from the fragment; a
+    // fragment may also end in &computer=<id>). Stop all, Deny and Approve act on that computer, not on whichever one is open.
+    async handleHash(hash, computerHint = "") {
+      let text = String(hash ?? "");
+      if (pageKind === "shell" && (text === "#settings" || text === "#computers"))
+        return booted && await lockRead, lockStatus.locked || lockUnreadable ? (pendingLink = { text, at: wall() }, { ok: !1, reason: "locked" }) : (screenSeq += 1, screenRequest = { screen: text.slice(1), seq: screenSeq }, refresh(), { ok: !0, reason: null, kind: "screen" });
+      let connectId = pageKind === "shell" ? /^#connect=([0-9a-f]{64})$/.exec(text)?.[1] ?? null : null;
       if (connectId) {
-        if (booted) await lockRead;
-        if (lockStatus.locked || lockUnreadable) {
-          pendingLink = { text, at: wall() };
-          return { ok: false, reason: "locked" };
-        }
-        if (!computers.some((c) => c.id === connectId)) return { ok: false, reason: "unknown", kind: "connect" };
-        forceUi = true;
-        if (channel && activeId === connectId) {
-          if (hello) afterHello();
-          return { ok: true, reason: null, kind: "connect" };
-        }
-        const opened = await connectNow(connectId);
-        if (!opened.ok) forceUi = false;
-        refresh();
-        return { ...opened, kind: "connect" };
+        if (booted && await lockRead, lockStatus.locked || lockUnreadable)
+          return pendingLink = { text, at: wall() }, { ok: !1, reason: "locked" };
+        if (!computers.some((c) => c.id === connectId)) return { ok: !1, reason: "unknown", kind: "connect" };
+        if (forceUi = !0, channel && activeId === connectId)
+          return hello && afterHello(), { ok: !0, reason: null, kind: "connect" };
+        let opened = await connectNow(connectId);
+        return opened.ok || (forceUi = !1), refresh(), { ...opened, kind: "connect" };
       }
-      const isPair = text.includes("pair=") || /^plenum:\/\/pair#/.test(text);
-      const link = parseNotificationHash(text);
-      if (!isPair && !link) return { ok: false, reason: "no link" };
-      if (booted) await lockRead;
-      if (lockStatus.locked || lockUnreadable) {
-        if (!isPair && link?.kind === "stop") return api.stop();
-        pendingLink = { text, at: wall() };
-        return { ok: false, reason: "locked" };
-      }
+      let isPair = text.includes("pair=") || /^plenum:\/\/pair#/.test(text), parsed = parseNotificationHash(text), link = parsed ? { ...parsed } : null, hinted = String(computerHint ?? "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || link?.computer || "";
+      link && delete link.computer;
+      let named = !isPair && RECORD_ID.test(hinted) && ["stop", "deny", "approve"].includes(link?.kind) ? hinted : "";
+      if (!isPair && !link) return { ok: !1, reason: "no link" };
+      if (booted && await lockRead, lockStatus.locked || lockUnreadable)
+        return !isPair && link?.kind === "stop" ? api.stop(null, named) : (pendingLink = { text, at: wall(), ...named ? { computer: named } : {} }, { ok: !1, reason: "locked" });
       if (isPair) {
-        if (pageKind === "ui" && uiHost) {
-          leaving = true;
-          await uiHost.openShell(text).catch(() => {
-          });
-          return { ok: true, reason: null, kind: "pair" };
-        }
-        const marked = /&ci-confirm=1$/.test(text);
-        const bare = marked ? text.replace(/&ci-confirm=1$/, "") : text;
+        if (pageKind === "ui" && uiHost)
+          return leaving = !0, await uiHost.openShell(text).catch(() => {
+          }), { ok: !0, reason: null, kind: "pair" };
+        let marked = /&ci-confirm=1$/.test(text), bare = marked ? text.replace(/&ci-confirm=1$/, "") : text;
         if (replay || marked && devBuild) return api.pair(bare);
         let payload;
         try {
           payload = parsePairingText(bare);
         } catch (err) {
-          pairing = { state: "failed", code: null, tried: [], reason: err?.code ?? "not-plenum" };
-          refresh();
-          return { ...pairing };
+          return pairing = { state: "failed", code: null, tried: [], reason: err?.code ?? "not-plenum" }, refresh(), { ...pairing };
         }
-        const hosts = [];
-        const addHost = (kind, url) => {
-          const host = hostLabel(url);
-          if (host && !hosts.some((h) => h.kind === kind && h.host === host)) hosts.push({ kind, host });
+        let hosts = [], addHost = (kind, url) => {
+          let host = hostLabel(url);
+          host && !hosts.some((h) => h.kind === kind && h.host === host) && hosts.push({ kind, host });
         };
-        for (const c of usableCarriers(payload.carriers)) for (const url of c.urls) addHost(c.kind, url);
-        for (const c of pageCandidates(pageUrl, payload)) if (carrierUrlOk(c.kind, c.url)) addHost(c.kind, c.url);
-        if (!hosts.length) {
-          pairing = { state: "failed", code: null, tried: [], reason: "no-carrier" };
-          refresh();
-          return { ...pairing };
-        }
-        pendingPair = { text: bare };
-        pairing = { state: "review", code: null, tried: [], reason: null, review: { name: cleanName(payload.name) || "Plenum computer", hosts } };
-        refresh();
-        return { ok: true, reason: null, kind: "review" };
+        for (let c of usableCarriers(payload.carriers)) for (let url of c.urls) addHost(c.kind, url);
+        for (let c of pageCandidates(pageUrl, payload)) carrierUrlOk(c.kind, c.url) && addHost(c.kind, c.url);
+        return hosts.length ? (pendingPair = { text: bare }, pairing = { state: "review", code: null, tried: [], reason: null, review: { name: cleanName(payload.name) || "Plenum computer", hosts } }, refresh(), { ok: !0, reason: null, kind: "review" }) : (pairing = { state: "failed", code: null, tried: [], reason: "no-carrier" }, refresh(), { ...pairing });
       }
-      if (link.kind === "stop") {
-        if (channel) return api.stop();
-        say("Nothing to stop: no computer is connected.", "warn");
-        refresh();
-        return { ok: false, reason: "not connected" };
+      if (named && !computers.some((c) => c.id === named))
+        return say(link.kind === "stop" ? UNKNOWN_COMPUTER_STOP : UNKNOWN_COMPUTER, "warn"), refresh(), { ok: !1, reason: "unknown-computer", kind: link.kind };
+      if (link.kind === "stop")
+        return named && (named !== activeId || !channel) ? api.stop(null, named) : channel ? api.stop() : (say("Nothing to stop: no computer is connected.", "warn"), refresh(), { ok: !1, reason: "not connected" });
+      if (named && (named !== activeId || !channel)) {
+        let opened = await openComputerFor(named, text.includes("&computer=") ? text : `${text}&computer=${named}`);
+        if (opened.opening) return { ok: !0, reason: null, kind: link.kind, opening: !0 };
+        if (!opened.ok)
+          return say("Could not open that computer. Open the approval to answer it.", "warn"), refresh(), { ok: !1, reason: opened.reason ?? "failed", kind: link.kind };
       }
       if (link.kind === "deny") {
-        if (!await whenConnected()) {
-          say("Not connected. Open the approval to answer it.", "warn");
-          refresh();
-          return { ok: false, reason: "offline", kind: "deny" };
-        }
-        const out = await postJson("/api/approve", { approvalId: link.id, allow: false });
-        say(out.ok ? "Denied." : "That card is no longer waiting. Open it to see what changed.", out.ok ? "ok" : "warn");
-        refresh();
-        return { ok: out.ok, reason: out.reason, kind: "deny" };
+        if (!await whenConnected())
+          return say("Not connected. Open the approval to answer it.", "warn"), refresh(), { ok: !1, reason: "offline", kind: "deny" };
+        let out = await postJson("/api/approve", { approvalId: link.id, allow: !1 });
+        return say(out.ok ? "Denied." : "That card is no longer waiting. Open it to see what changed.", out.ok ? "ok" : "warn"), refresh(), { ok: out.ok, reason: out.reason, kind: "deny" };
       }
       if (link.kind === "approve") {
-        const reachable = link.line ? await whenConnected() : Boolean(channel);
-        if (!link.line || !reachable) {
-          say(reachable ? "Open the approval to answer it." : "Not connected. Open the approval to answer it.", reachable ? "info" : "warn");
-          emitRoute({ kind: "waiting", id: link.id });
-          return { ok: false, reason: reachable ? "open-card" : "offline", kind: "approve" };
-        }
-        const out = await postJson("/api/approve", { approvalId: link.id, allow: true }, { "x-plenum-notify-line": link.line });
-        if (out.ok) {
-          say("Approved.", "ok");
-          refresh();
-          return { ok: true, reason: null, kind: "approve" };
-        }
-        if (out.status === 409 || out.status === 403) {
-          say(CARD_CHANGED, "warn");
-          emitRoute({ kind: "waiting", id: link.id });
-          return { ok: false, reason: "changed", kind: "approve" };
-        }
-        say("Could not reach your computer. Open the approval to answer it.", "warn");
-        emitRoute({ kind: "waiting", id: link.id });
-        return { ok: false, reason: out.reason, kind: "approve" };
+        let reachable = link.line ? await whenConnected() : !!channel;
+        if (!link.line || !reachable)
+          return say(reachable ? "Open the approval to answer it." : "Not connected. Open the approval to answer it.", reachable ? "info" : "warn"), emitRoute({ kind: "waiting", id: link.id }), { ok: !1, reason: reachable ? "open-card" : "offline", kind: "approve" };
+        let out = await postJson("/api/approve", { approvalId: link.id, allow: !0 }, { "x-plenum-notify-line": link.line });
+        return out.ok ? (say("Approved.", "ok"), refresh(), { ok: !0, reason: null, kind: "approve" }) : out.status === 409 || out.status === 403 ? (say(CARD_CHANGED, "warn"), emitRoute({ kind: "waiting", id: link.id }), { ok: !1, reason: "changed", kind: "approve" }) : (say("Could not reach your computer. Open the approval to answer it.", "warn"), emitRoute({ kind: "waiting", id: link.id }), { ok: !1, reason: out.reason, kind: "approve" });
       }
-      if (isRouteLink(link)) {
-        emitRoute(link);
-        return { ok: true, reason: null, kind: link.kind };
-      }
-      return { ok: false, reason: "no link" };
+      return isRouteLink(link) ? (emitRoute(link), { ok: !0, reason: null, kind: link.kind }) : { ok: !1, reason: "no link" };
     },
     // The desktop UI. On the shell page: pulls what the computer has and hands the page to it (it does that by itself after HELLO; this is for
     // "Open Plenum" on /?shell and for Try again).
     showUi,
     // The screens call this when the steps after a pairing are over (or were skipped): the page may go to the UI now.
     releaseUi() {
-      if (!holdUi) return;
-      holdUi = false;
-      if (hello) afterHello();
+      holdUi && (holdUi = !1, hello && afterHello());
     },
     // "Use the copy in this app": the UI that is already on the phone, without asking the computer.
     async useCopy() {
-      if (!uiHost) return { ok: false, reason: "unavailable" };
-      ui = { ...ui, state: "loading", cause: null };
-      refresh();
-      const out = await uiHost.useCopy();
-      if (out.ok) ui = { ...ui, state: "navigating" };
-      else ui = { state: "failed", cause: out.cause ?? "worker", progress: null, hasCopy: false };
-      refresh();
-      return { ok: out.ok, reason: out.ok ? null : out.cause };
+      if (!uiHost) return { ok: !1, reason: "unavailable" };
+      ui = { ...ui, state: "loading", cause: null }, refresh();
+      let out = await uiHost.useCopy();
+      return out.ok ? ui = { ...ui, state: "navigating" } : ui = { state: "failed", cause: out.cause ?? "worker", progress: null, hasCopy: !1 }, refresh(), { ok: out.ok, reason: out.ok ? null : out.cause };
     },
     // From the UI page back to the shell's screens (Phone settings, the computer list, pairing).
     async openShell(hash = "") {
-      if (!uiHost) return false;
-      leaving = true;
-      const done = await uiHost.openShell(hash).catch(() => false);
-      if (!done) leaving = false;
-      return done;
+      if (!uiHost) return !1;
+      leaving = !0;
+      let done = await uiHost.openShell(hash).catch(() => !1);
+      return done || (leaving = !1), done;
     },
     // The route a notification named, once: { kind, id?, project?, section?, seq } or null.
     takeRoute() {
       if (!intent || intent.taken) return null;
-      intent = { ...intent, taken: true };
-      const out = { ...intent };
-      refresh();
-      return out;
+      intent = { ...intent, taken: !0 };
+      let out = { ...intent };
+      return refresh(), out;
     },
     // Scans a pairing code with the phone's camera (native). { ok, text } or { ok: false, reason: 'denied' | 'cancelled' | 'failed' | 'unavailable' }.
     // The text is a pairing link: the caller hands it to pair().
     async scan() {
-      if (!native?.BarcodeScanner) return { ok: false, reason: "unavailable" };
-      return native.BarcodeScanner.scan();
+      return native?.BarcodeScanner ? native.BarcodeScanner.scan() : { ok: !1, reason: "unavailable" };
     },
     // Turns the dictation on the phone on or off: the plugin's start/stop. Result events go to boot.js (plenumShell.dictation).
     async dictation() {
-      await loadDictation();
-      return dictationState ? { ...dictationState } : { available: false, onDevice: false, permission: "prompt" };
+      return await loadDictation(), dictationState ? { ...dictationState } : { available: !1, onDevice: !1, permission: "prompt" };
+    },
+    // B-120: the Stop that is queued or sending, for the UI page to hand over when it leaves: { at, computer } or null.
+    pendingStop() {
+      return (stopView.state === "sending" || stopView.state === "queued") && stopPressedAt !== null ? { at: stopPressedAt, computer: stopComputer } : null;
     },
     async start() {
       if (started) return snapshot;
-      started = true;
-      const hash = String(pageUrl && pageUrl.includes("#") ? pageUrl.slice(pageUrl.indexOf("#")) : "");
-      if (hash.length > 1) {
-        clearHash();
-        pendingLink = { text: hash, at: wall() };
-      } else if (typeof initialLink === "string" && initialLink) {
-        pendingLink = { text: initialLink, at: wall() };
-      }
-      await api.boot();
-      await runPendingLink();
-      return snapshot;
+      started = !0;
+      let leftStop = mode === "normal" ? await parked.take().catch(() => null) : null, hash = String(pageUrl && pageUrl.includes("#") ? pageUrl.slice(pageUrl.indexOf("#")) : "");
+      return hash.length > 1 ? (clearHash(), pendingLink = { text: hash, at: wall() }) : typeof initialLink == "string" && initialLink && (pendingLink = { text: initialLink, at: wall() }), await api.boot(), await runPendingLink(), leftStop && await api.stop(null, leftStop.computer).catch(() => {
+      }), snapshot;
     }
   };
   return api;
 }
 function hasNativeBridge(env) {
-  return Boolean(env?.androidBridge || env?.webkit?.messageHandlers?.bridge);
+  return !!(env?.androidBridge || env?.webkit?.messageHandlers?.bridge);
 }
 function wantsNativePlugins(env) {
   return isNative(env) && hasNativeBridge(env);
 }
 async function loadNativePlugins2(env) {
-  if (!wantsNativePlugins(env)) return null;
-  const mod = await Promise.resolve().then(() => (init_native3(), native_exports3));
-  return mod.loadNativePlugins();
+  return wantsNativePlugins(env) ? (await Promise.resolve().then(() => (init_native3(), native_exports3))).loadNativePlugins() : null;
 }
 function linkOfUrl(url) {
-  const text = String(url ?? "");
-  const app = /^plenum:\/\/app\/?(?:\?[^#]*)?(#.*)$/.exec(text);
-  if (app) return app[1];
-  if (/^plenum:\/\/pair#/.test(text)) return text;
-  return null;
+  let text = String(url ?? ""), app = /^plenum:\/\/app\/?(?:\?[^#]*)?(#.*)$/.exec(text);
+  return app ? app[1] : /^plenum:\/\/pair#/.test(text) ? text : null;
 }
 function wireAppPlugin({ appPlugin, shell, env, pageKind, platform = null }) {
-  const opened = /* @__PURE__ */ new Set();
-  let launchRan = false;
-  const wanted = (link) => Boolean(link) && !(platform === "ios" && link.startsWith("#"));
-  if (appPlugin?.addListener) {
-    appPlugin.addListener("appUrlOpen", (event) => {
-      const url = String(event?.url ?? "");
-      const link = linkOfUrl(url);
-      if (!wanted(link)) return;
-      opened.add(url);
-      shell.handleHash(link).catch(() => {
-      });
-    });
-    if (pageKind === "shell") {
-      appPlugin.addListener("backButton", () => {
-        const event = typeof env?.CustomEvent === "function" ? new env.CustomEvent("plenum-back", { cancelable: true }) : null;
-        if (event && env.dispatchEvent?.(event) === false) return;
-        if (typeof appPlugin.minimizeApp === "function") appPlugin.minimizeApp();
-        else appPlugin.exitApp?.();
-      });
-    }
-  }
-  return async function afterStart() {
-    if (launchRan || !appPlugin?.getLaunchUrl) return;
-    launchRan = true;
-    try {
-      const launched = await appPlugin.getLaunchUrl();
-      const url = String(launched?.url ?? "");
-      const link = linkOfUrl(url);
-      if (wanted(link) && !opened.has(url)) shell.handleHash(link).catch(() => {
-      });
-    } catch {
+  let opened = /* @__PURE__ */ new Set(), launchRan = !1, wanted = (link) => !!link && !(platform === "ios" && link.startsWith("#"));
+  return appPlugin?.addListener && (appPlugin.addListener("appUrlOpen", (event) => {
+    let url = String(event?.url ?? ""), link = linkOfUrl(url);
+    wanted(link) && (opened.add(url), shell.handleHash(link).catch(() => {
+    }));
+  }), pageKind === "shell" && appPlugin.addListener("backButton", () => {
+    let event = typeof env?.CustomEvent == "function" ? new env.CustomEvent("plenum-back", { cancelable: !0 }) : null;
+    event && env.dispatchEvent?.(event) === !1 || (typeof appPlugin.minimizeApp == "function" ? appPlugin.minimizeApp() : appPlugin.exitApp?.());
+  })), async function() {
+    if (!(launchRan || !appPlugin?.getLaunchUrl)) {
+      launchRan = !0;
+      try {
+        let launched = await appPlugin.getLaunchUrl(), url = String(launched?.url ?? ""), link = linkOfUrl(url);
+        wanted(link) && !opened.has(url) && shell.handleHash(link).catch(() => {
+        });
+      } catch {
+      }
     }
   };
 }
 function takeAttachSlot(env) {
-  const f = env?.__plenumAttachShell;
+  let f = env?.__plenumAttachShell;
   try {
     delete env.__plenumAttachShell;
   } catch {
   }
-  return typeof f === "function" ? f : null;
+  return typeof f == "function" ? f : null;
 }
 async function startShell(env = globalThis, { loadPlugins = loadNativePlugins2, devBuild = DEV_BUILD, attach, giveCore } = {}) {
-  const ofPage = env === globalThis;
+  let ofPage = env === globalThis;
   if (ofPage) {
-    if (!takePageStart()) {
-      giveCore?.(null);
-      return null;
-    }
+    if (!takePageStart())
+      return giveCore?.(null), null;
     devBuild = DEV_BUILD;
   }
-  const give = giveCore ?? (ofPage ? giveShellCore : () => {
-  });
-  const attachFn = attach !== void 0 ? attach : ofPage ? attachShim : takeAttachSlot(env);
-  let handed = false;
+  let give = giveCore ?? (ofPage ? giveShellCore : () => {
+  }), attachFn = attach !== void 0 ? attach : ofPage ? attachShim : takeAttachSlot(env), handed = !1;
   try {
     return await runStart(env, { loadPlugins, devBuild, attach: attachFn, give: (value) => {
-      handed = true;
-      give(value);
+      handed = !0, give(value);
     } });
   } catch (error) {
-    if (!handed) give(null);
-    throw error;
+    throw handed || give(null), error;
   }
 }
 async function runStart(env, { loadPlugins, devBuild, attach, give }) {
-  let framed = false;
+  let framed = !1;
   try {
     framed = env.top !== env.self;
   } catch {
-    framed = true;
+    framed = !0;
   }
-  let sameOriginOpener = false;
+  let sameOriginOpener = !1;
   try {
-    sameOriginOpener = Boolean(env.opener) && env.opener.location.origin === env.location.origin;
+    sameOriginOpener = !!env.opener && env.opener.location.origin === env.location.origin;
   } catch {
-    sameOriginOpener = false;
+    sameOriginOpener = !1;
   }
-  if (framed || sameOriginOpener) {
-    give(null);
-    return null;
-  }
-  const { device, caps, native } = deviceFor(env);
-  const cap = env.Capacitor;
-  const pageKind = pageKindFor(env);
-  const lan = isLanPage(env);
-  const bridge = hasNativeBridge(env);
-  let plugins = null;
-  let pluginFailure = false;
-  if (native) {
+  if (framed || sameOriginOpener)
+    return give(null), null;
+  let { device, caps, native } = deviceFor(env), cap = env.Capacitor, pageKind = pageKindFor(env), lan = isLanPage(env), bridge = hasNativeBridge(env), plugins = null, pluginFailure = !1;
+  if (native)
     try {
       plugins = await loadPlugins(env);
     } catch {
-      pluginFailure = true;
+      pluginFailure = !0;
     }
-  }
-  const registered = plugins?.secureStorage ?? cap?.Plugins?.SecureStorage ?? null;
-  const secureStorage = native || bridge ? pluginFailure || bridge && (!plugins || !registered) ? NO_SECURE_STORAGE : registered : null;
-  const store = createPlatformStore({ secureStorage, indexedDB: env.indexedDB ?? null });
-  const biometricPlugin = native ? plugins?.BiometricAuth ?? cap?.Plugins?.BiometricAuth ?? null : null;
-  const lock = createLock({
+  let registered = plugins?.secureStorage ?? cap?.Plugins?.SecureStorage ?? null, secureStorage = native || bridge ? pluginFailure || bridge && (!plugins || !registered) ? NO_SECURE_STORAGE : registered : null, store = createPlatformStore({ secureStorage, indexedDB: env.indexedDB ?? null }), biometricPlugin = native ? plugins?.BiometricAuth ?? cap?.Plugins?.BiometricAuth ?? null : null, lock = createLock({
     store,
     now: () => Date.now(),
     biometric: createBiometricGate({ plugin: biometricPlugin }),
     passkey: native ? null : createPasskeyGate({ credentials: env.navigator?.credentials, PublicKeyCredentialCtor: env.PublicKeyCredential, rpId: env.location?.hostname })
-  });
-  const params = new URLSearchParams(String(env.location?.search ?? ""));
-  const mode = modeFor(env.location?.search, devBuild);
-  const stay = params.has(SHELL_QUERY);
-  const linkStore = createLinkStore(store.meta);
+  }), params = new URLSearchParams(String(env.location?.search ?? "")), mode = modeFor(env.location?.search, devBuild), stay = params.has(SHELL_QUERY), linkStore = createLinkStore(store.meta), parkedStop = createParkedStop(store.meta);
   try {
     env.sessionStorage?.removeItem(SHELL_LINK_KEY);
   } catch {
   }
-  if (!native && pageKind === "shell") registerServiceWorker(env);
-  let shell = null;
-  const kind = native ? device.platform === "android" ? "android" : "ios" : lan ? "lan" : "web";
-  const uiHost = mode === "normal" && env.location && (!native || plugins) ? createUiHost({ env, kind, native: plugins, channelOf: () => shell?.channel ?? null, log: (line) => shell?.debug.log(line, "warn"), linkStore }) : null;
-  let initialIntent = null;
+  !native && pageKind === "shell" && registerServiceWorker(env);
+  let shell = null, kind = native ? device.platform === "android" ? "android" : "ios" : lan ? "lan" : "web", uiHost = mode === "normal" && env.location && (!native || plugins) ? createUiHost({ env, kind, native: plugins, channelOf: () => shell?.channel ?? null, log: (line) => shell?.debug.log(line, "warn"), linkStore, stopHandoff: { pending: () => shell?.pendingStop?.() ?? null, park: (pending) => parkedStop.put(pending), unpark: () => parkedStop.unpark() } }) : null, initialIntent = null;
   try {
-    const saved = pageKind === "ui" ? env.sessionStorage?.getItem("plenum-intent") : null;
-    if (saved) {
-      env.sessionStorage.removeItem("plenum-intent");
-      initialIntent = JSON.parse(saved);
-    }
+    let saved = pageKind === "ui" ? env.sessionStorage?.getItem("plenum-intent") : null;
+    saved && (env.sessionStorage.removeItem("plenum-intent"), initialIntent = JSON.parse(saved));
   } catch {
     initialIntent = null;
   }
   let initialLink = null;
-  if (native && plugins && pageKind === "shell") initialLink = await linkStore.take();
-  shell = createShell({
+  native && plugins && pageKind === "shell" && (initialLink = await linkStore.take()), shell = createShell({
     store,
     lock,
     device,
@@ -6960,60 +5262,46 @@ async function runStart(env, { loadPlugins, devBuild, attach, give }) {
         env.sessionStorage?.setItem("plenum-intent", JSON.stringify(link));
       } catch {
       }
-      shell?.showUi({ force: true });
+      shell?.showUi({ force: !0 });
     },
     onReload: () => {
       env.location?.reload?.();
     },
     devBuild,
-    storage: secureStorage === NO_SECURE_STORAGE ? "unavailable" : "ok"
-  });
-  if (secureStorage === NO_SECURE_STORAGE) shell.debug.log("storage: unavailable", "warn");
-  if (devBuild) {
-    env.plenumShellCore = shell;
-    env.plenumNative = plugins;
-  }
-  attach?.(makeFacade(shell, plugins));
-  give(shell);
-  env.addEventListener?.("visibilitychange", () => {
+    storage: secureStorage === NO_SECURE_STORAGE ? "unavailable" : "ok",
+    parkedStop
+  }), secureStorage === NO_SECURE_STORAGE && shell.debug.log("storage: unavailable", "warn"), devBuild && (env.plenumShellCore = shell, env.plenumNative = plugins), attach?.(makeFacade(shell, plugins)), give(shell), env.addEventListener?.("visibilitychange", () => {
     shell.visibility(env.document?.visibilityState !== "hidden");
-  });
-  env.addEventListener?.("pagehide", () => shell.visibility(false));
-  env.addEventListener?.("hashchange", () => {
-    const hash = String(env.location?.hash ?? "");
-    if (hash.length > 1) {
-      clearAddressHash(env);
-      shell.handleHash(hash).catch(() => {
-      });
-    }
-  });
-  env.navigator?.serviceWorker?.addEventListener?.("message", (event) => {
-    const data = event?.data;
-    if (data?.op === "plenum-hash" && typeof data.hash === "string") shell.handleHash(data.hash).catch(() => {
+  }), env.addEventListener?.("pagehide", () => shell.visibility(!1)), env.addEventListener?.("hashchange", () => {
+    let hash = String(env.location?.hash ?? "");
+    hash.length > 1 && (clearAddressHash(env), shell.handleHash(hash).catch(() => {
+    }));
+  }), env.navigator?.serviceWorker?.addEventListener?.("message", (event) => {
+    let data = event?.data;
+    data?.op === "plenum-hash" && typeof data.hash == "string" && shell.handleHash(data.hash, typeof data.computer == "string" ? data.computer : "").catch(() => {
     });
   });
-  const afterStart = wireAppPlugin({ appPlugin: plugins?.App ?? null, shell, env, pageKind, platform: device.platform });
-  await shell.start();
-  await afterStart();
-  if (mode === "selftest") {
-    const report = await shell.runSelftest();
+  let afterStart = wireAppPlugin({ appPlugin: plugins?.App ?? null, shell, env, pageKind, platform: device.platform });
+  if (await shell.start(), await afterStart(), mode === "selftest") {
+    let report = await shell.runSelftest();
     shell.debug.log(`selftest ${report.passed}/${report.total}`);
   }
   return shell;
 }
-if (typeof document !== "undefined" && typeof window !== "undefined" && !globalThis.__PLENUM_SHELL_NO_AUTOSTART__) {
-  startShell(globalThis).catch((err) => {
-    giveShellCore(null);
-    console.error(String(err?.message ?? err));
-  });
-}
+typeof document < "u" && typeof window < "u" && !globalThis.__PLENUM_SHELL_NO_AUTOSTART__ && startShell(globalThis).catch((err) => {
+  giveShellCore(null), console.error(String(err?.message ?? err));
+});
 export {
   CARD_CHANGED,
   DEV_BUILD,
   NOTIFICATION_OLD,
+  STOP_NO_KEY,
+  UNKNOWN_COMPUTER,
+  UNKNOWN_COMPUTER_STOP,
   cleanName,
   clearAddressHash,
   createLinkStore,
+  createParkedStop,
   createShell,
   deviceFor,
   hasNativeBridge,

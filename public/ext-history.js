@@ -29,6 +29,8 @@
   // The project the chat shows now. A search or an export asks for it when it runs, so it follows a switch made from a
   // result.
   const activeId = () => MuseUI.state.activeProject;
+  // The thread on screen (Main when none is set, the project's id, as activeScope in app.js).
+  const activeThreadId = () => MuseUI.state.activeThread || activeId();
 
   // The turn class the chat gives a message, or null when the message draws no single turn: a build note, a council,
   // or a reply made only of tool steps. This mirrors messageNodes in app.js. If the two ever disagree, the counts in
@@ -169,7 +171,8 @@
     function resultRow(hit, q) {
       const row = MuseUI.button('ext-history-result', '');
       // Only this chat's messages are in the page, so a reply from another project is labelled without its model.
-      const here = !hit.project || hit.project.id === activeId();
+      // A hit in another thread of the project is not the message on screen either, even when the words match (C-38).
+      const here = (!hit.project || hit.project.id === activeId()) && (!hit.thread || hit.thread.id === activeThreadId());
       const msg = here ? (MuseUI.state.messages ?? [])[hit.index] : null;
       const who = hit.role === 'user' ? 'You' : ((msg?.model ? MuseUI.modelName(msg.model) : '') || 'Assistant');
       if (hit.project?.name) row.append(MuseUI.span('ext-history-project', hit.project.name));
@@ -208,11 +211,46 @@
       openHit(hit, q);
     }
 
+    // A hit in another thread of the project switches to that thread, then opens as usual. A closed thread cannot be opened, so its text
+    // is shown with a note to reopen it (C-38). The wait ends when that thread is on screen and its chat has been drawn again.
+    async function openOtherThread(hit, q) {
+      if (switching) return;
+      const id = hit.thread.id;
+      if (hit.thread.closed) {
+        status.replaceChildren(MuseUI.para(`The thread “${hit.thread.name}” is closed, so its chat is not open. Reopen it to see the message in the chat. Its text is shown here.`));
+        status.append(Object.assign(document.createElement('div'), { className: 'ext-history-full', textContent: hit.snippet }));
+        return;
+      }
+      switching = true;
+      try {
+        const drawn = MuseUI.stream();
+        await MuseUI.threads.switchTo(id);
+        const until = Date.now() + SWITCH_WAIT_MS;
+        while (!(activeThreadId() === id && MuseUI.stream() !== drawn) && Date.now() < until) {
+          await new Promise(done => setTimeout(done, SWITCH_POLL_MS));
+        }
+      } catch {
+        status.textContent = 'Plenum could not switch to that thread.';
+        return;
+      } finally {
+        switching = false;
+      }
+      if (activeThreadId() !== id) {
+        status.textContent = 'Plenum could not switch to that thread.';
+        return;
+      }
+      openHit(hit, q);
+    }
+
     // The drawer closes and the message scrolls into view, with a brief outline. When the chat does not draw that
     // message, its text is shown in the status line instead.
     function openHit(hit, q) {
       if (hit.project && hit.project.id !== activeId()) {
         openElsewhere(hit, q);
+        return;
+      }
+      if (hit.thread && hit.thread.id !== activeThreadId()) {
+        openOtherThread(hit, q);
         return;
       }
       const turn = chatTurnFor(hit, q);

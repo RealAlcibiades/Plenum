@@ -340,7 +340,9 @@
           const reason = typeof ev.reason === 'string' ? ev.reason.trim() : '';
           setStatus(view, reason ? `${nothing} Your reason: ${reason}` : nothing, '');
         } else if (ev.type === 'error') {
+          // The end callback (onEnd) gets the error too, so a rewind that stopped part way can still offer its Undo.
           ended = true;
+          last = ev;
           setStatus(view, String(ev.message || 'The change failed.'), 'bad');
         }
       });

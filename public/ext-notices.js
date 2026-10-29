@@ -26,8 +26,8 @@
   // The registry as the server answered it, or null when it could not be read. Each entry is
   // { id, rev, kind, status, feature, where, title, text, action, hidden, hiddenAt, updated }.
   let registry = null;
-  // Ids drawn or asked during this launch (this page session). A notice appears at most once per launch, and a choice made
-  // with OK or Cancel lasts until the next launch. Show again clears its id here, so the notice returns once.
+  // Ids drawn during this launch (this page session), for strips only. A strip appears at most once per launch: its OK hides it until
+  // the next launch, and Show again clears its id here, so the notice returns once. A dialog is never remembered here (decide).
   const seen = new Set();
   // The question in flight for an id. A second call for the same id waits for the same answer; it never passes through.
   const asking = new Map();
@@ -307,24 +307,25 @@
       if (opts.before || opts.after || opts.into) notice(id, opts);
       return true;
     }
-    // Don't show again, or a choice already made in this launch, lets the switch go on at once.
-    if (n.hidden || seen.has(id)) return true;
-    seen.add(id);
-    const answer = await askDialog(n);
-    if (answer === 'more') {
-      // More leaves the switch off and asks again next time, so the person can read the notice first.
-      seen.delete(id);
-      return false;
-    }
-    return answer === 'yes';
+    // Don't show again lets the switch go on at once. Otherwise a dialog is asked every time: Cancel, Escape and Turn on leave nothing
+    // behind (seen is for strips only), so the next Approve all or Apply update is asked again.
+    if (n.hidden) return true;
+    // More leaves the switch off, so the person can read the notice first (askDialog has opened Settings > Safety at it).
+    return (await askDialog(n)) === 'yes';
   }
 
-  // Resolves true when the switch may go on. It never throws: a notice that cannot be shown does not stop the caller, whose own
-  // checks still run (LEGAL notices, RULE).
+  // Resolves true when the switch may go on. It never throws: a strip that cannot be shown does not stop the caller, whose own checks
+  // still run (LEGAL notices, RULE). A dialog that cannot be shown leaves its switch off and says so, because nothing was asked (B-88).
   function risk(id, opts = {}) {
     const o = opts ?? {};
     if (asking.has(id)) return asking.get(id);
-    const answer = decide(id, o).catch(() => true).finally(() => asking.delete(id));
+    const answer = decide(id, o)
+      .catch(() => {
+        if (!DIALOG_IDS.has(id)) return true;
+        MuseUI.toast?.('That question could not be shown, so nothing was changed.', 'bad');
+        return false;
+      })
+      .finally(() => asking.delete(id));
     asking.set(id, answer);
     return answer;
   }

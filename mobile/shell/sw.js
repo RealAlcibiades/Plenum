@@ -159,6 +159,19 @@ function routeOf(value) {
   return typeof value === 'string' && ROUTE.test(value) ? value : '';
 }
 
+// The computer id a notification carries (lib/remote/push.mjs ids.computer): letters, digits, dots, dashes and underscores, 80 at most, else ''.
+function computerOf(value) {
+  return typeof value === 'string' ? value.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 80) : '';
+}
+
+// The fragment a cold start opens: an action (Stop all, Deny, Approve) names its computer after the route (parseNotificationHash reads it back).
+// Only an id the phone can match is added: the 64 hex characters a record is kept under (lib/remote/index.mjs phoneRecordId), not the short id
+// an older computer sends.
+export function withComputer(hash, computer) {
+  const id = computerOf(computer);
+  return /^[0-9a-f]{64}$/.test(id) && /^#(stop|deny=|approve=)/.test(hash) ? `${hash}&computer=${id}` : hash;
+}
+
 // The actions to show: at most `max` (what the browser allows), Stop all always kept, then Approve when the payload has it (the person
 // opted in), otherwise Deny. They keep the order the payload gave them. max 0 shows none.
 export function chooseActions(list, max) {
@@ -195,6 +208,8 @@ export async function showPush(event, env) {
       kind: text(data?.kind, 'open', 20),
       id: text(ids.approval, '', 80),
       project: text(ids.project, '', 80),
+      // B-117: the computer that sent this notification, so its Stop all, Deny and Approve reach that computer and not the one open on the phone.
+      ...(computerOf(ids.computer) ? { computer: computerOf(ids.computer) } : {}),
       tap: routeOf(data?.tap),
       line: text(data?.firstLine, '', 200),
       routes,
@@ -226,14 +241,15 @@ export async function openFromNotification(event, env) {
   event.notification?.close?.();
   const data = event.notification?.data ?? {};
   const hash = hashForClick(event.action || '', data);
+  const computer = computerOf(data.computer);
   const list = await windowClients(env.clients);
   if (list.length) {
     const client = list[0];
     if (typeof client.focus === 'function') await client.focus();
-    client.postMessage({ op: 'plenum-hash', hash });
+    client.postMessage(computer ? { op: 'plenum-hash', hash, computer } : { op: 'plenum-hash', hash });
     return 'focused';
   }
-  await env.clients.openWindow(`${env.scope ?? '/'}${hash}`);
+  await env.clients.openWindow(`${env.scope ?? '/'}${withComputer(hash, computer)}`);
   return 'opened';
 }
 

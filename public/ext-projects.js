@@ -425,7 +425,7 @@
     const relayShown = () => ({ ...RELAY_DEFAULTS, ...(view.effective.relay ?? {}) });
     const editRelay = patch => edit(s => { s.relay = { ...relayShown(), ...patch }; });
 
-    const auto = switchRow('Auto relay', 'Routes run on their own until a limit, a stop or an error. Off: nothing is passed on without you.', v => editRelay({ autoRoute: v }));
+    const auto = switchRow('Auto relay', 'Routes run on their own until a limit, a stop or an error. Off: this window will not start a route.', v => editRelay({ autoRoute: v }));
 
     // The number follows the slider as it moves. The save waits for the release, so one drag is one save.
     const range = document.createElement('input');

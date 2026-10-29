@@ -45,6 +45,12 @@
   let chain = Promise.resolve();
 
   const sizeText = n => (n >= MB ? `${(n / MB).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  // The size of a refused file: the exact bytes when the rounded size would read the same as the limit it is over (C-41). The same
+  // rule as lib/images.mjs sizeText, so the page and the server word a refusal alike.
+  const sizeFor = (n, limit) => (sizeText(n) === sizeText(limit) ? `${n.toLocaleString('en-US')} bytes` : sizeText(n));
+
+  // The first 12 bytes of a PDF, '%PDF-'. A PDF is told by its bytes as well as its name, so one without .pdf is still a PDF (C-41).
+  const startsWithPdfHead = bytes => [...'%PDF-'].every((c, i) => bytes[i] === c.charCodeAt(0));
 
   // PNG, JPEG, GIF or WebP, told by the first bytes of the file and not by its name or its type.
   function sniff(bytes) {
@@ -200,7 +206,8 @@
       bad(`"${label}" would take the message over ${sizeText(MAX_TOTAL_BYTES)} of files.`);
       return true;
     }
-    const mime = sniff(new Uint8Array(await file.slice(0, 12).arrayBuffer()));
+    const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const mime = sniff(head);
     const entry = entryFor();
     let kind = 'file';
     if (mime) {
@@ -218,13 +225,13 @@
         return true;
       }
       if (file.size > MAX_IMAGE_BYTES) {
-        bad(`"${label}" is ${sizeText(file.size)}. Images can be at most ${sizeText(MAX_IMAGE_BYTES)}.`);
+        bad(`"${label}" is ${sizeFor(file.size, MAX_IMAGE_BYTES)}. Images can be at most ${sizeText(MAX_IMAGE_BYTES)}.`);
         return true;
       }
-    } else if (PDF_NAME.test(file.name)) {
+    } else if (PDF_NAME.test(file.name) || startsWithPdfHead(head)) {
       kind = 'pdf';
       if (file.size > MAX_PDF_BYTES) {
-        bad(`"${label}" is ${sizeText(file.size)}. A PDF can be at most ${sizeText(MAX_PDF_BYTES)}.`);
+        bad(`"${label}" is ${sizeFor(file.size, MAX_PDF_BYTES)}. A PDF can be at most ${sizeText(MAX_PDF_BYTES)}.`);
         return true;
       }
     } else {
@@ -233,7 +240,7 @@
         return true;
       }
       if (file.size > MAX_TEXT_BYTES) {
-        bad(`"${label}" is ${sizeText(file.size)}. Text can be at most ${sizeText(MAX_TEXT_BYTES)}, images ${sizeText(MAX_IMAGE_BYTES)} and PDFs ${sizeText(MAX_PDF_BYTES)}.`);
+        bad(`"${label}" is ${sizeFor(file.size, MAX_TEXT_BYTES)}. Text can be at most ${sizeText(MAX_TEXT_BYTES)}, images ${sizeText(MAX_IMAGE_BYTES)} and PDFs ${sizeText(MAX_PDF_BYTES)}.`);
         return true;
       }
       if (sum(picked.filter(f => f.kind === 'file'), f => f.size) + file.size > MAX_TEXT_TOTAL) {

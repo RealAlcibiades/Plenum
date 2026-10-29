@@ -148,6 +148,7 @@ export function createUiHost({
   channelOf,
   log = () => {},
   linkStore = null,       // { put(text), take() }: where a link for the shell page waits on the apps (never web storage)
+  stopHandoff = null,     // B-120: { pending(), park(pending), unpark() }: a Stop still queued or sending here goes with the page to the shell page
   swWaitMs = SW_WAIT_MS,
   loaderFactory = createUiLoader, // the Node suites pass a fake loader
   setTimer = (fn, ms) => env.setTimeout(fn, ms),
@@ -362,19 +363,43 @@ export function createUiHost({
 
     // From the UI page back to the shell's screens. link (a pairing link, #settings, #computers, #connect=<id>) rides along: in the address on web
     // and LAN pages (the '#...' part only), in the linkStore for the apps (the shell page takes it out once, within two minutes).
+    //
+    // B-120: a Stop that is still queued or sending lives in this page's channel worker, which ends with the page. It is left in the store
+    // (the shell page sends it, if it is under a minute old) before the page goes. Only the page that is leaving does this, and it takes
+    // the note back when the page does not go.
     async openShell(link = '') {
       const text = typeof link === 'string' ? link : '';
+      let parked = false;
+      try {
+        const pending = stopHandoff?.pending?.() ?? null;
+        if (pending) {
+          await stopHandoff.park(pending);
+          parked = true;
+        }
+      } catch {
+        parked = false;
+      }
+      const unpark = async () => {
+        if (!parked) return;
+        try { await stopHandoff.unpark(); } catch { /* nothing to take back */ }
+      };
       if (kind === 'web' || kind === 'lan') {
         location().assign(`${shellUrl()}${text.startsWith('#') ? text : ''}`);
         return true;
       }
       const webView = native?.WebView;
-      if (!webView) return false;
+      if (!webView) {
+        await unpark();
+        return false;
+      }
       const base = kind === 'android' ? null : recall(SHELL_BASE_KEY);
       const switchPage = kind === 'android'
         ? (webView.setServerAssetPath ? () => webView.setServerAssetPath({ path: 'public' }) : null)
         : (base && webView.setServerBasePath ? () => webView.setServerBasePath({ path: base }) : null);
-      if (!switchPage) return false;
+      if (!switchPage) {
+        await unpark();
+        return false;
+      }
       if (text) await linkStore?.put(text);
       try {
         await switchPage();
@@ -383,6 +408,7 @@ export function createUiHost({
         if (text) {
           try { await linkStore?.take(); } catch { /* nothing to take back */ }
         }
+        await unpark();
         throw error;
       }
       return true;

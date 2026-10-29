@@ -359,7 +359,8 @@ const OTHER_ID = 'artifact-abcdefghij';
 const TYPE = 'phones-artifact-picture';
 // What the server sends: shellRequest adds its own correlation id as id, and the artifact id travels as artifact.
 const message = artifact => ({ type: TYPE, id: 'correlation-0001', artifact });
-const handlerWith = electron => createPhones({ electron, pictureWaitMs: 60, pictureTotalMs: 1500 }).messages[TYPE];
+// The platform is pinned to Windows, where the window is shown with showInactive (the tests below assert that); the Linux cases pass 'linux'.
+const handlerWith = (electron, platform = 'win32') => createPhones({ electron, platform, pictureWaitMs: 60, pictureTotalMs: 1500 }).messages[TYPE];
 
 describe('the artifact picture window (desktop handler, fake Electron API)', () => {
   test('a picture is a PNG drawn in a hidden window of its own in-memory session, and the window is destroyed afterwards', async () => {
@@ -442,6 +443,24 @@ describe('the artifact picture window (desktop handler, fake Electron API)', () 
     const reply = await handlerWith(api)(message(ID), SHELL);
     assert.equal(reply.ok, true);
     assert.equal(api.made[0].shown.length, 2);
+  });
+
+  test('on Linux the picture window is never shown, because opacity does nothing there, and the picture is still drawn (B-111)', async () => {
+    const api = fakeElectron();
+    const reply = await handlerWith(api, 'linux')(message(ID), SHELL);
+    assert.equal(reply.ok, true);
+    assert.ok(reply.png.startsWith('data:image/png;base64,'));
+    assert.equal(api.made[0].options.show, false);
+    assert.equal(api.made[0].shown.length, 0, 'no showInactive on Linux');
+    assert.equal(api.made[0].destroyedFlag, true);
+  });
+
+  test('on Linux an empty first capture is retried without showing the window', async () => {
+    const api = fakeElectron({ emptyFirst: true });
+    const reply = await handlerWith(api, 'linux')(message(ID), SHELL);
+    assert.equal(reply.ok, true);
+    assert.equal(api.made[0].captures, 2, 'captured again');
+    assert.equal(api.made[0].shown.length, 0, 'still not shown');
   });
 
   test('a picture of 2 MB or more is refused with its own sentence, and the window is destroyed', async () => {

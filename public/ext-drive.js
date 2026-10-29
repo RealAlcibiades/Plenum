@@ -1,6 +1,7 @@
-// The drive bar and the drive pill (UI-ARCH 2, 4, 7): what a model is doing with the screen or the browser, with Pause or Resume and
-// Stop for it. Loaded by ext.js and adds itself through window.MuseUI. The bar sits in the banner slot above the message box, first in
-// order, so it is the row closest to the composer; the pill sits in the title bar's drive-pill place.
+// The drive bars and the drive pills (UI-ARCH 2, 4, 7): what a model is doing with the screen or the browser, with Pause or Resume and
+// Stop for each drive. Loaded by ext.js and adds itself through window.MuseUI. The bars sit in the banner slot above the message box, first
+// in order, so the first row is the one closest to the composer; the pills sit in the title bar's drive-pill place. There is one row and
+// one pill for each live drive (the first few; see MAX_ROWS and MAX_PILLS).
 // The server is the source of truth: the state it sends (its drives and the stop key's state), GET /api/drive at load and while a
 // drive is live, and the 'drive' events on the events channel. Nothing is stored here. The model's words and the screen's text are
 // always set with textContent.
@@ -17,6 +18,11 @@
   const POLL_MS = 2000;
   const TICK_MS = 1000;
   const STOP_TIP = 'Stop the model’s control now. It writes a short report of what it did; Esc in the composer stops the reply too.';
+  // How many drives are shown. The bar has one row for each drive, up to MAX_ROWS; when there are more, its last row says how many it does
+  // not show and stops them all. The title bar gives a pill to each drive, up to MAX_PILLS; with more than that, its last pill says how
+  // many it does not show and stops them all, as the bar's last row does. So its items stay on screen at 480 px.
+  const MAX_ROWS = 3;
+  const MAX_PILLS = 2;
 
   // Live drives by id: { s: the server's summary, at: when this window received it }. A stopped drive is removed at once.
   const entries = new Map();
@@ -30,22 +36,12 @@
   let clockTimer = 0;
   let pollTimer = 0;
 
-  let bar = null;
-  let kindEl = null;
-  let kindShown = '';
-  let textEl = null;
-  let toggleBtn = null;
-  let stopBtn = null;
-  let keyEl = null;
+  // The bar rows and the title bar's pills, in the order they were made. rows[0] is the slot item 'drive-bar', the first row of the bar.
+  const rows = [];
+  const pills = [];
   let live = null;
-  let pillEl = null;
-  let pillKind = null;
-  let pillKindShown = '';
-  let pillText = null;
-  let pillDot = null;
-  let pillOpen = null;
-  let pillStop = null;
-  let barDot = null;
+  // The title bar's drive-pill place (index.html: data-slot="drivePill"), or null where the page has none.
+  let host = null;
 
   // The kind's icon, drawn here so no sprite symbol is needed. Strokes only, like the others in the sprite.
   function kindIcon(kind) {
@@ -124,11 +120,12 @@
     return { text, tone, words, low, cardWait: s.pausedBy === 'card' };
   }
 
-  // The drive the bar shows: this project's live drive, else a computer drive (it controls the whole machine).
-  function current() {
-    const list = [...entries.values()];
+  // The live drives in the order they are shown: this project's first, then the computer's, then the rest. Within a group, the order they
+  // came in. The first one is the drive the live region speaks for.
+  function ordered() {
     const active = MuseUI.state.activeProject;
-    return list.find(e => e.s.projectId === active) ?? list.find(e => e.s.kind === 'computer') ?? null;
+    const rank = e => (e.s.projectId === active ? 0 : e.s.kind === 'computer' ? 1 : 2);
+    return [...entries.values()].sort((a, b) => rank(a) - rank(b));
   }
 
   // Keeps a summary the server sent. A stopped drive leaves the list; anything malformed is ignored.
@@ -147,7 +144,7 @@
   const ariaKeys = accelerator => String(accelerator).replace(/Ctrl/g, 'Control').replace(/Super/g, 'Meta');
 
   // Says a state change, once: "The model is using Notepad.", "Paused.", "Your turn.", "Waiting for your answer.", "Stopped.". The clock
-  // is never read out.
+  // is never read out. It speaks for the first drive only.
   function announce(entry, d) {
     const key = entry ? `${entry.s.id}|${entry.s.state}|${entry.s.pausedBy ?? ''}` : '';
     if (key === shownKey) return;
@@ -160,50 +157,24 @@
   }
 
   function paint() {
-    const entry = current();
+    const list = ordered();
+    const entry = list[0] ?? null;
     const d = entry ? describe(entry) : null;
-    const paused = entry?.s.state === 'paused';
 
-    bar.hidden = !entry;
-    if (entry) {
-      bar.dataset.tone = d.tone;
-      bar.classList.toggle('low', d.low);
-      barDot.dataset.tone = d.tone;
-      if (kindShown !== entry.s.kind) {
-        kindEl.replaceChildren(kindIcon(entry.s.kind));
-        kindShown = entry.s.kind;
-      }
-      textEl.textContent = d.text;
-      toggleBtn.textContent = paused ? 'Resume' : 'Pause';
-      // A card waiting for the person is answered first; Resume would skip it, so the button waits.
-      toggleBtn.disabled = busy || d.cardWait;
-      toggleBtn.title = d.cardWait ? 'Answer the card in the chat first. Stop ends the run.' : (paused ? 'Let the model carry on' : 'Pause the model’s control');
-    }
-    // Stop is the emergency control: it is never disabled, not even while a Pause or Resume is still on its way (see act).
-    stopBtn.disabled = false;
+    // The bar: a row for each drive up to MAX_ROWS. Past that, the last row counts the drives it does not show and stops them.
+    const more = list.length > MAX_ROWS ? list.slice(MAX_ROWS - 1) : null;
+    const shown = more ? list.slice(0, MAX_ROWS - 1) : list;
+    shown.forEach((e, i) => paintRow(rowAt(i), e, null, i === 0));
+    if (more) paintRow(rowAt(shown.length), null, more, false);
+    for (let i = shown.length + (more ? 1 : 0); i < rows.length; i += 1) hideRow(rows[i]);
 
-    keyEl.hidden = !hotkey.ok;
-    keyEl.textContent = hotkey.ok ? String(hotkey.label ?? '') : '';
-    if (hotkey.ok && hotkey.accelerator) stopBtn.setAttribute('aria-keyshortcuts', ariaKeys(hotkey.accelerator));
-    else stopBtn.removeAttribute('aria-keyshortcuts');
-
-    if (pillEl) {
-      pillEl.hidden = !entry;
-      if (entry) {
-        pillEl.dataset.tone = d.tone;
-        pillEl.classList.toggle('low', d.low);
-        pillDot.dataset.tone = d.tone;
-        if (pillKindShown !== entry.s.kind) {
-          pillKind.replaceChildren(kindIcon(entry.s.kind));
-          pillKindShown = entry.s.kind;
-        }
-        pillText.textContent = d.text;
-        pillOpen.setAttribute('aria-label', entry.s.state === 'running' ? pillName(entry.s) : `${d.text}. Open the run`);
-        pillOpen.title = d.text;
-        pillStop.disabled = false;
-        pillStop.title = STOP_TIP;
-      }
-    }
+    // The title bar: a pill for each drive, up to MAX_PILLS. With more drives than that, the last pill counts the drives it does not show and
+    // stops them all, as the bar's last row does.
+    const pillMore = host && list.length > MAX_PILLS ? list.slice(MAX_PILLS - 1) : null;
+    const pillList = host ? (pillMore ? list.slice(0, MAX_PILLS - 1) : list) : [];
+    pillList.forEach((e, i) => paintPill(pillAt(i), e, null));
+    if (pillMore) paintPill(pillAt(pillList.length), null, pillMore);
+    for (let i = pillList.length + (pillMore ? 1 : 0); i < pills.length; i += 1) hidePill(pills[i]);
 
     announce(entry, d);
     manageTimers();
@@ -266,6 +237,11 @@
     }
   }
 
+  // Stop for each drive in a list, one after the other: the bar's last row stops the drives it does not show.
+  async function stopEach(list) {
+    for (const entry of list) await act(entry, '/api/drive/stop');
+  }
+
   // The name of the pill for assistive technology, while a drive runs: "A model is driving the computer: Notepad, step 12 of 80. Open the
   // run". A drive with no step limit says the step it is on, without the "of". A paused or waiting drive is named by its visible words.
   function pillName(s) {
@@ -274,78 +250,223 @@
     return `A model is driving the ${s.kind === 'browser' ? 'browser' : 'computer'}: ${label}, ${step}. Open the run`;
   }
 
-  // The pill opens the run view: the computer runs (their steps and screenshots) for a computer drive, the browser pane for a browser one.
-  function openRunView() {
-    const entry = current();
+  // The name of a drive's Stop for assistive technology: which drive it ends, so two Stop buttons do not read alike. The project is named
+  // when the drive is in another project.
+  function stopNameOf(s) {
+    const project = s.projectId !== MuseUI.state.activeProject ? projectNameOf(s.projectId) : '';
+    return `Stop the ${s.kind === 'browser' ? 'browser' : 'computer'} drive: ${s.label || KIND_NAME[s.kind]}${project ? ` in ${project}` : ''}`;
+  }
+
+  // The pill opens the run view of its drive: the computer runs (their steps and screenshots) for a computer drive, the browser pane for a
+  // browser one.
+  function openRunView(entry) {
     if (!entry) return;
     if (entry.s.kind === 'browser') MuseUI.pane?.open('browser');
     else MuseUI.openComputerRuns?.();
   }
 
-  function build() {
-    bar = document.createElement('div');
+  // One bar row: a .drivebar with its state, its Pause or Resume and its Stop. The row shows one drive, or, when it is the bar's last row
+  // and there are more drives than the bar shows, the drives it does not show (their Stop is this row's Stop).
+  function makeRow(index) {
+    const bar = document.createElement('div');
     bar.className = 'drivebar';
     bar.setAttribute('role', 'group');
     bar.setAttribute('aria-label', 'Model control');
     bar.hidden = true;
-    barDot = MuseUI.span('db-dot');
+    const barDot = MuseUI.span('db-dot');
     barDot.setAttribute('aria-hidden', 'true');
-    kindEl = MuseUI.span('db-kind');
+    const kindEl = MuseUI.span('db-kind');
     kindEl.setAttribute('aria-hidden', 'true');
-    textEl = MuseUI.span('db-text');
+    const textEl = MuseUI.span('db-text');
     const actions = MuseUI.span('db-actions');
-    toggleBtn = MuseUI.button('ghost small db-toggle', 'Pause');
-    toggleBtn.id = 'dbToggle';
-    stopBtn = MuseUI.button('ghost small db-stop', 'Stop');
-    stopBtn.id = 'dbStop';
+    const toggleBtn = MuseUI.button('ghost small db-toggle', 'Pause');
+    const stopBtn = MuseUI.button('ghost small db-stop', 'Stop');
     stopBtn.title = STOP_TIP;
-    keyEl = document.createElement('kbd');
+    // The first row keeps the ids the page's own tests use. An id is unique on the page, so the other rows have none.
+    if (index === 0) {
+      toggleBtn.id = 'dbToggle';
+      stopBtn.id = 'dbStop';
+    }
+    const keyEl = document.createElement('kbd');
     keyEl.className = 'db-key';
     keyEl.hidden = true;
     actions.append(toggleBtn, stopBtn, keyEl);
     bar.append(barDot, kindEl, textEl, actions);
 
+    const row = { bar, barDot, kindEl, kindShown: '', textEl, toggleBtn, stopBtn, keyEl, entry: null, more: null };
+    toggleBtn.addEventListener('click', () => {
+      if (row.entry) act(row.entry, row.entry.s.state === 'paused' ? '/api/drive/resume' : '/api/drive/pause');
+    });
+    stopBtn.addEventListener('click', () => {
+      if (row.more) stopEach(row.more);
+      else if (row.entry) act(row.entry, '/api/drive/stop');
+    });
+    return row;
+  }
+
+  // The row at an index, made and put in the banner slot the first time it is needed. Rows are never removed; an unused row is hidden.
+  function rowAt(index) {
+    while (rows.length <= index) {
+      const row = makeRow(rows.length);
+      MuseUI.slots.add('bannerSlot', `drive-bar-${rows.length + 1}`, row.bar, 0);
+      rows.push(row);
+    }
+    return rows[index];
+  }
+
+  // Shows a drive in a row (entry), or the drives the bar does not show (more). first is true for the row that carries the stop key's name.
+  function paintRow(row, entry, more, first) {
+    const { bar, barDot, kindEl, textEl, toggleBtn, stopBtn, keyEl } = row;
+    row.entry = entry;
+    row.more = more;
+    bar.hidden = !entry && !more;
+    if (more) {
+      const running = more.some(e => e.s.state === 'running');
+      bar.dataset.tone = running ? 'running' : 'paused';
+      bar.classList.remove('low');
+      barDot.dataset.tone = running ? 'running' : 'paused';
+      kindEl.replaceChildren();
+      row.kindShown = '';
+      textEl.textContent = `${more.length} more model ${more.length === 1 ? 'drive' : 'drives'}`;
+      toggleBtn.hidden = true;
+      stopBtn.textContent = 'Stop them';
+      stopBtn.title = 'Stop the model drives this bar does not show.';
+      stopBtn.setAttribute('aria-label', 'Stop them: the model drives this bar does not show');
+      stopBtn.disabled = false;
+      stopBtn.removeAttribute('aria-keyshortcuts');
+      keyEl.hidden = true;
+      return;
+    }
+    if (!entry) return;
+    const d = describe(entry);
+    const paused = entry.s.state === 'paused';
+    toggleBtn.hidden = false;
+    bar.dataset.tone = d.tone;
+    bar.classList.toggle('low', d.low);
+    barDot.dataset.tone = d.tone;
+    if (row.kindShown !== entry.s.kind) {
+      kindEl.replaceChildren(kindIcon(entry.s.kind));
+      row.kindShown = entry.s.kind;
+    }
+    textEl.textContent = d.text;
+    toggleBtn.textContent = paused ? 'Resume' : 'Pause';
+    // A card waiting for the person is answered first; Resume would skip it, so the button waits.
+    toggleBtn.disabled = busy || d.cardWait;
+    toggleBtn.title = d.cardWait ? 'Answer the card in the chat first. Stop ends the run.' : (paused ? 'Let the model carry on' : 'Pause the model’s control');
+    // Stop is the emergency control: it is never disabled, not even while a Pause or Resume is still on its way (see act).
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Stop';
+    stopBtn.setAttribute('aria-label', stopNameOf(entry.s));
+    stopBtn.title = STOP_TIP;
+    // The stop key's name is shown once, on the first row.
+    keyEl.hidden = !(first && hotkey.ok);
+    keyEl.textContent = first && hotkey.ok ? String(hotkey.label ?? '') : '';
+    if (first && hotkey.ok && hotkey.accelerator) stopBtn.setAttribute('aria-keyshortcuts', ariaKeys(hotkey.accelerator));
+    else stopBtn.removeAttribute('aria-keyshortcuts');
+  }
+
+  function hideRow(row) {
+    row.entry = null;
+    row.more = null;
+    row.bar.hidden = true;
+  }
+
+  // One title-bar pill: a .drive-pill in the drive-pill place, with its open part (the run view) and its own Stop beside it.
+  function makePill() {
+    const el = document.createElement('div');
+    el.className = 'drive-pill';
+    el.hidden = true;
+    const dot = MuseUI.span('db-dot');
+    dot.setAttribute('aria-hidden', 'true');
+    const kind = MuseUI.span('db-kind');
+    kind.setAttribute('aria-hidden', 'true');
+    const text = MuseUI.span('dp-text');
+    // The part of the pill that opens the run view is a button of its own. Stop is a second button beside it, never inside it.
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'dp-open';
+    open.append(dot, kind, text);
+    const stop = MuseUI.button('ghost small dp-stop', 'Stop');
+    stop.title = STOP_TIP;
+    el.append(open, stop);
+    const pill = { el, dot, kind, kindShown: '', text, open, stop, entry: null, more: null };
+    open.addEventListener('click', () => openRunView(pill.entry));
+    stop.addEventListener('click', () => {
+      if (pill.more) stopEach(pill.more);
+      else if (pill.entry) act(pill.entry, '/api/drive/stop');
+    });
+    return pill;
+  }
+
+  // The pill at an index, made and put in the title bar the first time it is needed.
+  function pillAt(index) {
+    while (pills.length <= index) {
+      const pill = makePill();
+      host.append(pill.el);
+      pills.push(pill);
+    }
+    return pills[index];
+  }
+
+  // One pill: a drive (entry), or the drives the title bar does not show (more). The "more" pill names no one drive, so its open part is
+  // off, and its Stop ends all of them.
+  function paintPill(pill, entry, more) {
+    pill.entry = entry;
+    pill.more = more;
+    pill.el.hidden = !entry && !more;
+    pill.el.classList.toggle('more', !!more);
+    if (more) {
+      const running = more.some(e => e.s.state === 'running');
+      const words = `${more.length} more model ${more.length === 1 ? 'drive' : 'drives'}`;
+      pill.el.dataset.tone = running ? 'running' : 'paused';
+      pill.el.classList.remove('low');
+      pill.dot.dataset.tone = running ? 'running' : 'paused';
+      pill.kind.replaceChildren();
+      pill.kindShown = '';
+      pill.text.textContent = words;
+      pill.open.disabled = true;
+      pill.open.title = words;
+      pill.open.setAttribute('aria-label', words);
+      pill.stop.disabled = false;
+      pill.stop.setAttribute('aria-label', `Stop the ${more.length} drives not shown`);
+      return;
+    }
+    if (!entry) return;
+    const d = describe(entry);
+    pill.el.dataset.tone = d.tone;
+    pill.el.classList.toggle('low', d.low);
+    pill.dot.dataset.tone = d.tone;
+    if (pill.kindShown !== entry.s.kind) {
+      pill.kind.replaceChildren(kindIcon(entry.s.kind));
+      pill.kindShown = entry.s.kind;
+    }
+    pill.text.textContent = d.text;
+    pill.open.disabled = false;
+    pill.open.setAttribute('aria-label', entry.s.state === 'running' ? pillName(entry.s) : `${d.text}. Open the run`);
+    pill.open.title = d.text;
+    pill.stop.disabled = false;
+    pill.stop.setAttribute('aria-label', stopNameOf(entry.s));
+  }
+
+  function hidePill(pill) {
+    pill.entry = null;
+    pill.more = null;
+    pill.el.hidden = true;
+    pill.open.removeAttribute('aria-label');
+    pill.stop.removeAttribute('aria-label');
+  }
+
+  // The bar and the live region go in the banner slot (the first row takes the slot's name, 'drive-bar'); the pills go in the title bar.
+  function build() {
+    rows.push(makeRow(0));
     // The live region is its own slot item, so it still announces while the bar is hidden (the "Stopped." after a stop).
     live = MuseUI.span('sr', '');
     live.setAttribute('aria-live', 'polite');
-    MuseUI.slots.add('bannerSlot', 'drive-bar', bar, 0);
+    MuseUI.slots.add('bannerSlot', 'drive-bar', rows[0].bar, 0);
     MuseUI.slots.add('bannerSlot', 'drive-live', live, 0);
-
-    toggleBtn.addEventListener('click', () => {
-      const entry = current();
-      if (entry) act(entry, entry.s.state === 'paused' ? '/api/drive/resume' : '/api/drive/pause');
-    });
-    stopBtn.addEventListener('click', () => {
-      const entry = current();
-      if (entry) act(entry, '/api/drive/stop');
-    });
-
-    // The pill goes in the title bar's drive-pill place (index.html: data-slot="drivePill"). It is not yet a slot name, so it is mounted
-    // there directly; the element is the shell's own.
-    const host = document.querySelector('[data-slot="drivePill"]');
-    if (host) {
-      pillEl = document.createElement('div');
-      pillEl.className = 'drive-pill';
-      pillEl.hidden = true;
-      pillDot = MuseUI.span('db-dot');
-      pillDot.setAttribute('aria-hidden', 'true');
-      pillKind = MuseUI.span('db-kind');
-      pillKind.setAttribute('aria-hidden', 'true');
-      pillText = MuseUI.span('dp-text');
-      // The part of the pill that opens the run view is a button of its own. Stop is a second button beside it, never inside it.
-      pillOpen = document.createElement('button');
-      pillOpen.type = 'button';
-      pillOpen.className = 'dp-open';
-      pillOpen.append(pillDot, pillKind, pillText);
-      pillOpen.addEventListener('click', openRunView);
-      pillStop = MuseUI.button('ghost small dp-stop', 'Stop');
-      pillEl.append(pillOpen, pillStop);
-      host.append(pillEl);
-      pillStop.addEventListener('click', () => {
-        const entry = current();
-        if (entry) act(entry, '/api/drive/stop');
-      });
-    }
+    // The pills go in the title bar's drive-pill place (index.html: data-slot="drivePill"). It is not yet a slot name, so it is mounted there
+    // directly; the element is the shell's own.
+    host = document.querySelector('[data-slot="drivePill"]');
   }
 
   build();

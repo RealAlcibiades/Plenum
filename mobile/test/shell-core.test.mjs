@@ -23,6 +23,11 @@ import { isRouteLink } from '../shell/push.js';
 import { screenFor } from '../shell/screens/route.js';
 import { runSelfTest, STEP_NAMES } from '../shell/selftest.js';
 import { deviceId, generateKeyPair, sas, pushKey } from '../../lib/remote/noise.mjs';
+import { showPush, openFromNotification } from '../shell/sw.js';
+import { buildPushText } from '../../lib/remote/push.mjs';
+import { createAndroidPush, notificationFor } from '../shell/push.js';
+import { parsePushPayload } from '../plugins/unifiedpush/src/core.js';
+import * as workerMod from '../shell/channel.worker.js';
 
 const utf8 = new TextEncoder();
 const utf8Decode = new TextDecoder();
@@ -3109,6 +3114,732 @@ describe('the console, the link store and the storage notice (SL3, SL6)', () => 
     assert.equal(await links.take(), null);
     await links.put('x'.repeat(20_000));
     assert.equal((await links.take()).length, 8192, 'capped');
+  });
+});
+
+// ----- bug hunt 0.6, the phone shell (fix06 mobile-shell): B-117, B-118, B-119, B-120, B-121, B-122, B-124, B-125, B-128, B-130, B-131 -----
+
+// A phone paired with two computers, Home PC and Work laptop. open: which one the phone has open (0 or 1). keys: whether the record holds that
+// computer's Stop key. pin: the app is locked with a PIN. shell: createShell options, or a function of the two record ids. The fake net is shared;
+// down(url) and up(url) take one computer away and bring it back.
+async function twoComputers({ keys = [true, true], open = 0, pin = false, shell: shellOptions = {} } = {}) {
+  const net = createFakeNet();
+  const accepts = new Map();
+  const listen = net.listen;
+  net.listen = (url, accept) => {
+    accepts.set(url, accept);
+    listen(url, accept);
+  };
+  const clock = createFakeClock(0);
+  const wall = createFakeClock(1_000_000);
+  const names = ['Home PC', 'Work laptop'];
+  const urls = ['ws://home-pc.local/b/key', 'ws://work-laptop.local/b/key'];
+  const desktops = names.map((name, i) => createFakeDesktop({ net, url: urls[i], name }));
+  const store = createStore({ kv: createIdbKv({ indexedDB: createFakeIndexedDB() }) });
+  const ids = [];
+  for (let i = 0; i < 2; i++) {
+    const phone = generateKeyPair();
+    desktops[i].counters.set(deviceId(phone.publicKey), 0);
+    const record = keys[i] ? recordWithStopKey(desktops[i], phone) : freshComputer(desktops[i], phone);
+    await store.put({ ...record, name: names[i] });
+    ids.push(record.id);
+  }
+  await store.meta.put('active', ids[open]);
+  const lock = pin ? createLock({ store, now: () => wall.now(), iterations: 2000 }) : null;
+  if (lock) await lock.setPin('123456');
+  const workers = [];
+  const make = fakeWorkerFactory({ net, clock, store });
+  const shell = createShell({
+    store,
+    lock,
+    createWorker: () => {
+      const worker = make();
+      workers.push(worker);
+      return worker;
+    },
+    device: { name: 'Test phone', platform: 'web', app: 'pwa', appVersion: '1', uiHash: '' },
+    caps: ['ui-from-desktop'],
+    stopClock: wall,
+    ...(typeof shellOptions === 'function' ? shellOptions(ids) : shellOptions),
+  });
+  return {
+    net, clock, wall, store, shell, lock, ids, workers, names, urls,
+    a: { id: ids[0], url: urls[0], desktop: desktops[0] },
+    b: { id: ids[1], url: urls[1], desktop: desktops[1] },
+    down: url => { net.unlisten(url); net.dropAll('away'); },
+    up: url => net.listen(url, accepts.get(url)),
+    async start() {
+      await shell.start();
+      if (!pin) await waitFor(() => shell.state().hello, 8000);
+    },
+  };
+}
+
+// The notification the computer `from` sends for an approval card, shown by the service worker and clicked there (action: 'stop', 'deny', 'approve' or '');
+// the page the click reaches runs what the worker tells it. Resolves what the page answered.
+async function clickNotification(k, from, action, { cold = null } = {}) {
+  const built = buildPushText(
+    { kind: 'approval', approvalId: 'ap-1', projectId: 'p1', projectName: 'Website', count: 1, firstLine: 'Run: npm test' },
+    { prefs: { firstLine: true }, device: { tier: 'full', approveFromNotifications: true }, computer: { id: from.id, name: 'Computer' } },
+  );
+  const shown = [];
+  await showPush({ data: { json: () => built.payload } }, { registration: { showNotification: async (title, options) => { shown.push(options); } }, maxActions: 3 });
+  const answers = [];
+  const messages = [];
+  const client = { focus: async () => {}, postMessage: msg => { messages.push(msg); answers.push(k.shell.handleHash(msg.hash, msg.computer)); } };
+  const opened = [];
+  const clients = { matchAll: async () => (cold ? [] : [client]), openWindow: async url => { opened.push(url); } };
+  await openFromNotification({ action, notification: { data: shown[0].data, close() {} } }, { clients, scope: '/' });
+  return { answers: await Promise.all(answers), messages, opened, data: shown[0].data };
+}
+
+describe('B-117: Stop all, Deny and Approve from a notification act on the computer that sent it', () => {
+  it('the service worker keeps the computer, tells the page which one, and a cold start opens the action with it (record ids only)', async () => {
+    const id = 'ab'.repeat(32);
+    const k = { shell: { handleHash: async () => ({}) } };
+    const warm = await clickNotification(k, { id }, 'stop');
+    assert.equal(warm.data.computer, id, 'the notification data names the computer');
+    assert.deepEqual(warm.messages, [{ op: 'plenum-hash', hash: '#stop', computer: id }]);
+    const cold = action => clickNotification(k, { id }, action, { cold: true }).then(r => r.opened[0]);
+    assert.equal(await cold('stop'), `/#stop&computer=${id}`);
+    assert.equal(await cold('deny'), `/#deny=ap-1&computer=${id}`);
+    assert.equal(await cold('approve'), `/#approve=ap-1&line=${encodeURIComponent('Run: npm test')}&computer=${id}`);
+    assert.equal(await cold(''), '/#waiting=ap-1', 'a tap is a place, not an action on a computer');
+    // An older computer sends its own short id: the notification keeps it, the cold start link does not carry what the phone cannot match.
+    assert.equal((await clickNotification(k, { id: 'f'.repeat(16) }, 'stop', { cold: true })).opened[0], '/#stop');
+  });
+
+  it('parseNotificationHash reads &computer=<id> after any link, and a link without it has no computer', () => {
+    const id = 'cd'.repeat(32);
+    assert.deepEqual(parseNotificationHash(`#stop&computer=${id}`), { kind: 'stop', computer: id });
+    assert.deepEqual(parseNotificationHash(`#deny=ap-1&computer=${id}`), { kind: 'deny', id: 'ap-1', computer: id });
+    assert.deepEqual(parseNotificationHash(`#approve=ap-1&line=${encodeURIComponent('Run: x')}&computer=${id}`), { kind: 'approve', id: 'ap-1', line: 'Run: x', computer: id });
+    assert.deepEqual(parseNotificationHash('#stop'), { kind: 'stop' });
+    assert.equal(parseNotificationHash(`#nothing&computer=${id}`), null);
+  });
+
+  it('Stop all from the other computer\'s notification stops that computer and only that one, and the open computer keeps its connection', async () => {
+    const k = await twoComputers();
+    await k.start();
+    const { answers } = await clickNotification(k, k.b, 'stop');
+    assert.equal(answers[0].state, 'done');
+    assert.match(answers[0].text, /Work laptop/);
+    assert.equal(k.b.desktop.stats.stopOnly.length, 1, 'Work laptop got the Stop');
+    assert.equal(k.a.desktop.stats.stopOnly.length + k.a.desktop.stats.stops, 0, 'Home PC got none');
+    assert.equal(k.shell.state().activeId, k.a.id, 'the open computer is still Home PC');
+    assert.equal(k.shell.state().connection.status, 'connected');
+  });
+
+  it('and the other way round: Home PC\'s notification while Work laptop is open', async () => {
+    const k = await twoComputers({ open: 1 });
+    await k.start();
+    assert.equal(k.shell.state().activeId, k.b.id);
+    const { answers } = await clickNotification(k, k.a, 'stop');
+    assert.equal(answers[0].state, 'done');
+    assert.equal(k.a.desktop.stats.stopOnly.length, 1);
+    assert.equal(k.b.desktop.stats.stopOnly.length + k.b.desktop.stats.stops, 0);
+  });
+
+  it('a computer whose Stop key this phone does not hold is opened and stopped on its own channel; the other computer gets nothing', async () => {
+    const k = await twoComputers({ keys: [true, false] });
+    await k.start();
+    const { answers } = await clickNotification(k, k.b, 'stop');
+    assert.equal(answers[0].state, 'done');
+    assert.equal(k.b.desktop.stats.stops, 1);
+    assert.equal(k.a.desktop.stats.stops + k.a.desktop.stats.stopOnly.length, 0);
+    assert.equal(k.shell.state().activeId, k.b.id, 'Work laptop is the open computer now');
+  });
+
+  it('Deny and Approve are answered on the computer whose card it is, with the first line, and never on the open one', async () => {
+    const k = await twoComputers();
+    await k.start();
+    const denied = await clickNotification(k, k.b, 'deny');
+    assert.equal(denied.answers[0].ok, true);
+    assert.deepEqual(k.b.desktop.stats.approvals, [{ approvalId: 'ap-1', allow: false, line: null }]);
+    assert.deepEqual(k.a.desktop.stats.approvals, []);
+    assert.equal(k.shell.state().activeId, k.b.id);
+    const approved = await clickNotification(k, k.a, 'approve');
+    assert.equal(approved.answers[0].ok, true);
+    assert.deepEqual(k.a.desktop.stats.approvals, [{ approvalId: 'ap-1', allow: true, line: 'Run: npm test' }]);
+    assert.equal(k.b.desktop.stats.approvals.length, 1, 'Work laptop heard only its own');
+  });
+
+  it('while the app is locked a Stop from the other computer still goes out at once to that computer, and a computer with no key waits for the unlock with its name kept', async () => {
+    const k = await twoComputers({ pin: true });
+    await k.start();
+    assert.equal(k.shell.state().route, 'locked');
+    const { answers } = await clickNotification(k, k.b, 'stop');
+    assert.equal(answers[0].state, 'done');
+    assert.equal(k.b.desktop.stats.stopOnly.length, 1);
+    assert.equal(k.a.desktop.stats.stopOnly.length, 0);
+    assert.equal(k.shell.state().route, 'locked', 'the lock stayed on');
+    const waiting = await twoComputers({ keys: [true, false], pin: true });
+    await waiting.start();
+    const parked = await clickNotification(waiting, waiting.b, 'stop');
+    assert.equal(parked.answers[0].reason, 'needs-unlock');
+    assert.equal(waiting.b.desktop.stats.stops + waiting.b.desktop.stats.stopOnly.length, 0);
+    assert.equal((await waiting.shell.unlock('pin', '123456')).ok, true);
+    await waitFor(() => waiting.b.desktop.stats.stops === 1, 8000);
+    assert.equal(waiting.a.desktop.stats.stops + waiting.a.desktop.stats.stopOnly.length, 0, 'the unlock sent the Stop to Work laptop, not to Home PC');
+  });
+
+  it('a cold start from the notification (the address ends in &computer=<id>) stops that computer', async () => {
+    const k = await twoComputers({ shell: ids => ({ pageUrl: `https://phone.example/#stop&computer=${ids[1]}` }) });
+    await k.start();
+    await waitFor(() => k.b.desktop.stats.stopOnly.length === 1, 8000);
+    assert.equal(k.a.desktop.stats.stopOnly.length + k.a.desktop.stats.stops, 0);
+  });
+
+  it('Android: the local notification carries the computer, and its action reaches that computer', async () => {
+    const k = await twoComputers();
+    await k.start();
+    const built = buildPushText({ kind: 'approval', approvalId: 'ap-1', projectId: 'p1', count: 1, firstLine: 'Run: npm test' }, { prefs: { firstLine: true }, device: { tier: 'full', approveFromNotifications: true }, computer: { id: k.b.id, name: 'Work laptop' } });
+    const note = notificationFor(parsePushPayload(built.payload));
+    assert.equal(note.extra.computer, k.b.id);
+    const running = [];
+    const push = createAndroidPush({ native: { UnifiedPush: {}, LocalNotifications: {} }, requestOf: () => null, onLink: (link, computer) => running.push(k.shell.handleHash(link, computer)) });
+    push.handlers.onAction({ actionId: 'stop', notification: { extra: note.extra } });
+    push.handlers.onAction({ actionId: 'tap', notification: { extra: note.extra } });
+    const [stopped] = await Promise.all(running);
+    assert.equal(stopped.state, 'done');
+    assert.equal(k.b.desktop.stats.stopOnly.length, 1);
+    assert.equal(k.a.desktop.stats.stopOnly.length, 0);
+  });
+
+  it('a computer this phone does not know is refused with its own words and nothing is sent; an older computer\'s short id acts on the open one as before', async () => {
+    const k = await twoComputers();
+    await k.start();
+    const stranger = 'ab'.repeat(32);
+    const stop = await k.shell.handleHash('#stop', stranger);
+    assert.deepEqual([stop.ok, stop.reason], [false, 'unknown-computer']);
+    assert.equal(k.shell.state().notice.text, app.UNKNOWN_COMPUTER_STOP);
+    const deny = await k.shell.handleHash('#deny=ap-1', stranger);
+    assert.deepEqual([deny.ok, deny.reason], [false, 'unknown-computer']);
+    assert.equal(k.shell.state().notice.text, app.UNKNOWN_COMPUTER);
+    const approve = await k.shell.handleHash(`#approve=ap-1&line=${encodeURIComponent('Run: npm test')}`, stranger);
+    assert.equal(approve.reason, 'unknown-computer');
+    for (const side of [k.a, k.b]) {
+      assert.equal(side.desktop.stats.stops + side.desktop.stats.stopOnly.length, 0);
+      assert.deepEqual(side.desktop.stats.approvals, []);
+    }
+    assert.equal(k.shell.state().activeId, k.a.id);
+    const legacy = await k.shell.handleHash('#stop', 'f'.repeat(16));
+    assert.equal(legacy.state, 'done');
+    assert.equal(k.a.desktop.stats.stops, 1, 'the short id names nothing the phone can match: the open computer');
+    assert.equal(k.b.desktop.stats.stops + k.b.desktop.stats.stopOnly.length, 0);
+  });
+
+  it('the UI page hands a Deny for another computer to the shell page with the computer in the link, and connects nothing itself', async () => {
+    const opened = [];
+    const uiHost = {
+      kind: 'web',
+      uiComputerId: async () => 'someone-else',
+      show: async () => ({ ok: true }),
+      refresh: async () => ({ ok: true, changed: false, reload: false }),
+      loadedHash: async () => null,
+      hasCopy: async () => false,
+      useCopy: async () => ({ ok: true }),
+      openShell: async hash => { opened.push(hash); return true; },
+    };
+    const k = await twoComputers({ shell: { pageKind: 'ui', uiHost } });
+    await k.shell.boot();
+    k.shell.state();
+    const out = await k.shell.handleHash('#deny=ap-1', k.b.id);
+    assert.equal(out.opening, true);
+    assert.deepEqual(opened.filter(h => h.startsWith('#deny')), [`#deny=ap-1&computer=${k.b.id}`]);
+    assert.equal(k.b.desktop.stats.approvals.length + k.a.desktop.stats.approvals.length, 0, 'nothing was answered on this page');
+  });
+});
+
+describe('B-119: a retired channel does not speak for the open one, and its Stop still reports', () => {
+  it('after a switch, the retired computer\'s retries leave the open computer\'s connection and HELLO alone, and its queued Stop reports when it gets through', async () => {
+    const k = await twoComputers();
+    await k.start();
+    k.down(k.a.url);
+    await settle();
+    const pressed = k.shell.stop();
+    await settle();
+    assert.equal(k.shell.state().stop.state, 'queued', 'the Stop waits for Home PC');
+    assert.equal((await k.shell.connect(k.b.id)).ok, true);
+    await waitFor(() => k.shell.state().hello?.desktopName === 'Work laptop', 8000);
+    assert.equal(k.shell.state().stop.state, 'queued', 'the new channel\'s idle Stop does not replace the one that is waiting');
+    // Home PC\'s retired channel keeps trying for a minute; none of it is the open connection.
+    await walk(k.clock, 15_000);
+    const s = k.shell.state();
+    assert.equal(s.connection.status, 'connected');
+    assert.equal(s.connection.desktopName, 'Work laptop');
+    assert.equal(s.hello?.desktopName, 'Work laptop');
+    k.up(k.a.url);
+    await walk(k.clock, 20_000);
+    assert.equal(k.a.desktop.stats.stops, 1, 'the Stop reached Home PC');
+    assert.equal(k.shell.state().connection.desktopName, 'Work laptop', 'and Home PC\'s hello did not take over the connection');
+    assert.equal(k.shell.state().stop.state, 'done');
+    assert.match(k.shell.state().notice.text, /Home PC/);
+    void pressed;
+  });
+
+  it('two connects that overlap open one channel, the later one; the earlier answers superseded and leaves no worker behind', async () => {
+    const k = await twoComputers();
+    await k.shell.boot();
+    const before = k.workers.length;
+    const [first, second] = await Promise.all([k.shell.connect(k.a.id), k.shell.connect(k.b.id)]);
+    assert.deepEqual([first.ok, first.reason], [false, 'superseded']);
+    assert.equal(second.ok, true);
+    assert.equal(k.workers.length - before, 1, 'one worker for the two calls');
+    assert.equal(k.shell.state().activeId, k.b.id);
+  });
+
+  it('lockNow marks the connection closed itself, since the retired channel no longer reports', async () => {
+    const k = await connectedShell({ withLock: true });
+    await k.shell.setPin('123456');
+    assert.equal((await k.shell.lockNow()).ok, true);
+    assert.equal(k.shell.state().connection.status, 'closed');
+  });
+});
+
+describe('B-120: a Stop that is queued on the UI page goes with the page to the shell page', () => {
+  const lanEnv = assigned => ({
+    location: { href: 'http://192.168.1.5:7300/', pathname: '/', search: '', assign: url => assigned.push(url), replace: () => {} },
+  });
+  async function leave({ waitMs = 10_000 } = {}) {
+    const net = createFakeNet();
+    const clock1 = createFakeClock(0);
+    const clock2 = createFakeClock(0);
+    const wall = createFakeClock(1_000_000);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const store = createStore({ kv: createIdbKv({ indexedDB: createFakeIndexedDB() }) });
+    await store.put(freshComputer(desktop, phone, { counter: 0 }));
+    const assigned = [];
+    const parkedStop = app.createParkedStop(store.meta, () => wall.now());
+    let ui = null;
+    const uiHost = createUiHost({
+      env: lanEnv(assigned),
+      kind: 'lan',
+      channelOf: () => ui?.channel ?? null,
+      stopHandoff: { pending: () => ui?.pendingStop?.() ?? null, park: pending => parkedStop.put(pending), unpark: () => parkedStop.unpark() },
+    });
+    ui = createShell({
+      store,
+      createWorker: fakeWorkerFactory({ net, clock: clock1, store }),
+      device: { name: 'Test phone', platform: 'web', app: 'pwa', appVersion: '1', uiHash: '' },
+      caps: ['ui-from-desktop'],
+      stopClock: wall,
+      pageKind: 'ui',
+      uiHost,
+      parkedStop,
+    });
+    desktop.killAll();
+    await ui.start();
+    const pressed = ui.stop();
+    await settle();
+    assert.equal(ui.state().stop.state, 'queued', 'the Stop waits for the computer');
+    wall.advance(waitMs);
+    await ui.openShell('#computers');
+    void pressed;
+    // The page is gone: the new page has its own worker and clock, and nothing of the old one runs.
+    const page = createShell({
+      store,
+      createWorker: fakeWorkerFactory({ net, clock: clock2, store }),
+      device: { name: 'Test phone', platform: 'web', app: 'pwa', appVersion: '1', uiHash: '' },
+      caps: ['ui-from-desktop'],
+      stopClock: wall,
+      pageUrl: 'http://192.168.1.5:7300/?shell#computers',
+      parkedStop,
+    });
+    return { desktop, store, assigned, page, clock2, wall, net };
+  }
+
+  it('the shell page sends the Stop the UI page left, to the computer it was pressed for, when it is under a minute old', async () => {
+    const k = await leave();
+    assert.deepEqual(k.assigned, ['/?shell#computers']);
+    const note = await k.store.meta.get('pending-stop');
+    assert.equal(note.computer, deviceId(k.desktop.keys.publicKey));
+    k.desktop.comeBack();
+    await k.page.start();
+    await waitFor(() => k.desktop.stats.stops === 1, 8000);
+    assert.equal(await k.store.meta.get('pending-stop'), undefined, 'the note is taken out once');
+  });
+
+  it('a Stop that is older than a minute is not sent by the next page', async () => {
+    const k = await leave({ waitMs: 61_000 });
+    k.desktop.comeBack();
+    await k.page.start();
+    await settle(50);
+    assert.equal(k.desktop.stats.stops, 0);
+    assert.equal(await k.store.meta.get('pending-stop'), undefined);
+  });
+
+  it('a UI page with no Stop pending leaves nothing behind', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const wall = createFakeClock(1_000_000);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const store = createStore({ kv: createIdbKv({ indexedDB: createFakeIndexedDB() }) });
+    await store.put(freshComputer(desktop, phone, { counter: 0 }));
+    const assigned = [];
+    const parkedStop = app.createParkedStop(store.meta, () => wall.now());
+    let ui = null;
+    const uiHost = createUiHost({ env: lanEnv(assigned), kind: 'lan', channelOf: () => ui?.channel ?? null, stopHandoff: { pending: () => ui?.pendingStop?.() ?? null, park: p => parkedStop.put(p), unpark: () => parkedStop.unpark() } });
+    ui = createShell({ store, createWorker: fakeWorkerFactory({ net, clock, store }), stopClock: wall, pageKind: 'ui', uiHost, parkedStop });
+    await ui.start();
+    await waitFor(() => ui.state().hello, 8000);
+    await ui.openShell('#settings');
+    assert.deepEqual(assigned, ['/?shell#settings']);
+    assert.equal(await store.meta.get('pending-stop'), undefined);
+  });
+});
+
+describe('B-130: a lock that cannot be read and a Stop key that cannot be read leave no promise of a Stop', () => {
+  async function unreadableLock({ withKey }) {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const store = createStore({ kv: createIdbKv({ indexedDB: createFakeIndexedDB() }) });
+    await store.put(withKey ? recordWithStopKey(desktop, phone) : freshComputer(desktop, phone));
+    const unreadable = { lockOnLaunch: async () => { throw new Error('lock record unreadable'); }, status: async () => { throw new Error('lock record unreadable'); }, lock() {}, protect: async r => r };
+    const shell = createShell({ store, lock: unreadable, createWorker: fakeWorkerFactory({ net, clock, store }), stopClock: createFakeClock(5) });
+    await shell.boot();
+    return { shell, desktop };
+  }
+
+  it('without a Stop key the phone says it cannot send Stop, parks nothing and sends nothing', async () => {
+    const k = await unreadableLock({ withKey: false });
+    assert.equal(k.shell.state().lock.mode, 'unknown');
+    assert.equal(k.shell.state().lockStop.ready, false);
+    const out = await k.shell.stop();
+    assert.equal(out.reason, 'no-key');
+    assert.equal(k.shell.state().notice.text, app.STOP_NO_KEY);
+    assert.doesNotMatch(app.STOP_NO_KEY, /Unlock/);
+    const link = await k.shell.handleHash('#stop');
+    assert.equal(link.reason, 'no-key', 'a Stop from a notification says the same');
+    assert.equal(k.desktop.stats.stopOnly.length + k.desktop.stats.stops, 0);
+  });
+
+  it('with a Stop key it still goes out, as before', async () => {
+    const k = await unreadableLock({ withKey: true });
+    assert.equal(k.shell.state().lockStop.ready, true);
+    const out = await k.shell.stop();
+    assert.equal(out.state, 'done');
+    assert.equal(k.desktop.stats.stopOnly.length, 1);
+  });
+});
+
+describe('B-121: a phone the computer does not know is shown the revoked screen, and a UI page hands over to it', () => {
+  it('not-known routes to the revoked screen on the shell page', () => {
+    const state = { computers: [{ id: 'a' }], activeId: 'a', connection: { status: 'not-known' } };
+    assert.equal(screenFor(state, {}), 'revoked');
+    assert.equal(screenFor({ ...state, connection: { status: 'reconnecting' } }, {}), 'connecting', 'a plain reconnect is still the connecting screen');
+  });
+
+  it('a UI page whose phone the computer does not know goes to the shell page, which has the screen', async () => {
+    const opened = [];
+    const uiHost = { kind: 'web', openShell: async hash => { opened.push(hash ?? ''); return true; }, uiComputerId: async () => 'any', show: async () => ({ ok: true }), refresh: async () => ({ ok: true, changed: false, reload: false }), loadedHash: async () => null, hasCopy: async () => false, useCopy: async () => ({ ok: true }) };
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    // The computer has no record of this phone (it was removed there): every try is answered 4401.
+    const store = createStore({ kv: createIdbKv({ indexedDB: createFakeIndexedDB() }) });
+    await store.put(freshComputer(desktop, phone, { counter: 0 }));
+    const shell = createShell({ store, createWorker: fakeWorkerFactory({ net, clock, store }), stopClock: createFakeClock(5), pageKind: 'ui', uiHost });
+    await shell.start();
+    await walk(clock, 10_000);
+    await waitFor(() => shell.state().connection.status === 'not-known', 8000);
+    await waitFor(() => opened.length > 0, 8000);
+    assert.deepEqual(opened, [''], 'the UI page handed over to the shell page');
+  });
+});
+
+describe('B-122: the ways HELLO lists are kept, so a way turned on after pairing is used', () => {
+  const RELAY = 'wss://relay.example/b/key';
+  it('a HELLO with ways the record does not hold gives one carriers patch, and the next round dials the learned address', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net, carriers: [{ kind: 'lan', url: 'ws://fake-pc.local/b/key' }, { kind: 'relay', url: RELAY }, { kind: 'relay', url: 'ws://insecure.example/b/key' }, { kind: 'lan', url: 'ws://8.8.8.8/b/key' }] });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone) });
+    rig.init();
+    await settle();
+    assert.equal(rig.core.phase, 'connected');
+    const patches = rig.messages.filter(m => m.op === 'patch' && m.patch.carriers);
+    assert.equal(patches.length, 1, 'one patch');
+    assert.deepEqual(patches[0].patch.carriers, [{ kind: 'lan', urls: [desktop.url] }, { kind: 'relay', urls: [RELAY] }], 'only addresses that pass the carrier rules, the record\'s own order first');
+    assert.equal(JSON.stringify(patches).includes('8.8.8.8'), false, 'a public LAN address is not learned');
+    // The computer goes away: the next rounds dial the relay address the phone learned.
+    desktop.killAll();
+    await settle();
+    await walk(clock, 5000);
+    assert.ok(rig.dials.some(d => d.url === RELAY), 'the relay address was dialled');
+    // Connecting again with the same ways sends no second patch.
+    desktop.comeBack();
+    await walk(clock, 15_000);
+    assert.equal(rig.core.phase, 'connected');
+    assert.equal(rig.messages.filter(m => m.op === 'patch' && m.patch.carriers).length, 1, 'the same ways are not patched again');
+  });
+
+  it('a HELLO that lists nothing, or only ways that fail the carrier rules, changes nothing', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net, carriers: [{ kind: 'relay', url: 'ws://insecure.example/b/key' }] });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone) });
+    rig.init();
+    await settle();
+    assert.equal(rig.messages.filter(m => m.op === 'patch' && m.patch.carriers).length, 0);
+  });
+
+  it('the shell reads the record again at HELLO, so the Ways screen shows what was learned', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net, carriers: [{ kind: 'lan', url: 'ws://fake-pc.local/b/key' }, { kind: 'relay', url: RELAY }] });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const store = createStore({ kv: createIdbKv({ indexedDB: createFakeIndexedDB() }) });
+    await store.put(freshComputer(desktop, phone));
+    const shell = createShell({ store, createWorker: fakeWorkerFactory({ net, clock, store }), stopClock: createFakeClock(5) });
+    await shell.start();
+    await waitFor(() => shell.state().hello, 8000);
+    await waitFor(() => shell.state().computers[0].carriers.some(c => c.kind === 'relay'), 8000);
+    assert.deepEqual(shell.state().computers[0].carriers.map(c => c.kind), ['lan', 'relay']);
+  });
+});
+
+describe('B-118: reconnect and Stop check a session that is up', () => {
+  const silent = ws => {
+    ws.send = () => {};
+    ws.deliver = () => {};
+  };
+  async function rigWithSockets() {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const sockets = [];
+    const Capturing = class extends net.WebSocket {
+      constructor(url) {
+        super(url);
+        sockets.push(this);
+      }
+    };
+    const rig = coreRig({ net: { WebSocket: Capturing }, clock, computer: coreComputer(desktop, phone) });
+    rig.init();
+    await settle();
+    assert.equal(rig.core.phase, 'connected');
+    return { rig, desktop, clock, sockets };
+  }
+
+  it('a session that died without a close is closed after PROBE_MS, the phone dials again at once, and the Stop pressed meanwhile is answered', async () => {
+    const { rig, desktop, clock, sockets } = await rigWithSockets();
+    clock.advance(2000);
+    await settle();
+    silent(sockets.at(-1));
+    const dialled = rig.dials.length;
+    rig.core.handle({ op: 'reconnect' });
+    rig.core.handle({ op: 'stop', sid: 3, project: null });
+    await settle();
+    assert.equal(rig.core.phase, 'connected', 'nothing says the session is dead yet');
+    for (let t = 0; t < workerMod.PROBE_MS + 1000; t += 500) {
+      clock.advance(500);
+      await settle();
+    }
+    assert.ok(rig.dials.length > dialled, 'the phone dialled again');
+    assert.ok(rig.last('stopAck')?.ack?.id, 'the Stop was answered');
+    assert.equal(desktop.stats.stops, 1, 'once, on the new session');
+    assert.equal(rig.core.phase, 'connected');
+  });
+
+  it('a healthy session answers the probe and is left alone', async () => {
+    const { rig, clock } = await rigWithSockets();
+    const dialled = rig.dials.length;
+    const session = rig.core.session;
+    rig.core.handle({ op: 'reconnect' });
+    for (let t = 0; t < workerMod.PROBE_MS + 1000; t += 500) {
+      clock.advance(500);
+      await settle();
+    }
+    assert.equal(rig.dials.length, dialled, 'no new dial');
+    assert.equal(rig.core.session, session, 'the same session');
+    assert.equal(rig.core.phase, 'connected');
+  });
+});
+
+describe('B-124: the relay\'s 4001 (the computer is not connected to it) is asleep', () => {
+  const RELAY = 'wss://relay.example/b/key';
+  // A relay with no computer behind it: it accepts the upgrade and closes the socket 4001 host-offline.
+  const sleepyRelay = (net, url) => net.listen(url, ws => {
+    ws.dropFromDesktop(4001, 'host-offline');
+    return { gone() {}, onMessage() {} };
+  });
+
+  it('every try ending in 4001 shows asleep, it stays asleep and not offline, and the phone connects once the computer is back', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const real = [];
+    const listen = net.listen;
+    net.listen = (url, accept) => {
+      real.push([url, accept]);
+      listen(url, accept);
+    };
+    const desktop = createFakeDesktop({ net, url: RELAY, carrier: 'relay' });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    net.unlisten(RELAY);
+    net.listen = listen;
+    sleepyRelay(net, RELAY);
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone, { carriers: [{ kind: 'relay', urls: [RELAY] }] }) });
+    rig.init();
+    await settle();
+    await walk(clock, 3000);
+    assert.equal(rig.core.phase, 'asleep');
+    assert.equal(rig.last('state').state.failure, 'host-offline');
+    await walk(clock, 30_000);
+    assert.equal(rig.core.phase, 'asleep', 'it stays asleep, it is not offline');
+    net.unlisten(RELAY);
+    net.listen(RELAY, real[0][1]);
+    await walk(clock, 12_000);
+    assert.equal(rig.core.phase, 'connected');
+  });
+
+  it('the LAN refused and the relay at 4001 is asleep too (LAN plus relay is the normal set of ways)', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net, url: 'ws://fake-pc.local/b/key' });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    net.unlisten('ws://fake-pc.local/b/key');
+    sleepyRelay(net, RELAY);
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone, { carriers: [{ kind: 'lan', urls: ['ws://fake-pc.local/b/key'] }, { kind: 'relay', urls: [RELAY] }] }) });
+    rig.init();
+    await settle();
+    await walk(clock, 3000);
+    assert.equal(rig.core.phase, 'asleep');
+  });
+
+  it('a session that was up and is closed with 4001 is asleep', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const sockets = [];
+    const Capturing = class extends net.WebSocket {
+      constructor(url) {
+        super(url);
+        sockets.push(this);
+      }
+    };
+    const rig = coreRig({ net: { WebSocket: Capturing }, clock, computer: coreComputer(desktop, phone) });
+    rig.init();
+    await settle();
+    assert.equal(rig.core.phase, 'connected');
+    sockets.at(-1).dropFromDesktop(4001, 'host-offline');
+    await settle();
+    assert.equal(rig.core.phase, 'asleep');
+  });
+});
+
+describe('B-125: a tier the computer changes reaches the HELLO the screens read', () => {
+  it('a tier event for this phone moves the tier and the caps in the shell\'s hello, and a later snapshot keeps them', async () => {
+    const k = await connectedShell();
+    assert.equal(k.shell.state().hello.tier, 'full');
+    for (const s of k.desktop.sessions) s.frames.event({ type: 'phone', kind: 'tier', id: k.deviceId, tier: 'read', caps: ['events', 'chat'] });
+    await waitFor(() => k.shell.state().hello.tier === 'read', 8000);
+    assert.deepEqual(k.shell.state().hello.caps, ['events', 'chat']);
+    await k.shell.setPrefs({ theme: 'dark' });
+    assert.equal(k.shell.state().hello.tier, 'read', 'a later snapshot keeps it');
+    // Another phone\'s tier is not this phone\'s.
+    for (const s of k.desktop.sessions) s.frames.event({ type: 'phone', kind: 'tier', id: 'f'.repeat(64), tier: 'approve', caps: [] });
+    await settle();
+    assert.equal(k.shell.state().hello.tier, 'read');
+  });
+});
+
+describe('B-128: web notifications and the browser\'s one subscription per address', () => {
+  it('a second computer behind the same address is told so, nothing is replaced, and turning notifications off removes only the subscription this computer made', async () => {
+    const vapidA = Buffer.from(new Uint8Array(65).fill(4)).toString('base64url');
+    const vapidB = Buffer.from(new Uint8Array(65).fill(5)).toString('base64url');
+    let held = null;
+    let unsubscribed = 0;
+    const pushManager = {
+      getSubscription: async () => held,
+      subscribe: async options => {
+        const key = new Uint8Array(options.applicationServerKey);
+        if (held && Buffer.compare(Buffer.from(held.options.applicationServerKey), Buffer.from(key)) !== 0) throw Object.assign(new Error('another key'), { name: 'InvalidStateError' });
+        if (!held) {
+          held = {
+            endpoint: `https://push.example/send/${key[0]}`,
+            options: { applicationServerKey: key.buffer },
+            toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'AAAA', auth: 'BBBB' } }; },
+            unsubscribe: async () => { held = null; unsubscribed += 1; return true; },
+          };
+        }
+        return held;
+      },
+    };
+    const registration = { pushManager };
+    const pushEnv = { isSecureContext: true, navigator: { serviceWorker: {} }, PushManager: function () {}, Notification: function () {} };
+    const shellFor = vapid => ({ notifications: { permission: 'default', requestPermission: async () => 'granted' }, pushEnv, serviceWorker: { getRegistration: async () => registration } });
+    const a = await connectedShell({ desktop: { vapidPublicKey: vapidA }, shell: shellFor(vapidA) });
+    const b = await connectedShell({ desktop: { vapidPublicKey: vapidB }, shell: shellFor(vapidB) });
+    assert.deepEqual(await a.shell.enableNotifications(), { ok: true, reason: null });
+    assert.equal((await a.store.get(a.id)).pushEndpoint, 'https://push.example/send/4', 'the computer\'s record keeps its endpoint');
+    assert.deepEqual(await b.shell.enableNotifications(), { ok: false, reason: 'other-computer' });
+    assert.equal(b.desktop.stats.pushes.filter(p => p.subscription).length, 0, 'Work\'s computer was sent nothing');
+    assert.equal(held.endpoint, 'https://push.example/send/4', 'the first computer\'s subscription is as it was');
+    // B turns notifications off (it never had them): the browser\'s subscription is A\'s and stays.
+    assert.equal((await b.shell.disableNotifications()).ok, true);
+    assert.equal(unsubscribed, 0);
+    // A turns them off: the computer drops its copy and the browser\'s subscription goes, so B can turn them on.
+    assert.equal((await a.shell.disableNotifications()).ok, true);
+    assert.equal(unsubscribed, 1);
+    assert.equal(held, null);
+    assert.equal((await a.store.get(a.id)).pushEndpoint, undefined, 'and the record forgets it');
+    assert.deepEqual(await b.shell.enableNotifications(), { ok: true, reason: null });
+  });
+
+  it('a subscription made before the endpoint was recorded goes when this computer turns notifications off, only if it was made with the key of this computer', async () => {
+    const vapidA = Buffer.from(new Uint8Array(65).fill(4)).toString('base64url');
+    const keyOf = fill => new Uint8Array(65).fill(fill).buffer;
+    for (const [madeWith, removed] of [[4, 1], [5, 0]]) {
+      let held = { endpoint: 'https://push.example/send/old', options: { applicationServerKey: keyOf(madeWith) }, unsubscribe: async () => { held = null; return true; } };
+      const registration = { pushManager: { getSubscription: async () => held } };
+      const pushEnv = { isSecureContext: true, navigator: { serviceWorker: {} }, PushManager: function () {}, Notification: function () {} };
+      const k = await connectedShell({ desktop: { vapidPublicKey: vapidA }, shell: { notifications: { permission: 'granted', requestPermission: async () => 'granted' }, pushEnv, serviceWorker: { getRegistration: async () => registration } } });
+      assert.equal((await k.store.get(k.id)).pushEndpoint, undefined, 'a record from before this version');
+      assert.equal((await k.shell.disableNotifications()).ok, true);
+      assert.equal(held === null ? 1 : 0, removed, madeWith === 4 ? 'its own key: removed' : 'the key of another computer: left alone');
+    }
+  });
+
+  it('the browser refusing with InvalidStateError is the same answer, and an unrelated failure is still failed', async () => {
+    const vapid = Buffer.from(new Uint8Array(65).fill(4)).toString('base64url');
+    const make = failure => ({ pushManager: { getSubscription: async () => null, subscribe: async () => { throw Object.assign(new Error('x'), { name: failure }); } } });
+    const pushEnv = { isSecureContext: true, navigator: { serviceWorker: {} }, PushManager: function () {}, Notification: function () {} };
+    for (const [name, reason] of [['InvalidStateError', 'other-computer'], ['AbortError', 'failed']]) {
+      const k = await connectedShell({ desktop: { vapidPublicKey: vapid }, shell: { notifications: { requestPermission: async () => 'granted' }, pushEnv, serviceWorker: { getRegistration: async () => make(name) } } });
+      assert.deepEqual(await k.shell.enableNotifications(), { ok: false, reason }, name);
+    }
+  });
+});
+
+describe('B-131: Test them now says which way a connected phone is using', () => {
+  it('while connected it does not reconnect and answers the way in use; once the computer is away it tries them', async () => {
+    const k = await connectedShell();
+    const connected = await k.shell.testWays(k.id);
+    assert.deepEqual([connected.ok, connected.reason, connected.carrier], [false, 'connected', 'lan']);
+    k.desktop.killAll();
+    await settle();
+    assert.deepEqual(await k.shell.testWays(k.id), { ok: true, reason: null });
+    assert.deepEqual(await k.shell.testWays('f'.repeat(64)), { ok: false, reason: 'offline' });
   });
 });
 

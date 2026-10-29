@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Writes THIRD-PARTY-NOTICES.txt at the project root. Every runtime package in package-lock.json
+// Writes THIRD-PARTY-NOTICES.txt at the project root. Every runtime package in package-lock.json and in mobile/package-lock.json
+// (the phone packages that ship in the app's mobile/www; a dependency missing from the phone lock is an error)
 // (the packages electron-builder ships: those without "dev": true) is listed with its licence,
 // its source and the full text of its licence files, copied from node_modules. Fixed entries cover
 // what the lock file cannot see: Electron (a dev dependency that ships in the app), Chromium (its
@@ -422,6 +423,14 @@ export function buildNotices({ root = ROOT, release = false } = {}) {
 
   const lock = readJsonIfExists(path.join(root, 'package-lock.json'));
   const pkg = readJsonIfExists(path.join(root, 'package.json'));
+  const mobileLock = readJsonIfExists(path.join(root, 'mobile', 'package-lock.json'));
+  const mobilePkg = readJsonIfExists(path.join(root, 'mobile', 'package.json'));
+  if (!mobileLock || !mobileLock.packages) err('mobile/package-lock.json is missing or has no packages list.');
+  if (!mobilePkg) err('mobile/package.json is missing.');
+  for (const dep of Object.keys((mobilePkg && mobilePkg.dependencies) || {})) {
+    const e = mobileLock && mobileLock.packages && mobileLock.packages[`node_modules/${dep}`];
+    if (!e || e.dev) releaseOnly(`${dep} is in mobile/package.json dependencies but not in mobile/package-lock.json.`);
+  }
   if (!lock || !lock.packages) {
     err('package-lock.json is missing or has no packages list.');
     return { entries: [], errors, warnings };
@@ -444,14 +453,20 @@ export function buildNotices({ root = ROOT, release = false } = {}) {
   const scannedKeys = Object.keys(lock.packages)
     .filter((k) => k.startsWith('node_modules/') && !lock.packages[k].dev)
     .filter((k) => !isExcludedFromApp(k, outOfApp));
-  const keys = [...new Set([...scannedKeys, ...Object.keys(FIXED_BY_KEY)])];
+  const phoneKeys = mobileLock && mobileLock.packages
+    ? Object.keys(mobileLock.packages)
+        .filter((k) => k.startsWith('node_modules/') && !mobileLock.packages[k].dev && !mobileLock.packages[k].link)
+        .map((k) => `mobile/${k}`)
+    : [];
+  const keys = [...new Set([...scannedKeys, ...phoneKeys, ...Object.keys(FIXED_BY_KEY)])];
   const entries = [];
 
   for (const key of keys) {
     const name = key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length);
     const dir = path.join(root, key);
     const fixed = FIXED_BY_KEY[key];
-    const lockVersion = lock.packages[key] && lock.packages[key].version;
+    const lockEntry = key.startsWith('mobile/') ? mobileLock.packages[key.slice('mobile/'.length)] : lock.packages[key];
+    const lockVersion = lockEntry && lockEntry.version;
 
     if (fixed) {
       const pj = readJsonIfExists(path.join(dir, 'package.json'));
@@ -533,8 +548,10 @@ export function buildNotices({ root = ROOT, release = false } = {}) {
     });
   }
 
-  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  return { entries, errors, warnings };
+  const seen = new Set();
+  const unique = entries.filter((e) => { const k = `${e.name}@${e.version}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  unique.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return { entries: unique, errors, warnings };
 }
 
 // The notice file as text with LF line ends. Deterministic: no dates and no machine paths.

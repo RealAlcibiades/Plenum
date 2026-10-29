@@ -2267,7 +2267,7 @@ describe('events from the server', () => {
     const settings = pusherOptions.settings();
     assert.deepEqual(settings.push, { approvals: true, finished: true, limits: true, onlyWhenAway: true, firstLine: false });
     assert.equal(settings.computer.name, 'Home PC');
-    assert.match(settings.computer.id, /^[0-9a-f]{16}$/);
+    assert.equal(settings.computer.id, noise.deviceId(bridge.desktopPublic), 'B-117: a notification names the computer by the id a phone keeps its record under');
     assert.equal(pusherOptions.presence, undefined, 'there is no window to ask under plain node');
     const before = pusherOptions.foreground(phone.id);
     await session.request('GET', '/api/state');
@@ -2484,3 +2484,128 @@ describe('changing LAN mode', () => {
 });
 
 void [freePort, startMockModel];
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Release bug hunt 06 (fix06, B-25 and B-27): a refused phone request changes nothing and starts nothing, and a phone's own view of the
+// pairing offer carries no check code. Plain node, with a real server.mjs process: the computer's token, the phones on loopback.
+
+describe('a refused phone request changes nothing (B-25)', () => {
+  let server;
+
+  before(async () => {
+    server = await startSealedServer({ name: 'refused', phones: { enabled: false } });
+  });
+  after(async () => {
+    await server?.stop();
+  });
+
+  test('a refused settings change leaves phones off, the port and the listener as they were, and an unrelated later save writes none of it', async () => {
+    const first = (await server.get('/api/phones')).body;
+    assert.equal(first.enabled, false);
+    assert.equal(first.running, false);
+    assert.equal((await server.post('/api/phones/settings', { enabled: true, port: 80 })).status, 400);
+    assert.equal((await server.post('/api/phones/settings', { enabled: true, port: 5000, autoExpireDays: -3 })).status, 400);
+    const view = (await server.get('/api/phones')).body;
+    assert.equal(view.enabled, false, 'the refused switch was not kept');
+    assert.equal(view.running, false, 'and no listener was started by the read');
+    assert.equal(view.port, first.port);
+    // A save that has nothing to do with phones writes what is in memory: the refused values must not ride along with it.
+    assert.equal((await server.post('/api/phones/lan', { anyAddress: false })).status, 200);
+    const after = (await server.get('/api/phones')).body;
+    assert.equal(after.enabled, false);
+    assert.equal(after.running, false);
+    assert.equal(after.port, first.port);
+  });
+
+  test('a refused push changes no switch and starts no listener: a subscription from the computer, a bad switch, an unknown phone', async () => {
+    const before = (await server.get('/api/phones')).body;
+    assert.equal((await server.post('/api/phones/push', { approvals: false, subscription: { endpoint: 'https://push.example.test/x' } })).status, 400);
+    assert.equal((await server.post('/api/phones/push', { approvals: false, limits: 'no' })).status, 400);
+    assert.equal((await server.post('/api/phones/push', { approvals: false, approveFromNotifications: false, id: 'no-such-phone' })).status, 404);
+    const view = (await server.get('/api/phones')).body;
+    assert.deepEqual(view.push, before.push, 'the switches are as they were');
+    assert.equal(view.running, false);
+    assert.equal(view.enabled, false);
+  });
+
+  test('a refused relay change keeps the relay off and the saved address, even after a later save', async () => {
+    assert.equal((await server.post('/api/phones/relay', { enabled: true })).status, 400, 'no address yet');
+    const pasted = await server.post('/api/phones/relay', { url: 'https://127.0.0.1:9' });
+    assert.equal(pasted.status, 200);
+    assert.equal(pasted.body.carriers.relay.on, false, 'pasting an address does not switch the relay on');
+    assert.equal((await server.post('/api/phones/relay', { url: '', enabled: true })).status, 400);
+    assert.equal((await server.post('/api/phones/lan', { anyAddress: false })).status, 200);
+    const view = (await server.get('/api/phones')).body;
+    assert.equal(view.carriers.relay.on, false);
+    assert.equal(view.carriers.relay.url, 'https://127.0.0.1:9', 'the saved address is kept');
+  });
+
+  test('removing or changing a phone that is not paired answers 404 or 400 and starts no listener', async () => {
+    assert.equal((await server.post('/api/phones/remove', { id: 'no-such-phone' })).status, 404);
+    assert.equal((await server.post('/api/phones/tier', { id: 'no-such-phone', tier: 'read' })).status, 404);
+    assert.equal((await server.post('/api/phones/tier', { id: 'no-such-phone', tier: 'boss' })).status, 400);
+    const view = (await server.get('/api/phones')).body;
+    assert.equal(view.running, false, 'the Bridge did not start for a refused remove');
+    assert.equal(view.enabled, false);
+  });
+
+  test('a test notification with phones off starts the Bridge for the test only: no listener is left running behind the switch', async () => {
+    const tested = await server.post('/api/phones/test-push', {});
+    assert.equal(tested.status, 200, JSON.stringify(tested.body));
+    assert.ok(Array.isArray(tested.body.results), 'the answer lists the results');
+    const view = (await server.get('/api/phones')).body;
+    assert.equal(view.enabled, false, 'the switch stays off');
+    assert.equal(view.running, false, 'the listener the test started is stopped again');
+  });
+});
+
+describe("a phone's own view of the pairing offer carries no check code (B-27)", () => {
+  let server;
+  let readerSession;
+  let pairing;
+
+  before(async () => {
+    server = await startSealedServer({ name: 'checkcode', phones: { enabled: true } });
+    await until(async () => (await server.get('/api/phones')).body.running, 'the Bridge to run');
+    const started = await server.post('/api/phones/pair/start');
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    const first = createPhone({ name: "Will's iPhone", platform: 'ios' });
+    const paired = await first.pair(decodeLink(started.body.link), { keepRaw: true });
+    await until(async () => (await server.get('/api/phones')).body.offer.state === 'confirm', 'the first confirm state');
+    assert.equal((await server.post('/api/phones/pair/confirm', { allow: true })).status, 200);
+    await paired.hello;
+    readerSession = paired.session;
+    const id = (await server.get('/api/phones')).body.devices[0].id;
+    assert.equal((await server.post('/api/phones/tier', { id, tier: 'read' })).status, 200);
+    await until(() => readerSession.events.some(e => e.kind === 'tier' && e.tier === 'read'), 'the read tier');
+
+    // A second phone asks to pair and waits in confirm. Only the computer may see its code; the Read-only phone above must not.
+    const next = await server.post('/api/phones/pair/start');
+    assert.equal(next.status, 200, JSON.stringify(next.body));
+    const second = createPhone({ name: 'Spare phone' });
+    pairing = await second.pair(decodeLink(next.body.link), { keepRaw: true });
+    pairing.hello.catch(() => {});
+    await until(async () => (await server.get('/api/phones')).body.offer.state === 'confirm', 'the second phone in confirm');
+  });
+  after(async () => {
+    await server?.stop();
+  });
+
+  test('a Read-only phone reads the offer without the six-digit code or the new phone; the computer still shows both', async () => {
+    const owner = (await server.get('/api/phones')).body.offer;
+    assert.equal(owner.state, 'confirm');
+    assert.equal(owner.code, pairing.code, 'the computer shows the same six digits as the new phone');
+    assert.ok(owner.device, 'the computer shows which phone is asking');
+
+    const seen = await readerSession.request('GET', '/api/phones');
+    assert.equal(seen.status, 200);
+    const offer = seen.json().offer;
+    assert.equal(offer.state, 'confirm');
+    assert.equal('code' in offer, false, 'no check code for a phone');
+    assert.equal('device' in offer, false, 'no details of the new phone for a phone');
+    assert.equal(seen.text().includes(pairing.code), false, 'the code is in no part of the answer');
+
+    assert.equal((await readerSession.request('POST', '/api/phones/pair/confirm', { body: { allow: true } })).status, 403, 'and a phone cannot answer the pairing');
+    assert.equal((await server.post('/api/phones/pair/confirm', { allow: false })).status, 200, 'the computer denies it');
+  });
+});

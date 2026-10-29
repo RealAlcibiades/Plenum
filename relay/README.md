@@ -44,7 +44,7 @@ Binary frames. Every frame from the host starts with a 4-byte big-endian connect
 
 - Phone to host: the room sends `[conn][frame]`. The host knows which phone sent it.
 - Host to phone: the host sends `[conn][frame]`. The room removes the id and sends `[frame]`, so the phone sees a plain frame.
-- Connection id 0 is control. From the host to the room: `{"op":"rotate","secretHash":"<64 hex>"}` replaces the stored host secret hash, and `{"op":"kick","conn":<id>}` closes one phone. From the room to the host: `{"op":"open","conn":<id>,"ip":"<address>"}` when a phone joins and the Worker passed its `cf-connecting-ip` (sent before the phone's first frame, and not at all when there is no address), so your computer limits handshakes per phone address instead of for all relay phones together; and `{"op":"closed","conn":<id>}` when a phone's socket has gone. Unknown or malformed control is ignored.
+- Connection id 0 is control. From the host to the room: `{"op":"rotate","secretHash":"<64 hex>"}` replaces the stored host secret hash, and `{"op":"kick","conn":<id>}` closes one phone. From the room to the host: `{"op":"open","conn":<id>,"ip":"<address>"}` when a phone joins and the Worker passed its `cf-connecting-ip` (sent before the phone's first frame, and not at all when there is no address), so your computer limits handshakes per phone address instead of for all relay phones together; and `{"op":"closed","conn":<id>}` when a phone's socket has gone, and when this room closes a phone itself for a limit (a text frame, a frame over 65536 bytes, or the rate limit), just before it closes that socket. A phone the computer kicks is not reported. Unknown or malformed control is ignored.
 - A text frame `ping` gets `pong` from the runtime without waking the room. Any other text frame closes the sender with 1003.
 
 ### Limits
@@ -57,7 +57,7 @@ Binary frames. Every frame from the host starts with a 4-byte big-endian connect
 | Phone bytes per second, per phone connection | 2 MiB (2,097,152 bytes) | 1008 `rate-limit`, for that connection only |
 | Idle room | deleted by an alarm 30 days after the last connect or disconnect, when no socket is open | none; the room's data is deleted except the stored host secret hash, so nobody else can claim the room |
 
-The two rate caps count phone frames only. A phone that uploads faster than 2 MiB a second is disconnected, so uploads must be paced below that rate. Other phones in the room are not affected. Host frames are not capped here: the desktop paces them, and a cap would cut off shell and stream transfers.
+The two rate caps count phone frames only. A phone that uploads faster than 2 MiB a second is disconnected, so uploads must be paced below that rate. The phone client paces its uploads under that limit (1.5 MiB/s, relay sessions only), so a large attachment (over about 2 MB) no longer disconnects the phone; a 32 MB attachment takes about 22 s. Other phones in the room are not affected. Host frames are not capped here: the desktop paces them, and a cap would cut off shell and stream transfers.
 
 Close codes the phone and the desktop see:
 

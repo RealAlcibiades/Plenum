@@ -5,8 +5,9 @@
 (function () {
   // Keep this order: the panels were written to load in it. ext-legal and ext-notices come first: the agreement card must be
   // ready before any panel asks the server for anything, and the notice registry must exist before a panel calls MuseUI.risk.
-  // ext-remote comes next: its title-bar chip is a floor item, so it loads with the known panels.
-  const KNOWN = ['ext-legal', 'ext-notices', 'ext-remote', 'ext-accounts-api', 'ext-openrouter', 'ext-tools', 'ext-projects', 'ext-history', 'ext-compare', 'ext-prompts', 'ext-checkpoints', 'ext-plan', 'ext-cost', 'ext-images', 'ext-pipelines', 'ext-setup'];
+  // ext-remote comes next: its title-bar chip is a floor item, so it loads with the known panels. ext-drive comes after it: the drive
+  // bar and its pill are floor items too (Stop must stay on screen), so they do not wait on the server's list either.
+  const KNOWN = ['ext-legal', 'ext-notices', 'ext-remote', 'ext-drive', 'ext-accounts-api', 'ext-openrouter', 'ext-tools', 'ext-projects', 'ext-history', 'ext-compare', 'ext-prompts', 'ext-checkpoints', 'ext-plan', 'ext-cost', 'ext-images', 'ext-pipelines', 'ext-setup'];
   // The same shape the server accepts, so a name that reaches a URL is always a plain panel name.
   const NAME = /^ext-[a-z0-9-]{1,40}$/;
 

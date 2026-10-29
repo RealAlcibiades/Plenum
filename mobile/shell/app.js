@@ -36,8 +36,7 @@ import { pageCandidates, parsePairingText, startPairing } from './pairing.js';
 import { carrierUrlOk, hostLabel, usableCarriers } from './carriers.js';
 import { createStopController, STOP_DONE_MS, STOP_NEEDS_UNLOCK } from './stop.js';
 import { createDebugLog } from './debug.js';
-import { runSelfTest } from './selftest.js';
-import { createAndroidPush, isRouteLink, parseNotificationHash, subscribeWebPush } from './push.js';
+import { createAndroidPush, dropWebPush, isRouteLink, parseNotificationHash, subscribeWebPush } from './push.js';
 import { appKindFor, capsFor, isLanPage, isNative, pageKindFor, platformFor } from './device.js';
 import { createUiHost, SHELL_LINK_KEY, SHELL_QUERY } from './ui-host.js';
 import { createReplay } from './screens/demo.js';
@@ -99,6 +98,8 @@ const STOP_RETRY_MS = 60 * 1000;   // the channel's STOP retry window (channel.j
 const APPROVE_META = 'approve';    // this phone's copy of its Approve-from-notifications switch; the computer keeps the real one
 const STOP_NOTICE = new Set(['done', 'queued', 'failed']);
 const APPROVE_OFF_META = 'approve-off-pending'; // set when the opt-out of Approve-from-notifications could not reach the computer; retried at every HELLO
+const UP_PENDING_META = 'up-pending'; // an Android UnifiedPush endpoint the computer has not accepted yet (push.js createAndroidPush pendingStore)
+const STOP_META = 'pending-stop';   // a Stop the UI page left for the shell page (createParkedStop)
 const LINK_META = 'shell-link';       // the link the UI page left for the shell page on the apps (ui-host.js openShell), in the store's meta
 const LINK_TTL_MS = 120 * 1000;
 const NOTIFICATION_LINK_MAX_AGE_MS = 60 * 1000;
@@ -109,6 +110,14 @@ const FACADE_PLUGINS = Object.freeze(['App', 'TextZoom', 'Haptics', 'Dictation',
 const INTENT_KEY = 'plenum-intent'; // sessionStorage: a notification route that arrived on the shell page, for the UI page to show
 const SW_REGISTRATION_WAIT_MS = 3000;
 export const CARD_CHANGED = 'That card changed. Open it to answer.';
+// B-117: a notification names the computer that sent it. 64 hex characters is the id this phone keeps that computer's record under (the
+// computer sends sha256 of its static public key, lib/remote/index.mjs phoneRecordId); anything else is an older computer's own short id,
+// which cannot be matched, and the link acts on the open computer as it always did.
+const RECORD_ID = /^[0-9a-f]{64}$/;
+export const UNKNOWN_COMPUTER = 'That computer is not paired on this phone. Answer it at that computer.';
+export const UNKNOWN_COMPUTER_STOP = 'That computer is not paired on this phone. Press Stop at that computer.';
+// B-130: the lock settings could not be read, so no unlock can run, and this phone has no readable Stop key to send without one.
+export const STOP_NO_KEY = 'This phone cannot read its Stop key, so it cannot send Stop from here. Press Stop on your computer.';
 
 // The page mode from its query: 'selftest' only in a dev build (the self-test answers a card), 'demo' for the replay, else 'normal'.
 export function modeFor(search, devBuild = DEV_BUILD) {
@@ -193,6 +202,31 @@ export function createLinkStore(meta, now = () => Date.now()) {
         return null;
       }
       return kept && typeof kept.text === 'string' && typeof kept.at === 'number' && now() - kept.at < LINK_TTL_MS ? kept.text : null;
+    },
+  };
+}
+
+// B-120: a Stop that was still queued or sending on the UI page when it handed the page to the shell page. The channel worker that held it ends
+// with the page, so the page leaves a note in the store's meta ({ at, computer }) and the shell page sends the Stop again if the note is under a
+// minute old (STOP_RETRY_MS, the window a Stop is retried for). The note is taken out once; a Stop is safe to send twice.
+export function createParkedStop(meta, now = () => Date.now()) {
+  return {
+    async put(pending) {
+      await meta.put(STOP_META, { at: Number(pending?.at) || now(), computer: String(pending?.computer ?? '').slice(0, 80) });
+    },
+    async unpark() {
+      await meta.remove(STOP_META);
+    },
+    async take() {
+      let kept = null;
+      try {
+        kept = await meta.get(STOP_META);
+        if (kept !== undefined && kept !== null) await meta.remove(STOP_META);
+      } catch {
+        return null;
+      }
+      const age = kept && typeof kept.at === 'number' ? now() - kept.at : Infinity;
+      return age >= 0 && age < STOP_RETRY_MS ? { at: kept.at, computer: typeof kept.computer === 'string' ? kept.computer : '' } : null;
     },
   };
 }
@@ -316,7 +350,7 @@ export function createShell({
   pageUrl = null,
   mode = 'normal',
   debug = createDebugLog(),
-  selftestFn = runSelfTest,
+  selftestFn = null, // the dev build loads ./selftest.js on first use; a release bundle never imports it
   stopClock = globalThis,
   onFatal = () => {},
   notifications = globalThis.Notification ?? null,
@@ -333,6 +367,7 @@ export function createShell({
   onReload = () => {},
   devBuild = DEV_BUILD,
   storage = 'ok',
+  parkedStop = null,
 } = {}) {
   if (!store) throw new TypeError('createShell needs a store');
   let computers = [];
@@ -363,6 +398,7 @@ export function createShell({
   // Whether a Stop can go out without unlocking: the computer a Stop would go to has a Stop key on this phone (plan C6d).
   let lockStop = { ready: false, computerName: '' };
   let lockedCtl = null;
+  let lockedFor = null;   // the id of the computer lockedCtl sends to
   let selftest = null;
   let booted = false;
   // Resolves once boot has read the lock. A link that arrives while the app is starting waits for it, so a locked app never runs it early;
@@ -396,13 +432,27 @@ export function createShell({
   const unlockedKeys = new Map();
   const subs = new Set();
   const wall = () => (typeof stopClock?.now === 'function' ? stopClock.now() : Date.now());
+  const parked = parkedStop ?? createParkedStop(store.meta, wall);
+  // B-120: when the Stop that is queued or sending was pressed, and for which computer. The UI page hands this over when it leaves.
+  let stopPressedAt = null;
+  let stopComputer = '';
+  function notePress(id) {
+    if (stopView.state === 'sending' || stopView.state === 'queued') return;
+    stopPressedAt = wall();
+    stopComputer = id ?? '';
+  }
   const androidPush = native && device.platform === 'android' && native.UnifiedPush
     ? createAndroidPush({
       native,
       requestOf: () => channel?.request,
       vapidOf: () => (typeof hello?.vapidPublicKey === 'string' ? hello.vapidPublicKey : null),
       isVisible: () => pushEnv?.document?.visibilityState !== 'hidden',
-      onLink: link => { api.handleHash(link).catch(() => {}); },
+      onLink: (link, computer) => { api.handleHash(link, computer).catch(() => {}); },
+      pendingStore: {
+        load: () => store.meta.get(UP_PENDING_META),
+        save: body => store.meta.put(UP_PENDING_META, body),
+        clear: () => store.meta.remove(UP_PENDING_META),
+      },
       log: line => debug.log(line, 'warn'),
     })
     : null;
@@ -525,23 +575,51 @@ export function createShell({
     refresh();
   }
 
+  // B-119: a Stop still queued or sending on the channel being left keeps its controller, so its result (done or failed) still reaches the
+  // sheet and the toast; the new controller's first view (idle) must not replace that pending Stop. A controller that is no longer the
+  // current one reports only the result of its own press and the idle that follows it, not its progress.
+  let stopOwner = null;
   function bindStop(ch, name) {
-    stopCtl?.dispose();
-    stopCtl = createStopController({ channel: ch, clock: stopClock, computerName: name });
-    stopCtl.subscribe(applyStopView);
+    const busy = stopCtl?.state === 'sending' || stopCtl?.state === 'queued';
+    if (!busy) stopCtl?.dispose();
+    const ctl = createStopController({ channel: ch, clock: stopClock, computerName: name });
+    stopCtl = ctl;
+    let first = true;
+    ctl.subscribe(view => {
+      if (first) {
+        first = false;
+        if (busy) return;
+      }
+      if (stopCtl !== ctl && view.state !== 'done' && view.state !== 'failed' && !(view.state === 'idle' && stopOwner === ctl)) return;
+      if (view.state === 'done' || view.state === 'failed') stopOwner = ctl;
+      applyStopView(view);
+    });
   }
 
   // Stop while the app is locked (or its lock could not be read): when this phone holds the computer's Stop key, one signed STOP_ONLY goes out on
   // its own worker (channel.js sendLockedStop) and the result shows as for a live Stop. Otherwise the Stop waits for the unlock.
-  async function lockedStop(project) {
-    if (lockedCtl && (stopView.state === 'sending' || stopView.state === 'queued')) return lockedCtl.press(project);
-    const target = await lockStopTarget().catch(() => null);
+  // computerId (B-117) names the computer a notification came from; '' is the one a Stop would go to anyway (lockStopTarget).
+  async function lockedStop(project, computerId = '') {
+    if (lockedCtl && (stopView.state === 'sending' || stopView.state === 'queued') && (!computerId || computerId === lockedFor)) return lockedCtl.press(project);
+    const target = computerId ? await store.get(computerId).catch(() => null) : await lockStopTarget().catch(() => null);
+    if (computerId && !target) {
+      say(UNKNOWN_COMPUTER_STOP, 'warn');
+      refresh();
+      return { ...stopView, state: 'idle', reason: 'unknown-computer' };
+    }
     if (!target || publicComputer(target)?.stopReady !== true) {
+      // B-130: with the lock settings unreadable nothing can unlock, so the Stop does not wait for an unlock that cannot come.
+      if (lockUnreadable) {
+        say(STOP_NO_KEY, 'warn');
+        refresh();
+        return { ...stopView, state: 'idle', reason: 'no-key' };
+      }
       say(STOP_NEEDS_UNLOCK, 'warn');
-      pendingLink = { text: '#stop', at: wall() };
+      pendingLink = { text: '#stop', at: wall(), ...(computerId ? { computer: computerId } : {}) };
       refresh();
       return { ...stopView, state: 'idle', reason: 'needs-unlock' };
     }
+    lockedFor = target.id;
     const listeners = new Set();
     const viaLockedWorker = {
       stop: () => sendLockedStop({ record: target, store, createWorker, onStopState: view => { for (const fn of Array.from(listeners)) fn(view); } }),
@@ -553,15 +631,56 @@ export function createShell({
     lockedCtl?.dispose();
     lockedCtl = createStopController({ channel: viaLockedWorker, clock: stopClock, computerName: String(target.name ?? '') });
     lockedCtl.subscribe(applyStopView);
+    notePress(target.id);
     const out = await lockedCtl.press(project);
     refresh();
     return out;
   }
 
+  // B-117: a notification answer for a computer that is not the open one. The open computer keeps its channel when it can: a Stop goes out as
+  // a signed STOP_ONLY when this phone holds the named computer's Stop key; otherwise (and for Deny and Approve) that computer is opened. On
+  // the UI page, whose UI belongs to one computer, the link goes to the shell page, which opens it (the same rule as connect()).
+  async function openComputerFor(id, link) {
+    if (pageKind === 'ui' && uiHost) {
+      const uiFor = await uiComputerOf();
+      if (uiFor !== 'any' && uiFor !== id) {
+        leaving = true;
+        const done = await uiHost.openShell(link).catch(() => false);
+        if (!done) leaving = false;
+        return done ? { ok: true, reason: null, opening: true } : { ok: false, reason: 'unavailable' };
+      }
+    }
+    const opened = await connectNow(id);
+    refresh();
+    return opened;
+  }
+
+  async function stopOn(id, project = null) {
+    const record = await store.get(id).catch(() => null);
+    if (!record) {
+      say(UNKNOWN_COMPUTER_STOP, 'warn');
+      refresh();
+      return { ...stopView, state: 'idle', reason: 'unknown-computer' };
+    }
+    if (publicComputer(record)?.stopReady === true) return lockedStop(project, id);
+    const opened = await openComputerFor(id, `#stop&computer=${id}`);
+    if (opened.opening) return { ...stopView, state: 'idle', reason: 'opening' };
+    if (!opened.ok) {
+      say('Could not open that computer to stop it. Press Stop on that computer.', 'warn');
+      refresh();
+      return { ...stopView, state: 'idle', reason: opened.reason ?? 'failed' };
+    }
+    return api.stop(project);
+  }
+
   function attachChannel(ch, name) {
     channel = ch;
     bindStop(ch, name);
+    // B-119: only the channel in use feeds the shell's state. A retired channel (kept open for a queued Stop) must not overwrite the live
+    // connection, the HELLO or the events of the computer the phone has moved to.
+    const live = () => channel === ch;
     ch.onState(s => {
+      if (!live()) return;
       channelState = { ...s };
       if (s.status !== 'connected') {
         hello = null;
@@ -569,15 +688,29 @@ export function createShell({
       refresh();
     });
     ch.onEvent(event => {
+      if (!live()) return;
       if (event && event.type === 'phone' && event.kind === 'revoked') refresh();
+      // B-125: a tier the computer lowered (or raised) while the phone is connected changes what the HELLO said, caps included, so a later
+      // snapshot does not bring the old controls back.
+      if (event && event.type === 'phone' && event.kind === 'tier' && hello && typeof event.tier === 'string' && (!hello.deviceId || event.id === hello.deviceId)) {
+        hello = { ...hello, tier: event.tier, ...(Array.isArray(event.caps) ? { caps: event.caps.filter(c => typeof c === 'string') } : {}) };
+        refresh();
+      }
     });
     ch.onHello(h => {
+      if (!live()) return;
       hello = h;
       refresh();
       loadPush();
       retryApproveOff();
       // A Stop key the computer just gave this phone (HELLO stopKeyNew) is in the store by now: the lock screen can send Stop without the unlock.
-      refreshLockStop().then(refresh);
+      // The ways the HELLO listed (B-122) are in the record too: the list is read again, so the Ways screen shows them.
+      (Array.isArray(h?.carriers) ? loadComputers() : refreshLockStop()).then(refresh).catch(() => {});
+      // B-129: an Android endpoint the computer did not get is sent now that there is a channel.
+      androidPush?.resend().then(async () => {
+        androidPushState = await androidPush.state();
+        refresh();
+      }).catch(() => {});
       afterHello();
     });
     refresh();
@@ -619,7 +752,7 @@ export function createShell({
     if (lockStatus.locked || lockUnreadable) {
       if (parsed?.kind !== 'stop') return null;
       pendingLink = null;
-      return api.stop();
+      return api.stop(null, link.computer ?? parsed.computer ?? '');
     }
     pendingLink = null;
     // An approval or a denial that waited behind the lock for more than a minute is not sent: the person answers it from the open card.
@@ -628,7 +761,7 @@ export function createShell({
       emitRoute({ kind: 'waiting', id: parsed.id });
       return { ok: false, reason: 'expired', kind: parsed.kind };
     }
-    return api.handleHash(link.text);
+    return api.handleHash(link.text, link.computer ?? '');
   }
 
   // Approve-from-notifications was on when the lock went off but the computer was not told (offline, or it refused): the opt-out is sent at the next HELLO.
@@ -643,7 +776,11 @@ export function createShell({
     refresh();
   }
 
+  // B-119 (and B-127): a connect that is still reading the store when another starts, or when the person cancels, locks or forgets, is superseded
+  // and opens nothing, so two overlapping connects never leave a worker nobody closes.
+  let connectSeq = 0;
   async function connectNow(id) {
+    const seq = ++connectSeq;
     const record = await store.get(id);
     if (!record) return { ok: false, reason: 'unknown' };
     const keyed = keyedRecord(record);
@@ -656,6 +793,7 @@ export function createShell({
     activeId = id;
     await store.meta.put(ACTIVE_META, id).catch(() => {});
     await refreshLockStop();
+    if (seq !== connectSeq) return { ok: false, reason: 'superseded' };
     const ch = openChannel({
       computer: keyed,
       store,
@@ -811,7 +949,7 @@ export function createShell({
   function leaveForShellIfNeeded() {
     if (pageKind !== 'ui' || !uiHost || leaving || !loaded || mode !== 'normal') return;
     const status = channelState.status;
-    const needs = computers.length === 0 || ['revoked', 'update-app', 'update-desktop'].includes(status);
+    const needs = computers.length === 0 || ['revoked', 'not-known', 'update-app', 'update-desktop'].includes(status);
     if (!needs) return;
     leaving = true;
     Promise.resolve(uiHost.openShell()).catch(() => { leaving = false; });
@@ -969,7 +1107,7 @@ export function createShell({
       return result;
     },
 
-    async stop(project = null) {
+    async stop(project = null, computer = '') {
       if (replay) {
         const out = replay.stop();
         stopView = { state: 'done', ack: out.ack, error: null, text: out.text, seq: ++stopSeq };
@@ -983,9 +1121,13 @@ export function createShell({
         }, STOP_DONE_MS);
         return { ...stopView };
       }
+      // B-117: a Stop for a named computer (a notification's Stop all) goes to that computer, whichever one is open.
+      const named = RECORD_ID.test(String(computer ?? '')) ? String(computer) : '';
       // Locked, or the lock could not be read: Stop does not wait for an unlock when this phone can send it without one.
-      if (lockStatus.locked || lockUnreadable) return lockedStop(project);
+      if (lockStatus.locked || lockUnreadable) return lockedStop(project, named);
+      if (named && (named !== activeId || !channel)) return stopOn(named, project);
       if (!stopCtl) return { ...stopView, state: 'idle', text: 'Nothing to stop: no computer is connected.' };
+      notePress(activeId);
       const out = await stopCtl.press(project);
       refresh();
       return out;
@@ -993,11 +1135,14 @@ export function createShell({
 
     async forget(id) {
       if (replay) return { ...refresh(), ok: false, reason: 'demo' };
-      if (activeId === id && channel) {
-        retireChannel(channel);
-        channel = null;
-        hello = null;
-        channelState = { ...channelState, status: 'closed' };
+      if (activeId === id) {
+        connectSeq += 1;   // a connect to this computer that is still starting opens nothing
+        if (channel) {
+          retireChannel(channel);
+          channel = null;
+          hello = null;
+          channelState = { ...channelState, status: 'closed' };
+        }
         activeId = null;
         await store.meta.remove(ACTIVE_META).catch(() => {});
       }
@@ -1040,6 +1185,8 @@ export function createShell({
     async testWays(id) {
       if (replay) return { ok: false, reason: 'demo' };
       if (!channel || activeId !== id) return { ok: false, reason: 'offline' };
+      // B-131: a connected phone is already using a way; a reconnect would only ping the live session. The answer says which one.
+      if (channelState.status === 'connected') return { ok: false, reason: 'connected', carrier: channelState.carrier ?? null };
       channel.reconnect?.();
       refresh();
       return { ok: true, reason: null };
@@ -1101,6 +1248,7 @@ export function createShell({
       if (!key || !channel || !serviceWorker || !notifications) return { ok: false, reason: 'unavailable' };
       const registration = await registrationOf(serviceWorker);
       if (!registration) return { ok: false, reason: 'unavailable' };
+      const forId = activeId;
       const out = await subscribeWebPush({
         registration,
         applicationServerKey: key,
@@ -1109,9 +1257,13 @@ export function createShell({
         notification: notifications,
         env: pushEnv,
       });
+      // B-128: this computer's record keeps the endpoint of the browser subscription it made, so turning notifications off removes that one and
+      // never another computer's.
+      if (out.ok && out.endpoint && forId) await store.patchComputer(forId, { pushEndpoint: out.endpoint }).catch(() => {});
       refresh();
       if (out.ok) return { ok: true, reason: null };
       if (out.state === 'denied') return { ok: false, reason: 'denied' };
+      if (out.state === 'other-computer') return { ok: false, reason: 'other-computer' };
       if (out.state === 'unsupported') return { ok: false, reason: 'unavailable' };
       return { ok: false, reason: 'failed' };
     },
@@ -1139,6 +1291,17 @@ export function createShell({
         return out;
       }
       const out = await postJson('/api/phones/push', { subscription: null });
+      // B-128: the browser keeps one subscription per address, so this computer's goes too (only the one it made), or no other computer behind
+      // the same address could turn notifications on.
+      if (out.ok && activeId) {
+        const record = await store.get(activeId).catch(() => null);
+        const endpoint = typeof record?.pushEndpoint === 'string' ? record.pushEndpoint : '';
+        const key = typeof hello?.vapidPublicKey === 'string' ? hello.vapidPublicKey : null;
+        if (endpoint || key) {
+          const registration = await registrationOf(serviceWorker).catch(() => null);
+          if (await dropWebPush({ registration, endpoint, applicationServerKey: endpoint ? null : key }) && endpoint) await store.patchComputer(activeId, { pushEndpoint: null }).catch(() => {});
+        }
+      }
       refresh();
       return { ok: out.ok, reason: out.reason };
     },
@@ -1193,6 +1356,7 @@ export function createShell({
     },
 
     cancelConnect() {
+      connectSeq += 1;
       if (channel) {
         retireChannel(channel);
         channel = null;
@@ -1297,7 +1461,10 @@ export function createShell({
         retireChannel(channel);
         channel = null;
         hello = null;
+        // B-119: a retired channel no longer reports, so the state says what happened to the connection.
+        channelState = { ...channelState, status: 'closed' };
       }
+      connectSeq += 1;
       unlockedKeys.clear();
       await refreshLockStop();
       lock.lock();
@@ -1328,9 +1495,13 @@ export function createShell({
 
     async runSelftest(options = {}) {
       if (!channel) return { ok: false, passed: 0, total: 5, steps: [], reason: 'not connected' };
+      // Dynamic, and the define is tested directly: esbuild folds it in a release bundle, so selftest.js is left out of the bundle.
+      // Plain node (no define) is a dev build, as DEV_BUILD is.
+      const run = selftestFn ?? (typeof __PLENUM_DEV_BUILD__ === 'undefined' || __PLENUM_DEV_BUILD__ === true ? (await import('./selftest.js')).runSelfTest : null);
+      if (!run) return { ok: false, passed: 0, total: 5, steps: [], reason: 'not in this build' };
       selftest = { running: true };
       refresh();
-      const report = await selftestFn({
+      const report = await run({
         channel,
         log: line => debug.log(line),
         ...options,
@@ -1345,7 +1516,9 @@ export function createShell({
     // A link the page was opened with, a fragment the service worker posts, a native deep link or a fragment typed into the address bar:
     // a pairing link (#pair=..., plenum://pair#...), or a notification link (see push.js parseNotificationHash). While the app is locked the
     // link waits for the unlock.
-    async handleHash(hash) {
+    // computerHint (B-117) is the computer a notification came from (the service worker's message carries it apart from the fragment; a
+    // fragment may also end in &computer=<id>). Stop all, Deny and Approve act on that computer, not on whichever one is open.
+    async handleHash(hash, computerHint = '') {
       const text = String(hash ?? '');
       // The shell page's own screens (from the UI page's Phone settings and Computers): the screens read screenRequest once the app is unlocked.
       // The UI page has no such screens and ignores these two.
@@ -1380,13 +1553,17 @@ export function createShell({
         return { ...opened, kind: 'connect' };
       }
       const isPair = text.includes('pair=') || /^plenum:\/\/pair#/.test(text);
-      const link = parseNotificationHash(text);
+      const parsed = parseNotificationHash(text);
+      const link = parsed ? { ...parsed } : null;
+      const hinted = String(computerHint ?? '').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 80) || link?.computer || '';
+      if (link) delete link.computer;
+      const named = !isPair && RECORD_ID.test(hinted) && ['stop', 'deny', 'approve'].includes(link?.kind) ? hinted : '';
       if (!isPair && !link) return { ok: false, reason: 'no link' };
       if (booted) await lockRead;
       if (lockStatus.locked || lockUnreadable) {
         // A Stop does not wait for the unlock when this phone can send it without one (stop() parks it when it cannot).
-        if (!isPair && link?.kind === 'stop') return api.stop();
-        pendingLink = { text, at: wall() };
+        if (!isPair && link?.kind === 'stop') return api.stop(null, named);
+        pendingLink = { text, at: wall(), ...(named ? { computer: named } : {}) };
         return { ok: false, reason: 'locked' };
       }
       if (isPair) {
@@ -1426,12 +1603,29 @@ export function createShell({
         refresh();
         return { ok: true, reason: null, kind: 'review' };
       }
+      if (named && !computers.some(c => c.id === named)) {
+        say(link.kind === 'stop' ? UNKNOWN_COMPUTER_STOP : UNKNOWN_COMPUTER, 'warn');
+        refresh();
+        return { ok: false, reason: 'unknown-computer', kind: link.kind };
+      }
       if (link.kind === 'stop') {
+        // B-117: the computer that sent the notification, whichever one is open.
+        if (named && (named !== activeId || !channel)) return api.stop(null, named);
         // Sent at once. A computer that is away gets the STOP queued by the worker, which resends it on every reconnect for 60 s.
         if (channel) return api.stop();
         say('Nothing to stop: no computer is connected.', 'warn');
         refresh();
         return { ok: false, reason: 'not connected' };
+      }
+      if (named && (named !== activeId || !channel)) {
+        // B-117: Deny and Approve are answered on the computer whose card it is; its own checks (the first line, the opt-in) still run there.
+        const opened = await openComputerFor(named, text.includes('&computer=') ? text : `${text}&computer=${named}`);
+        if (opened.opening) return { ok: true, reason: null, kind: link.kind, opening: true };
+        if (!opened.ok) {
+          say('Could not open that computer. Open the approval to answer it.', 'warn');
+          refresh();
+          return { ok: false, reason: opened.reason ?? 'failed', kind: link.kind };
+        }
       }
       if (link.kind === 'deny') {
         // A denial is sent as it is: the computer checks that the card still waits (a denial needs no first line).
@@ -1532,9 +1726,17 @@ export function createShell({
       return dictationState ? { ...dictationState } : { available: false, onDevice: false, permission: 'prompt' };
     },
 
+    // B-120: the Stop that is queued or sending, for the UI page to hand over when it leaves: { at, computer } or null.
+    pendingStop() {
+      const busy = stopView.state === 'sending' || stopView.state === 'queued';
+      return busy && stopPressedAt !== null ? { at: stopPressedAt, computer: stopComputer } : null;
+    },
+
     async start() {
       if (started) return snapshot;
       started = true;
+      // B-120: a Stop the UI page left for this page (taken once, and only when it is under a minute old).
+      const leftStop = mode === 'normal' ? await parked.take().catch(() => null) : null;
       const hash = String(pageUrl && pageUrl.includes('#') ? pageUrl.slice(pageUrl.indexOf('#')) : '');
       // The link is read once and taken out of the address bar, so the pairing secret does not stay in the URL or in the history.
       if (hash.length > 1) {
@@ -1547,6 +1749,9 @@ export function createShell({
       await api.boot();
       // A pairing link or a notification action runs now, or at the unlock when the app is locked.
       await runPendingLink();
+      // The Stop goes to the computer it was pressed for (the page may have been opened for another one), without waiting for an unlock
+      // when this phone holds that computer's Stop key; the Stop sheet shows it queued while the computer is away.
+      if (leftStop) await api.stop(null, leftStop.computer).catch(() => {});
       return snapshot;
     },
   };
@@ -1702,13 +1907,14 @@ async function runStart(env, { loadPlugins, devBuild, attach, give }) {
   const stay = params.has(SHELL_QUERY);
   // A link for the shell page waits in the store (never in web storage); an older version left it in sessionStorage, which is cleared once.
   const linkStore = createLinkStore(store.meta);
+  const parkedStop = createParkedStop(store.meta);
   try { env.sessionStorage?.removeItem(SHELL_LINK_KEY); } catch { /* no session storage */ }
   // F1: the service worker, for the PWA. Not awaited: the page does not wait for the worker to activate.
   if (!native && pageKind === 'shell') registerServiceWorker(env);
   let shell = null;
   const kind = native ? (device.platform === 'android' ? 'android' : 'ios') : lan ? 'lan' : 'web';
   const uiHost = mode === 'normal' && env.location && (!native || plugins)
-    ? createUiHost({ env, kind, native: plugins, channelOf: () => shell?.channel ?? null, log: line => shell?.debug.log(line, 'warn'), linkStore })
+    ? createUiHost({ env, kind, native: plugins, channelOf: () => shell?.channel ?? null, log: line => shell?.debug.log(line, 'warn'), linkStore, stopHandoff: { pending: () => shell?.pendingStop?.() ?? null, park: pending => parkedStop.put(pending), unpark: () => parkedStop.unpark() } })
     : null;
   let initialIntent = null;
   try {
@@ -1749,6 +1955,7 @@ async function runStart(env, { loadPlugins, devBuild, attach, give }) {
     onReload: () => { env.location?.reload?.(); },
     devBuild,
     storage: secureStorage === NO_SECURE_STORAGE ? 'unavailable' : 'ok',
+    parkedStop,
   });
   if (secureStorage === NO_SECURE_STORAGE) shell.debug.log('storage: unavailable', 'warn');
   // Test hooks, in dev builds only: the full core and the plugin registry on the page object.
@@ -1773,7 +1980,7 @@ async function runStart(env, { loadPlugins, devBuild, attach, give }) {
   });
   env.navigator?.serviceWorker?.addEventListener?.('message', event => {
     const data = event?.data;
-    if (data?.op === 'plenum-hash' && typeof data.hash === 'string') shell.handleHash(data.hash).catch(() => {});
+    if (data?.op === 'plenum-hash' && typeof data.hash === 'string') shell.handleHash(data.hash, typeof data.computer === 'string' ? data.computer : '').catch(() => {});
   });
   const afterStart = wireAppPlugin({ appPlugin: plugins?.App ?? null, shell, env, pageKind, platform: device.platform });
   await shell.start();

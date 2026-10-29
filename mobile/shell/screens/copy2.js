@@ -34,6 +34,8 @@ export const PAIR_REVIEW_CANCEL = 'Cancel';
 // The shell's own states (C6d, C6f, C6a): secure storage that did not load, lock settings that cannot be read, and a shell that did not start.
 export const STORAGE_UNAVAILABLE = "This phone could not open its secure storage, so Plenum cannot keep a computer's key here. Close Plenum and open it again. If it keeps happening, reinstall the app.";
 export const LOCK_UNKNOWN = 'Plenum could not read its lock settings, so it stays locked. Stop still works. Close Plenum and open it again.';
+// B-130: the same, when the Stop key sits in the store that could not be read too: this phone cannot send Stop, and nothing here can unlock it.
+export const LOCK_UNKNOWN_NO_STOP = 'Plenum could not read its lock settings, so it stays locked. This phone cannot send Stop from here. Press Stop on your computer (the Stop bar, or Ctrl+Alt+Esc). Close Plenum and open it again.';
 export const START_FAILED = 'Plenum could not start on this page. Close it and open Plenum again.';
 // The lock screens' Stop (C6f): it stops without unlocking when this phone has the computer's Stop key, else it unlocks first.
 export const LOCK_STOP = 'Stop everything';
@@ -61,8 +63,13 @@ export const SETTINGS_NONE = 'No computer is paired yet.';
 
 // Ways to reach (6.17)
 export const WAYS_TITLE = 'Ways to reach {computer}';
-export const WAYS_LEAD = 'Plenum tries them in this order.';
+// The way the phone last connected by goes first (channel.worker.js carrierCandidates), then the others in the order shown.
+export const WAYS_LEAD = 'Plenum tries the way it last connected first, then the others in this order.';
 export const WAYS_TEST = 'Test them now';
+// B-131: the button reconnects, which a connected phone does not need; it says which way it is using instead.
+export const WAYS_CARRIER = Object.freeze({ lan: 'the same network', tailscale: 'Tailscale', relay: 'your relay' });
+export const WAYS_CONNECTED = carrier => `Connected by ${carrier} now. Test them again when the phone is not connected.`;
+export const WAYS_TRYING = 'Trying the ways now. The line at the top says which one answers.';
 export const WAYS_NEW = 'New ways you turn on at the computer appear here the next time this phone connects.';
 export const WAY_NOT_AVAILABLE = 'Not available in this app';
 export const WAY_NOT_REACHABLE = 'Not reachable';

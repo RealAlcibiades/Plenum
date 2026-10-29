@@ -1,7 +1,7 @@
 {
   "name": "muse-console",
   "productName": "Plenum",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Desktop console that runs Claude Code, Codex, Gemini CLI and Muse Code side by side with API models",
@@ -92,6 +92,10 @@
       {
         "from": "THIRD-PARTY-NOTICES.txt",
         "to": "THIRD-PARTY-NOTICES.txt"
+      },
+      {
+        "from": "legal/EULA.txt",
+        "to": "EULA.txt"
       }
     ],
     "asar": false,

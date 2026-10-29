@@ -37,8 +37,15 @@ function cleanLine(value) {
 //   #chat[=<project>]           { kind: 'chat', project? }      the project's chat
 //   #settings=limit             { kind: 'settings', section: 'limit' }
 //   #home                       { kind: 'home' }
+// B-117: any of them may end in &computer=<id>, the computer that sent the notification (the service worker adds it to a cold start, and an
+// Android route may carry it): the result then has computer: <id>. Without it there is no computer key, and the shell acts on the open one.
 export function parseNotificationHash(hash) {
-  const text = String(hash ?? '').replace(/^#/, '');
+  let text = String(hash ?? '').replace(/^#/, '');
+  const named = /&computer=([A-Za-z0-9_.-]{1,80})$/.exec(text);
+  if (named) {
+    const link = parseNotificationHash(text.slice(0, named.index));
+    return link ? { ...link, computer: named[1] } : null;
+  }
   if (text === 'stop') return { kind: 'stop' };
   if (text === 'home') return { kind: 'home' };
   if (text === 'waiting') return { kind: 'waiting' };
@@ -69,24 +76,62 @@ export function isRouteLink(link) {
 }
 
 // Asks for the permission (after a tap), subscribes and sends the subscription to the computer. `request` is channel.request.
-// Returns { ok, state, status } where state is 'on' | 'denied' | 'unsupported' | 'failed'.
+// Returns { ok, state, status, endpoint? } where state is 'on' | 'denied' | 'unsupported' | 'failed' | 'other-computer'.
+// B-128: a browser keeps one push subscription per address, made with one computer's key. When another computer already holds it (the PWA at a
+// relay address serves every computer behind it), subscribing with this computer's key is refused by the browser; that is 'other-computer', and the
+// other computer's subscription is left as it is (replacing it would silence that computer without a word).
 export async function subscribeWebPush({ registration, applicationServerKey, request, deviceId, notification, env = globalThis } = {}) {
   if (!pushAvailable(env) || !registration?.pushManager) return { ok: false, state: 'unsupported', status: 0 };
   if (!applicationServerKey || typeof request !== 'function' || !deviceId) return { ok: false, state: 'failed', status: 0 };
   const permission = await (notification ?? env.Notification).requestPermission();
   if (permission !== 'granted') return { ok: false, state: 'denied', status: 0 };
+  const key = bytesFromB64u(applicationServerKey);
+  let held = null;
+  try {
+    held = (await registration.pushManager.getSubscription?.()) ?? null;
+  } catch {
+    held = null;
+  }
+  if (held && !sameKey(held.options?.applicationServerKey, key)) return { ok: false, state: 'other-computer', status: 0 };
   let subscription;
   try {
-    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytesFromB64u(applicationServerKey) });
-  } catch {
-    return { ok: false, state: 'failed', status: 0 };
+    subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+  } catch (err) {
+    return { ok: false, state: err?.name === 'InvalidStateError' ? 'other-computer' : 'failed', status: 0 };
   }
   const json = subscription.toJSON ? subscription.toJSON() : subscription;
   const body = JSON.stringify({ id: deviceId, subscription: { endpoint: json.endpoint, keys: json.keys } });
   const res = await request({ method: 'POST', path: '/api/phones/push', headers: { 'content-type': 'application/json' } }, body);
   try { await res.body?.cancel(); } catch { /* nothing to drain */ }
   if (res.status !== 200) return { ok: false, state: 'failed', status: res.status };
-  return { ok: true, state: 'on', status: res.status };
+  return { ok: true, state: 'on', status: res.status, endpoint: typeof json.endpoint === 'string' ? json.endpoint : '' };
+}
+
+// Whether the key a held subscription was made with (an ArrayBuffer or a view, or nothing when the browser does not say) is this computer's.
+// A subscription that does not say is taken to be this computer's: subscribe() then settles it, and an InvalidStateError is 'other-computer'.
+function sameKey(held, key) {
+  if (!held) return true;
+  const a = held instanceof Uint8Array ? held : ArrayBuffer.isView(held) ? new Uint8Array(held.buffer, held.byteOffset, held.byteLength) : new Uint8Array(held);
+  if (a.length !== key.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== key[i]) return false;
+  return true;
+}
+
+// B-128: turning web notifications off at a computer takes this computer's subscription out of the browser as well, so another computer behind the
+// same address can turn them on. Only the subscription this phone recorded for the computer (its endpoint) is removed; one that belongs to
+// another computer is never touched. Resolves true when the browser's subscription was removed.
+// A phone that turned notifications on before the endpoint was recorded has none stored: the subscription is then taken out only when it was made
+// with this computer's own key (applicationServerKey), which no other computer shares.
+export async function dropWebPush({ registration, endpoint, applicationServerKey = null } = {}) {
+  if ((!endpoint && !applicationServerKey) || !registration?.pushManager) return false;
+  try {
+    const held = await registration.pushManager.getSubscription?.();
+    if (!held) return false;
+    if (endpoint ? held.endpoint !== endpoint : !(held.options?.applicationServerKey && sameKey(held.options.applicationServerKey, bytesFromB64u(applicationServerKey)))) return false;
+    return (await held.unsubscribe?.()) !== false;
+  } catch {
+    return false;
+  }
 }
 
 function bytesFromB64u(text) {
@@ -132,7 +177,7 @@ export function notificationFor(payload) {
       destructive: a.action !== 'approve',
       foreground: false,
     })),
-    extra: { tap: payload.tap, routes, line: payload.firstLine ?? '' },
+    extra: { tap: payload.tap, routes, line: payload.firstLine ?? '', computer: payload.ids?.computer ?? '' },
   };
 }
 
@@ -143,13 +188,16 @@ function notificationId(tag) {
 }
 
 // native: the registry from native.js (UnifiedPush, LocalNotifications). request: channel.request (a getter, because the channel changes).
-// isVisible(): true while Plenum is in front. onLink(hash): runs a notification fragment (app.js handleHash). setTimer/clearTimer: for the wait.
+// isVisible(): true while Plenum is in front. onLink(hash, computer): runs a notification fragment (app.js handleHash). setTimer/clearTimer: for the wait.
+// pendingStore (B-129, optional): { load(), save(body), clear() }, where an endpoint the computer has not accepted yet waits, so a restart of the app
+// does not lose the key set the push app gave once. The body is never logged.
 export function createAndroidPush({
   native,
   requestOf,
   vapidOf = () => null,
   isVisible = () => true,
   onLink = () => {},
+  pendingStore = null,
   log = () => {},
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = id => clearTimeout(id),
@@ -161,6 +209,7 @@ export function createAndroidPush({
   let lastEndpoint = null;
   let failure = null;
   let posted = false;          // the computer has this phone's subscription
+  let pending = null;          // B-129: the body of an endpoint the computer has not accepted yet; resend() sends it again
   const types = new Set();
 
   async function post(body) {
@@ -188,9 +237,15 @@ export function createAndroidPush({
       return;
     }
     lastEndpoint = body.subscription.endpoint;
+    pending = body;
+    try { await pendingStore?.save(body); } catch { /* the endpoint is still held in memory */ }
     const out = await post(body);
     posted = out.ok;
-    if (out.ok) failure = null;
+    if (out.ok) {
+      failure = null;
+      pending = null;
+      try { await pendingStore?.clear(); } catch { /* a note that stays is sent once more and replaced */ }
+    }
     waiting?.resolve(out.ok ? { ok: true, reason: null } : { ok: false, reason: 'failed' });
   }
 
@@ -236,7 +291,9 @@ export function createAndroidPush({
     const route = id === 'tap' ? extra.tap : extra.routes?.[id];
     if (typeof route !== 'string') return;
     const link = routeForAction({ action: id === 'tap' ? 'tap' : id, route }, extra.line ? String(extra.line) : '');
-    onLink(String(link).replace(/^\//, ''));
+    // B-117: the computer that sent the notification goes with the link (only the three actions act on a computer; a tap is a place).
+    const computer = id !== 'tap' && typeof extra.computer === 'string' ? extra.computer.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 80) : '';
+    onLink(String(link).replace(/^\//, ''), computer);
   }
 
   return {
@@ -249,8 +306,18 @@ export function createAndroidPush({
         await up.addListener('endpoint', onEndpoint);
         await up.addListener('message', onMessage);
         await up.addListener('registrationFailed', event => { failure = String(event?.reason ?? 'INTERNAL_ERROR'); waiting?.resolve({ ok: false, reason: 'registration' }); });
-        await up.addListener('unregistered', () => { posted = false; lastEndpoint = null; });
+        await up.addListener('unregistered', () => {
+          posted = false;
+          lastEndpoint = null;
+          pending = null;
+          Promise.resolve(pendingStore?.clear?.()).catch(() => {});
+        });
         await local?.addListener?.('localNotificationActionPerformed', onAction);
+        // An endpoint the last run could not hand to the computer is still waiting (resend sends it at the next HELLO).
+        if (!pending && pendingStore) {
+          const kept = await pendingStore.load().catch(() => null);
+          if (kept?.subscription?.kind === 'unifiedpush' && typeof kept.subscription.endpoint === 'string') pending = kept;
+        }
       } catch (err) {
         log(`push: start ${err?.code ?? 'failed'}`);
         return false;
@@ -317,6 +384,20 @@ export function createAndroidPush({
       }
     },
 
+    // B-129: an endpoint the computer did not get (no channel when the push app gave it, or the computer refused) is sent again. app.js calls this at
+    // every HELLO. The computer replaces the phone's subscription with each body, so a second send is harmless. Nothing is sent after a turn off.
+    async resend() {
+      if (posted || !pending) return { ok: posted, reason: null };
+      const out = await post(pending);
+      posted = out.ok;
+      if (out.ok) {
+        pending = null;
+        failure = null;
+        try { await pendingStore?.clear(); } catch { /* sent again once and replaced */ }
+      }
+      return { ok: out.ok, reason: out.ok ? null : 'failed' };
+    },
+
     // Turn off: the computer forgets the subscription and the push app registration ends.
     async disable() {
       if (!up) return { ok: false, reason: 'unavailable' };
@@ -328,6 +409,8 @@ export function createAndroidPush({
       }
       posted = false;
       lastEndpoint = null;
+      pending = null;
+      try { await pendingStore?.clear(); } catch { /* nothing kept */ }
       return { ok: out.ok, reason: out.ok ? null : 'failed' };
     },
 

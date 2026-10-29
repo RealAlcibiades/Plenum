@@ -292,12 +292,14 @@
 
     const save = MuseUI.button('primary small', 'Save key');
     const test = MuseUI.button('ghost small', 'Test saved key');
+    const remove = MuseUI.button('ghost small', 'Remove key');
     let configured = false;
     let busy = false;
     const paint = () => {
       save.disabled = busy;
-      // Testing needs a saved key, so the button waits until one exists.
+      // Testing and removing need a saved key, so those buttons wait until one exists.
       test.disabled = busy || !configured;
+      remove.disabled = busy || !configured;
     };
     const apply = status => {
       configured = Boolean(status.configured);
@@ -349,9 +351,30 @@
       }
     });
 
+    // Removing deletes the key from the saved keys, so it asks first. The card then shows what the server holds, which is the
+    // answer that counts: a key that is still there (the desktop app did not confirm) keeps its status.
+    remove.addEventListener('click', async () => {
+      const sure = await MuseUI.confirm({ title: `Remove the ${p.label} key?`, body: 'Plenum deletes this key from the saved keys and stops using it. To use this provider again, paste the key again.', action: 'Remove', tone: 'danger', focusCancel: true });
+      if (!sure) return;
+      busy = true;
+      paint();
+      show('Removing the key…', '');
+      try {
+        const r = await MuseUI.api('/api/keys/remove', { provider: p.id });
+        show(r.message || (r.ok ? 'The key was removed.' : 'The key was not removed.'), r.ok ? 'ok' : 'bad');
+        if (r.ok) MuseUI.toast(`${p.label} key removed`);
+        await refreshStatus(panel);
+      } catch (err) {
+        show(err.message, 'bad');
+      } finally {
+        busy = false;
+        paint();
+      }
+    });
+
     const actions = document.createElement('div');
     actions.className = 'actions';
-    actions.append(save, test);
+    actions.append(save, test, remove);
     const link = keyPageLink(p);
     if (link) actions.append(link);
     card.append(input, actions, result);

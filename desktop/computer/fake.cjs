@@ -12,9 +12,11 @@
 //  - Every call is recorded in backend.calls ({ method, ... }). backend.sent holds the actions that were really injected, in order,
 //    and backend.events the low-level events they made (move, mouseDown, mouseUp, keyDown, keyUp, wheel, text), so a test can see
 //    that a refused action sent nothing and that release() lifted a held key.
-//  - setForeground(id), setElevated(bool), setUserMoved(), setUserTyped(), setCursorMoving(ms), setSecure(bool|null), setWindows(list)
-//    and setTitle(id, title) change the world. script entries { after: n, foreground?, elevated?, secure?, windows?, title?,
-//    userMoved?, run?(backend) } change it after the n-th injected action.
+//  - setForeground(id), setElevated(bool), setUserMoved(), setUserTyped(), setCursorMoving(ms), setSecure(bool|null), setLabel(text),
+//    setWindows(list) and setTitle(id, title) change the world. script entries { after: n, foreground?, elevated?, secure?, label?,
+//    windows?, title?, userMoved?, run?(backend) } change it after the n-th injected action.
+//  - A click, scroll or button press without x and y lands at the pointer, and the elevated and overlay-bar checks use the pointer's
+//    spot as its point, as the real backend does.
 //  - capture() draws the display (a frame counter in every window, the title band of each) and then does what the real one does:
 //    in window scope it crops to the window, greys the parts other programs' windows cover (geometry.maskRects) and scales the long
 //    edge to maxEdge. With overlayLeaks the overlay bar shows a magenta marker in the first capture, as a window that content
@@ -49,6 +51,7 @@ function createFakeBackend(options = {}) {
   let windowList = (options.windows ?? defaultWindows()).map(w => ({ minimized: false, own: false, elevated: false, popup: false, ...w, bounds: copyRect(w.bounds) }));
   let foregroundId = options.foreground ?? windowList.find(w => w.title && !w.own && !w.popup)?.id ?? null;
   let secure = options.secure ?? false;
+  let label = options.label ?? null;
   let cursorPos = { x: Math.round(width / 2), y: Math.round(height / 2) };
   let cursorMovingUntil = 0;
   let userMoved = false;
@@ -132,6 +135,7 @@ function createFakeBackend(options = {}) {
       if (entry.foreground !== undefined) foregroundId = entry.foreground;
       if (entry.elevated !== undefined) api.setElevated(entry.elevated);
       if (entry.secure !== undefined) secure = entry.secure;
+      if (entry.label !== undefined) label = entry.label;
       if (entry.title !== undefined && foregroundId !== null) api.setTitle(foregroundId, entry.title);
       if (entry.userMoved) userMoved = true;
       if (typeof entry.run === 'function') entry.run(api);
@@ -243,11 +247,13 @@ function createFakeBackend(options = {}) {
       const action = parsed.action;
       const fg = findWindow(foregroundId);
       const points = pointsOf(action);
+      // What the elevated and overlay-bar checks look at: the action's points, or the pointer for an action that lands there.
+      const checked = !points.length && ['click', 'scroll', 'down', 'up'].includes(action.kind) ? [{ ...cursorPos }] : points;
       if (fg && fg.elevated) {
         record({ method: 'input', action, sent: false, reason: 'elevated' });
         return { ok: false, reason: 'elevated', message: 'The window in front belongs to a program running as administrator. Plenum cannot control it.' };
       }
-      for (const p of points) {
+      for (const p of checked) {
         const top = visible().find(w => geometry.pointInRect(p, w.bounds));
         if (top && top.elevated) {
           record({ method: 'input', action, sent: false, reason: 'elevated' });
@@ -255,7 +261,7 @@ function createFakeBackend(options = {}) {
         }
       }
       const bar = barRect();
-      if (bar && points.some(p => geometry.pointInRect(p, bar))) record({ method: 'barBlink', point: points.find(p => geometry.pointInRect(p, bar)) });
+      if (bar && checked.some(p => geometry.pointInRect(p, bar))) record({ method: 'barBlink', point: checked.find(p => geometry.pointInRect(p, bar)) });
       record({ method: 'input', action, point: points[0] ?? null, sent: true });
       sent.push(action);
       userMoved = false;
@@ -344,6 +350,11 @@ function createFakeBackend(options = {}) {
       return secure;
     },
 
+    async focusedLabel() {
+      record({ method: 'focusedLabel' });
+      return label;
+    },
+
     async release() {
       record({ method: 'release' });
       for (const key of [...held]) keyUp(key);
@@ -406,6 +417,9 @@ function createFakeBackend(options = {}) {
     },
     setSecure(value) {
       secure = value;
+    },
+    setLabel(text) {
+      label = text === undefined || text === null ? null : String(text);
     },
     setWindows(list) {
       windowList = list.map(w => ({ minimized: false, own: false, elevated: false, popup: false, ...w, bounds: copyRect(w.bounds) }));

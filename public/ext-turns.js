@@ -240,6 +240,7 @@
 
   // Why a question has no code snapshot, for the disabled choices. The server says it in record.snap.skipped.
   function noSnapshotReason(m) {
+    if (m.snap?.expired === true) return 'it is older than the last 50 turns, so its code is no longer kept';
     if (typeof m.snap?.skipped === 'string' && m.snap.skipped) return m.snap.skipped;
     return 'it was sent before turn snapshots were kept';
   }
@@ -291,16 +292,19 @@
       diffUrl: `/api/snapshots/diff?project=${enc(activeProject())}&index=${index}`,
       approveText: 'Approve rewind',
       onEnd: (ev, view) => {
-        if (ev.type !== 'restored') return;
+        // A rewind that stopped part way keeps its record (the server says so with undo set), so Undo is offered for it as well. The chat is
+        // cut back only when the rewind finished.
+        const kept = ev.type === 'error' && ev.undo === true;
+        if (ev.type !== 'restored' && !kept) return;
         view.actions.append(undoButton());
-        if (after) after();
+        if (ev.type === 'restored' && after) after();
       },
     });
   }
 
   // The three choices that take the Rewind button's place. The two code choices need the snapshot the turn kept before it.
   function choiceButtons(m, index) {
-    const hasSnap = typeof m.snap?.before?.tree === 'string';
+    const hasSnap = typeof m.snap?.before?.tree === 'string' && m.snap.expired !== true;
     const reason = noSnapshotReason(m);
     const disabledTitle = `No snapshot before this turn: ${reason}`;
     const both = MuseUI.button('ghost small ext-turns-btn', 'Code and chat');

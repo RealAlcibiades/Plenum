@@ -124,8 +124,12 @@ export const FAILURE_LINES = Object.freeze({
   worker: 'Plenum could not start the connection on this phone. Try again.',
 });
 
+// B-128: the browser keeps one push subscription per address, and another computer behind this address holds it.
+export const PUSH_OTHER_COMPUTER = 'Web notifications on this address are on for another computer. Turn them off there first.';
+
 // What a lock or onboarding step says when the phone did not turn it on. The reason comes from the shell core.
 export function lockFailText(reason) {
+  if (reason === 'other-computer') return PUSH_OTHER_COMPUTER;
   if (reason === 'unavailable') return 'This is not available on this device yet.';
   if (reason === 'format') return 'That PIN is not valid. Use six digits.';
   if (reason === 'mode') return 'This is already on.';

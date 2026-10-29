@@ -331,7 +331,8 @@ describe('the release gate: __PLENUM_DEV_BUILD__', () => {
     fs.appendFileSync(path.join(root, 'mobile', 'shell', 'boot.js'), PROBE);
     build(root);
     for (const name of ['shell.js', 'screens.js', 'boot.js']) {
-      assert.match(text(root, `mobile/www/${name}`), /fixtureDev\s*=\s*false/, `${name} is a release build`);
+      // A release build minifies the define's false to !1 (minifySyntax is on for release builds only).
+      assert.match(text(root, `mobile/www/${name}`), /fixtureDev\s*=\s*(?:false|!1)/, `${name} is a release build`);
     }
     const dev = cli(root, ['--dev']);
     assert.equal(dev.code, 0, dev.err);
@@ -349,6 +350,16 @@ describe('the release gate: __PLENUM_DEV_BUILD__', () => {
     const stale = cli(root, ['--check']);
     assert.equal(stale.code, 1, 'a dev tree is not what --check expects');
     assert.match(stale.err, /changed mobile\/www\/shell\.js/);
+  });
+
+  test('--dev never changes relay/public: the committed relay tree stays the release build while mobile/www gets the dev build', () => {
+    const root = freshRoot();
+    fs.appendFileSync(path.join(root, 'mobile', 'shell', 'app.js'), PROBE);
+    build(root);
+    const dev = cli(root, ['--dev']);
+    assert.equal(dev.code, 0, dev.err);
+    assert.match(text(root, 'mobile/www/shell.js'), /fixtureDev\s*=\s*true/, 'mobile/www is the dev build');
+    assert.match(text(root, 'relay/public/shell.js'), /fixtureDev\s*=\s*(?:false|!1)/, 'relay/public is the release build');
   });
 
   test('the usage line lists --dev', () => {
@@ -407,6 +418,12 @@ describe('the real shell builds into a complete tree', () => {
     }
     linkInstall(root);
     planned = await plan(root);
+  });
+
+  test('a release bundle carries no self-test: selftest.js is not imported, so its code and its option names are left out', () => {
+    const shell = planned.files.get('shell.js').toString('utf8');
+    assert.doesNotMatch(shell, /runSelfTest/, 'no self-test function');
+    assert.doesNotMatch(shell, /approvalWaitMs/, 'no self-test option names');
   });
 
   test('the build emits screens.js and every file index.html names, with no entry skipped', () => {
@@ -678,23 +695,31 @@ describe('mobile/package.json and mobile/package-lock.json', () => {
 });
 
 // mobile/.github/workflows/mobile.yml, checked as text: every job and step is found by its indentation, so no YAML parser is needed.
-describe('.github/workflows/mobile.yml', () => {
+describe('.github/workflows/mobile.yml, phone-tests.yml and release.yml', () => {
   const WORKFLOW = path.join(PROJECT, '.github', 'workflows', 'mobile.yml');
+  const PHONE_TESTS = path.join(PROJECT, '.github', 'workflows', 'phone-tests.yml');
+  const RELEASE = path.join(PROJECT, '.github', 'workflows', 'release.yml');
   const yml = fs.readFileSync(WORKFLOW, 'utf8');
+  const phoneYml = fs.readFileSync(PHONE_TESTS, 'utf8');
+  const releaseYml = fs.readFileSync(RELEASE, 'utf8');
   const lines = yml.split('\n');
-  // The jobs: each top-level job under jobs: with its lines.
-  const jobsStart = lines.indexOf('jobs:');
-  const jobs = {};
-  let current = null;
-  for (const line of lines.slice(jobsStart + 1)) {
-    const head = /^ {2}([a-z0-9-]+):$/.exec(line);
-    if (head) {
-      current = head[1];
-      jobs[current] = [];
-    } else if (current) {
-      jobs[current].push(line);
+  const phoneLines = phoneYml.split('\n');
+  // The jobs: each top-level job under jobs: with its lines. The test job is phone-tests.yml's (mobile.yml only calls it).
+  const jobsOf = all => {
+    const found = {};
+    let current = null;
+    for (const line of all.slice(all.indexOf('jobs:') + 1)) {
+      const head = /^ {2}([a-z0-9-]+):$/.exec(line);
+      if (head) {
+        current = head[1];
+        found[current] = [];
+      } else if (current) {
+        found[current].push(line);
+      }
     }
-  }
+    return found;
+  };
+  const jobs = { ...jobsOf(lines), ...jobsOf(phoneLines) };
   const jobText = id => jobs[id].join('\n');
   // The steps of one job: each starts at a line "      - ".
   const stepsOf = id => {
@@ -707,10 +732,10 @@ describe('.github/workflows/mobile.yml', () => {
   };
   const stepNamed = (id, name) => stepsOf(id).find(s => s.includes(`- name: ${name}\n`) || s.startsWith(`      - name: ${name}\n`));
 
-  test('the seven jobs and the attach job are there, and every uses: is pinned to a 40-hex commit with a version comment', () => {
-    assert.deepEqual(Object.keys(jobs).sort(), ['android-debug', 'android-emulator', 'android-release', 'apple-secrets', 'attach-signed', 'ios-archive', 'ios-sim', 'test'].sort());
-    const refs = [...yml.matchAll(/^\s*(?:- )?uses: (\S+)(.*)$/gm)];
-    assert.ok(refs.length >= 20, `found ${refs.length} uses lines`);
+  test('the jobs are there, and every uses: is pinned to a 40-hex commit with a version comment (the local phone-tests.yml call is not an action)', () => {
+    assert.deepEqual(Object.keys(jobs).sort(), ['android-debug', 'android-emulator', 'apple-secrets', 'ios-archive', 'ios-sim', 'test']);
+    const refs = [...(yml + '\n' + phoneYml).matchAll(/^\s*(?:- )?uses: (\S+)(.*)$/gm)].filter(([, ref]) => !ref.startsWith('./'));
+    assert.ok(refs.length >= 15, `found ${refs.length} uses lines`);
     for (const [, ref, rest] of refs) {
       assert.match(ref, /^[^@\s]+@[0-9a-f]{40}$/, `${ref} is pinned to a commit`);
       assert.match(rest, /^\s+# v\d/, `${ref} has a version comment`);
@@ -726,59 +751,62 @@ describe('.github/workflows/mobile.yml', () => {
         assert.match(step, /with:\n\s+persist-credentials: false/, `${id}: checkout keeps no credentials`);
       }
     }
-    assert.equal(count, 6, 'six checkouts');
+    assert.equal(count, 5, 'five checkouts');
   });
 
-  test('only attach-signed has contents: write, and the signing jobs run in the release environment with read access', () => {
+  test('no job in the phone workflows has write access, and the Apple archive runs in the release-signing environment with read access', () => {
     for (const id of Object.keys(jobs)) {
-      const writes = /^ {4}permissions:\n {6}contents: write$/m.test(jobText(id));
-      assert.equal(writes, id === 'attach-signed', `${id}: contents write only in attach-signed`);
+      assert.doesNotMatch(jobText(id), /^ {4}permissions:\n {6}contents: write$/m, `${id}: no write access`);
     }
-    for (const id of ['android-release', 'ios-archive']) {
-      assert.match(jobText(id), /^ {4}environment: release-signing$/m, `${id} runs in the release-signing environment (the same one release.yml uses)`);
-      assert.match(jobText(id), /^ {4}permissions:\n {6}contents: read$/m, `${id} reads only`);
-    }
+    assert.match(jobText('ios-archive'), /^ {4}environment: release-signing$/m, 'ios-archive runs in the release-signing environment (the one release.yml uses)');
+    assert.match(jobText('ios-archive'), /^ {4}permissions:\n {6}contents: read$/m, 'ios-archive reads only');
   });
 
-  test('the attach job waits for both signing jobs, runs on tags, and uploads only the signed files that exist', () => {
-    const attach = jobText('attach-signed');
-    assert.match(attach, /^ {4}needs: \[android-release, ios-archive\]$/m);
-    assert.match(attach, /^ {4}if: startsWith\(github\.ref, 'refs\/tags\/v'\) && !cancelled\(\)$/m);
-    assert.match(attach, /name: plenum-android-signed/);
-    assert.match(attach, /name: plenum-ios-signed/);
-    assert.match(attach, /gh release upload "\$TAG" "\$\{files\[@\]\}" --clobber/);
-    assert.doesNotMatch(jobText('android-release') + jobText('ios-archive'), /gh release upload/, 'the signing jobs do not upload to the release');
+  test('a tag signs nothing in mobile.yml: no tag clause, no Android release build, and the Apple jobs run only on a manual TestFlight run', () => {
+    assert.doesNotMatch(yml, /refs\/tags\/v/, 'no tag clause');
+    assert.doesNotMatch(yml, /assembleRelease|bundleRelease/, 'no Android release build');
+    for (const id of ['apple-secrets', 'ios-archive']) {
+      assert.match(jobText(id), /^ {4}if: .*github\.event_name == 'workflow_dispatch' && inputs\.upload_testflight/m, `${id} runs only on a manual TestFlight run`);
+    }
+    assert.match(jobText('ios-archive'), /^ {4}needs: \[apple-secrets, test\]$/m, 'ios-archive waits for the test job');
+    assert.match(releaseYml, /^  mobile-android:[\s\S]*?environment: release-signing/m, 'release.yml signs Android in release-signing');
+    assert.match(releaseYml, /^  mobile-ios:[\s\S]*?environment: release-signing/m, 'release.yml signs iOS in release-signing');
+  });
+
+  test('only release.yml signs a tag, and its fastlane pin is the same as mobile.yml', () => {
+    const pin = text => /gem install fastlane -v (\d+\.\d+\.\d+) -N/.exec(text)?.[1];
+    assert.ok(pin(yml), 'mobile.yml pins fastlane');
+    assert.equal(pin(yml), pin(releaseYml), 'the two fastlane pins are equal');
+  });
+
+  test('the phone tests run before a tag drafts a release: phone-tests.yml is reusable, release.yml calls it, and prepare waits for it', () => {
+    assert.match(phoneYml, /^on:\n  workflow_call:$/m, 'phone-tests.yml is reusable');
+    assert.match(yml, /^ {4}uses: \.\/\.github\/workflows\/phone-tests\.yml$/m, 'mobile.yml calls it');
+    assert.match(releaseYml, /^  suites:\n    name: Phone tests\n    uses: \.\/\.github\/workflows\/phone-tests\.yml$/m, 'release.yml calls it');
+    assert.match(releaseYml, /^  prepare:\n    name: Create the draft release\n    needs: suites$/m, 'the draft waits for the suites');
   });
 
   test('the test job checks the committed relay/public after the build: a git diff and an untracked-file check', () => {
-    assert.ok(lines.includes('          git diff --exit-code -- relay/public'), 'the diff line');
-    assert.ok(lines.includes('          test -z "$(git status --porcelain -- relay/public)"'), 'the untracked-file line');
+    assert.ok(phoneLines.includes('          git diff --exit-code -- relay/public'), 'the diff line');
+    assert.ok(phoneLines.includes('          test -z "$(git status --porcelain -- relay/public)"'), 'the untracked-file line');
     const step = stepNamed('test', 'Build the phone shell and check its output');
     assert.ok(step.indexOf('node scripts/build-mobile.mjs\n') < step.indexOf('git diff --exit-code'), 'after the build');
   });
 
-  test('the device jobs build the dev shell, and the signing jobs build the release shell', () => {
+  test('the device jobs build the dev shell, and the Apple archive builds the release shell', () => {
     assert.match(stepNamed('android-debug', 'Build the shell and sync the Android project'), /npm run build:dev/);
     assert.match(jobText('ios-sim'), /npm run build:dev/);
-    assert.match(stepNamed('android-release', 'Install the mobile packages, build the shell and sync the Android project'), /npm run build\n/);
     assert.match(jobText('ios-archive'), /npm run build\n/);
     assert.doesNotMatch(jobText('ios-archive'), /npm run build:dev/);
   });
 
   test('the pairing driver appends the ci-confirm marker to the native link it writes for both smoke jobs', () => {
-    assert.ok(yml.includes("const link = (PAIR_HOST ? rewriteHost(native, PAIR_HOST) : native) + '&ci-confirm=1';"));
+    assert.ok((yml + phoneYml).includes("const link = (PAIR_HOST ? rewriteHost(native, PAIR_HOST) : native) + '&ci-confirm=1';"));
   });
 
-  test('the cleanup steps of the signing jobs are if: always()', () => {
-    const cleanup = {
-      'android-release': 'Remove the upload keystore',
-      'ios-archive': 'Remove the TestFlight key file',
-    };
-    for (const [id, name] of Object.entries(cleanup)) {
-      assert.match(stepNamed(id, name), /if: always\(\)\n/, `${id}: ${name}`);
-    }
+  test('the cleanup steps of the Apple archive are if: always()', () => {
+    assert.match(stepNamed('ios-archive', 'Remove the TestFlight key file'), /if: always\(\)\n/);
     assert.match(stepNamed('ios-archive', 'Remove the App Store Connect key'), /if: always\(\)/);
-    assert.match(stepNamed('android-release', 'Remove the upload keystore'), /rm -f "\$RUNNER_TEMP\/plenum-upload\.keystore"/);
     assert.match(stepNamed('ios-archive', 'Remove the TestFlight key file'), /rm -f "\$RUNNER_TEMP\/asc-key\.json"/);
   });
 
@@ -794,9 +822,21 @@ describe('.github/workflows/mobile.yml', () => {
     assert.doesNotMatch(jobText('ios-archive'), /gem install fastlane -N/);
   });
 
-  test('the Gradle wrapper is validated in both Android jobs that run it', () => {
-    for (const id of ['android-debug', 'android-release']) {
-      assert.ok(stepsOf(id).some(s => /uses: gradle\/actions\/wrapper-validation@[0-9a-f]{40}/.test(s)), `${id} validates the wrapper`);
+  test('the Gradle wrapper is validated in the Android debug job', () => {
+    assert.ok(stepsOf('android-debug').some(s => /uses: gradle\/actions\/wrapper-validation@[0-9a-f]{40}/.test(s)), 'android-debug validates the wrapper');
+  });
+
+  test('the iOS archives sign with the APPLE_TEAM_ID variable and set the build number and version, in mobile.yml and release.yml', () => {
+    for (const [name, text] of [['mobile.yml', yml], ['release.yml', releaseYml]]) {
+      assert.match(text, /APPLE_TEAM_ID: \$\{\{ vars\.APPLE_TEAM_ID \}\}/, `${name} reads the team variable`);
+      assert.match(text, /echo "::error::Set the APPLE_TEAM_ID repository variable\."/, `${name} stops without it`);
+      assert.match(text, /IOS_BUILD: \$\{\{ github\.run_number \}\}/, `${name} sets the build number`);
+      assert.match(text, /DEVELOPMENT_TEAM="\$APPLE_TEAM_ID" CURRENT_PROJECT_VERSION="\$IOS_BUILD" MARKETING_VERSION="\$IOS_VERSION"/, `${name} passes the team, build and version to xcodebuild`);
+      assert.match(text, /<<PLIST\n/, `${name} expands the export options`);
+      assert.doesNotMatch(text, /<<'PLIST'/, `${name} does not quote the export options`);
+      assert.match(text, /<key>teamID<\/key>\n\s+<string>\$APPLE_TEAM_ID<\/string>/, `${name} exports with the team`);
     }
+    assert.match(yml, /APP_STORE_CONNECT_API_KEY_KEY_ID: \$\{\{ secrets\.APPLE_API_KEY_ID \}\}/, 'the match step gets the App Store Connect key');
+    assert.match(yml, /APP_STORE_CONNECT_API_KEY_KEY_FILEPATH: \$\{\{ runner\.temp \}\}\/AuthKey\.p8/, 'the match step gets the key file');
   });
 });

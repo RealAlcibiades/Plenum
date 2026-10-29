@@ -1,0 +1,408 @@
+# Plenum phone tests, as a reusable workflow: the Node suites under the sealed environment (the Electron suites are left out),
+# the shell build check, the relay suites and the relay dry-run deploy. mobile.yml calls it on every run; release.yml calls it
+# before it creates a draft release, so no tag is drafted or built on failing suites. No secrets and no write access.
+name: Phone tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node suites, shell build and relay
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+            relay/package-lock.json
+
+      - name: Install the root packages
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: npm ci
+
+      - name: Install the mobile packages
+        working-directory: mobile
+        run: npm ci
+
+      - name: Install the relay packages
+        working-directory: relay
+        run: npm ci
+
+      # Until package.json declares them (wave 119), the Bridge and crypto packages are installed here at the exact versions
+      # MOBILE.json names. Nothing is saved to package.json or to the lock file.
+      - name: Install the test packages that the root package.json does not declare yet
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const declared = { ...pkg.dependencies, ...pkg.devDependencies };
+          const wanted = ['@noble/curves@2.4.0', '@noble/ciphers@2.4.0', '@noble/hashes@2.4.0', 'ws@8.22.0', 'qrcode-generator@2.0.4'];
+          const nameOf = spec => spec.slice(0, spec.lastIndexOf('@'));
+          const missing = wanted.filter(spec => !declared[nameOf(spec)]);
+          if (missing.length === 0) {
+            console.log('Every test package is declared by package.json; nothing to install.');
+          } else {
+            console.log('Installing without saving: ' + missing.join(' '));
+            execFileSync('npm', ['install', '--no-save', '--no-audit', '--no-fund', ...missing], { stdio: 'inherit' });
+          }
+          JS
+
+      # The sealed environment of MOBILE.json tests.sealed_rules. The suites start their own servers from these values, and each
+      # server gets a scratch state folder. NODE_OPTIONS preloads the License Agreement acceptance into that folder, the same way
+      # the local battery does, so the tests that post to a server are not stopped by the terms gate.
+      - name: Prepare the sealed test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed="$RUNNER_TEMP/plenum-sealed"
+          rm -rf "$sealed"
+          mkdir -p "$sealed/appdata-empty" "$sealed/home" "$RUNNER_TEMP/pair-tools"
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          cat > "$sealed/accept-preload.mjs" <<'PRELOAD'
+          // Test preload (written by mobile.yml). In a process that is Plenum's server, it records the License Agreement as
+          // accepted in the scratch state folder, as build/accept-preload.mjs does for the local battery. Nothing happens without
+          // MUSE_CONSOLE_HOME, and the record holds the current version and the sha256 of both texts, so a changed text still
+          // closes the gate.
+          import { createHash } from 'node:crypto';
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const entry = String(process.argv[1] ?? '').replace(/\\/g, '/').toLowerCase();
+          const home = process.env.MUSE_CONSOLE_HOME;
+          if (home && /\/(?:server|plenum)\.mjs$/.test(entry)) {
+            try {
+              const appRoot = process.env.MUSE_CONSOLE_APP_ROOT || path.dirname(process.argv[1]);
+              const terms = JSON.parse(fs.readFileSync(path.join(appRoot, 'legal', 'terms.json'), 'utf8'));
+              const digest = name => createHash('sha256').update(fs.readFileSync(path.join(appRoot, 'legal', name))).digest('hex');
+              let app = '';
+              try {
+                app = String(JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version ?? '');
+              } catch {
+                // The version is informative only.
+              }
+              const accepted = { version: terms.version, at: new Date().toISOString(), app, eula: digest('EULA.md'), privacy: digest('PRIVACY.md') };
+              const file = path.join(home, 'state.json');
+              let state = {};
+              if (fs.existsSync(file)) {
+                state = JSON.parse(fs.readFileSync(file, 'utf8'));
+              } else if (fs.existsSync(file + '.bak')) {
+                throw new Error('a backup without the state file: left alone');
+              }
+              if (state === null || typeof state !== 'object' || Array.isArray(state)) throw new Error('state is not an object');
+              state.legal = { accepted, history: [accepted] };
+              fs.mkdirSync(home, { recursive: true });
+              fs.writeFileSync(file, JSON.stringify(state, null, 2));
+            } catch {
+              // Left closed: the server answers as it would for a person who has not accepted the terms.
+            }
+          }
+          PRELOAD
+          {
+            echo "APPDATA=$sealed/appdata-empty"
+            echo "LOCALAPPDATA=$sealed/appdata-empty"
+            echo "MUSE_CONSOLE_HOME=$sealed/home"
+            echo "MUSE_CONSOLE_CLAUDE=api"
+            echo "MUSE_CONSOLE_NO_FALLBACK=1"
+            echo "ANTHROPIC_BASE_URL=http://127.0.0.1:9"
+            echo "PLENUM_TOKEN=$token"
+            echo "PLENUM_TEST_REAL_LAN=1"
+            echo "NODE_OPTIONS=--import=file://$sealed/accept-preload.mjs"
+          } >> "$GITHUB_ENV"
+
+      # scripts/build-mobile.mjs writes mobile/www and relay/public. --check then confirms the output is complete and has no extra
+      # files. mobile/www is generated and not committed; relay/public is generated and committed, so the job fails when the committed
+      # copy is stale (the diff against the checkout, and any new or missing file).
+      - name: Build the phone shell and check its output
+        run: |
+          node scripts/build-mobile.mjs
+          node scripts/build-mobile.mjs --check
+          git diff --exit-code -- relay/public
+          test -z "$(git status --porcelain -- relay/public)"
+
+      # The suites that run here: everything under mobile/test except the two Electron harness suites, which need a display and
+      # the Electron binary (they run on the owner's Windows machine). PLENUM_TEST_REAL_LAN=1 lets carriers.test.mjs and
+      # bridge.test.mjs make the one real wildcard bind that a sealed run refuses.
+      - name: Run the node suites under the sealed environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The sealed PATH: no entry that mentions a model CLI, a package manager or Plenum's own folder.
+          PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -viE 'muse|codex|gemini|claude|cursor|grok|npm|\.muse-console' | paste -sd: -)"
+          export PATH
+          suites=()
+          for file in mobile/test/*.test.mjs; do
+            case "$(basename "$file")" in
+              regression.test.mjs|ui-remote.test.mjs) continue ;;
+            esac
+            suites+=("$file")
+          done
+          echo "Running ${#suites[@]} node suites."
+          node --test --test-reporter=spec "${suites[@]}"
+
+      # RELAY_REQUIRE_MINIFLARE=1 makes the real-workerd suite (hibernation, the automatic ping and pong, the alarm) mandatory here: a workerd
+      # that does not start fails this step instead of reporting every scenario as skipped and passing. relay/test/room.test.mjs skips
+      # only on Windows, and only when this variable is not set.
+      - name: Run the relay suites (miniflare)
+        working-directory: relay
+        env:
+          RELAY_REQUIRE_MINIFLARE: "1"
+        run: npm test
+
+      - name: Relay dry-run deploy (nothing is uploaded and no account is used)
+        working-directory: relay
+        env:
+          CI: "1"
+        run: npx wrangler deploy --dry-run
+
+      # The pairing tools for the smoke jobs. Each file is checked here, so a broken copy fails this job and not the smoke jobs.
+      - name: Write the pairing tools for the smoke jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/pair-tools"
+          mkdir -p "$tools"
+          cp "$RUNNER_TEMP/plenum-sealed/accept-preload.mjs" "$tools/accept-preload.mjs"
+          cat > "$tools/pair-driver.mjs" <<'DRIVER'
+          // Pairing driver for the smoke jobs (written by mobile.yml). It runs in the background on the runner. It starts Plenum's
+          // server from this checkout with the scratch state folder, turns phones on over the same network, asks for a pairing
+          // link and writes it to pair-link.txt for the device step. Then it allows the pairing on this throwaway server and reports
+          // "paired" once the device shows as connected. The allow is the plain-node test route (pair/confirm); the desktop app does
+          // not expose it. status.txt holds one word per line. Nothing this file prints contains the link, the token or a key.
+          import { spawn } from 'node:child_process';
+          import { appendFileSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
+          import path from 'node:path';
+
+          function need(name) {
+            const value = process.env[name];
+            if (!value) throw new Error(name + ' is not set');
+            return value;
+          }
+
+          const ROOT = need('PLENUM_ROOT');
+          const PAIR_DIR = need('PAIR_DIR');
+          const TOKEN = need('PLENUM_TOKEN');
+          const PORT = Number(process.env.PLENUM_CI_PORT || 7331);
+          const PAIR_HOST = process.env.PAIR_HOST || '';
+          const WAIT_MS = Number(process.env.PAIR_WAIT_S || 300) * 1000;
+          const STATUS = path.join(PAIR_DIR, 'status.txt');
+          const LINK = path.join(PAIR_DIR, 'pair-link.txt');
+          let child = null;
+
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+          function status(line) {
+            appendFileSync(STATUS, line + '\n');
+          }
+
+          function fail(reason) {
+            try {
+              status('failed ' + reason);
+            } catch {
+              // The status folder is gone; nothing else to do.
+            }
+            if (child && child.exitCode === null) child.kill();
+            process.exit(1);
+          }
+
+          async function api(method, route, body) {
+            const res = await fetch('http://127.0.0.1:' + PORT + route, {
+              method,
+              headers: { 'x-plenum-token': TOKEN, 'content-type': 'application/json' },
+              body: body === undefined ? undefined : JSON.stringify(body),
+              signal: AbortSignal.timeout(20000),
+            });
+            let json = null;
+            try {
+              json = await res.json();
+            } catch {
+              json = null;
+            }
+            return { status: res.status, json };
+          }
+
+          async function until(label, ms, check) {
+            const end = Date.now() + ms;
+            for (;;) {
+              let value = null;
+              try {
+                value = await check();
+              } catch {
+                value = null;
+              }
+              if (value) return value;
+              if (Date.now() > end) throw new Error('timed out waiting for ' + label);
+              await sleep(1000);
+            }
+          }
+
+          // The Android emulator reaches the runner's loopback at 10.0.2.2, so the carrier addresses in the link name that host.
+          function rewriteHost(link, host) {
+            const prefix = 'plenum://pair#';
+            if (!link.startsWith(prefix)) throw new Error('the pairing link has an unexpected shape');
+            const payload = JSON.parse(Buffer.from(link.slice(prefix.length), 'base64url').toString('utf8'));
+            for (const carrier of payload.carriers ?? []) {
+              carrier.urls = (carrier.urls ?? []).map(text => {
+                const url = new URL(text);
+                url.hostname = host;
+                return url.toString();
+              });
+            }
+            return prefix + Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+          }
+
+          process.on('SIGTERM', () => {
+            if (child && child.exitCode === null) child.kill();
+            process.exit(0);
+          });
+          process.on('exit', () => {
+            if (child && child.exitCode === null) child.kill();
+          });
+          process.on('uncaughtException', () => fail('an unexpected error'));
+          process.on('unhandledRejection', () => fail('an unexpected error'));
+
+          async function main() {
+            mkdirSync(PAIR_DIR, { recursive: true });
+            writeFileSync(STATUS, '');
+            const log = openSync(path.join(PAIR_DIR, 'server.log'), 'w');
+            const env = { ...process.env, PORT: String(PORT), PLENUM_TOKEN: TOKEN, MUSE_CONSOLE_APP_ROOT: ROOT };
+            child = spawn(process.execPath, ['server.mjs'], { cwd: ROOT, env, stdio: ['ignore', log, log] });
+            child.on('exit', code => status('server-exited ' + (code ?? 'by signal')));
+            await until('the server to answer', 90000, async () => (await api('GET', '/api/phones')).status === 200);
+            status('server-ready');
+            const on = await api('POST', '/api/phones/settings', { enabled: true });
+            if (on.status !== 200) throw new Error('settings answered ' + on.status);
+            const lan = await api('POST', '/api/phones/lan', { enabled: true });
+            if (lan.status !== 200) throw new Error('lan answered ' + lan.status);
+            const made = await api('POST', '/api/phones/pair/start', {});
+            if (made.status !== 200 || typeof made.json?.link !== 'string') throw new Error('pair/start answered ' + made.status);
+            // The answer carries the first link in its web form (LAN, Tailscale or relay). The app's own link has the same fragment
+            // under plenum://pair#, so it is rebuilt from the fragment here.
+            const fragment = /#pair=([A-Za-z0-9_-]+)$/.exec(made.json.link)?.[1];
+            if (!fragment) throw new Error('the pairing answer has no pairing fragment');
+            const native = 'plenum://pair#' + fragment;
+            // CI installs dev builds (npm run build:dev), where the marker skips the review screen for this throwaway computer only.
+            // A release build strips it and shows the review.
+            const link = (PAIR_HOST ? rewriteHost(native, PAIR_HOST) : native) + '&ci-confirm=1';
+            writeFileSync(LINK, link, { mode: 0o600 });
+            status('link-ready');
+            await until('the phone to ask for pairing', WAIT_MS, async () => (await api('POST', '/api/phones/pair/confirm', { allow: true })).status === 200);
+            status('allowed');
+            await until('the phone to connect', WAIT_MS, async () => {
+              const list = await api('GET', '/api/phones');
+              return (list.json?.devices ?? []).some(device => device.connected === true);
+            });
+            status('paired');
+            // Keep serving until the stop step sends SIGTERM.
+            await new Promise(() => {});
+          }
+
+          main().catch(error => fail(String(error?.message ?? 'an error').replace(/[^\x20-\x7e]/g, '').slice(0, 160)));
+          DRIVER
+          cat > "$tools/start-pairing.sh" <<'START'
+          #!/usr/bin/env bash
+          # Starts pair-driver.mjs in the background and waits until the pairing link is ready. PAIR_HOST is optional (10.0.2.2 for
+          # the Android emulator). Writes nothing that is secret to the log.
+          set -euo pipefail
+          tools="$RUNNER_TEMP/pair-tools"
+          pair="$RUNNER_TEMP/pair"
+          sealed="$RUNNER_TEMP/plenum-smoke"
+          rm -rf "$pair" "$sealed"
+          mkdir -p "$pair" "$sealed/home" "$sealed/appdata-empty"
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          export PLENUM_TOKEN="$token"
+          export PAIR_DIR="$pair"
+          export PLENUM_ROOT="$GITHUB_WORKSPACE"
+          export MUSE_CONSOLE_HOME="$sealed/home"
+          export APPDATA="$sealed/appdata-empty"
+          export MUSE_CONSOLE_CLAUDE=api
+          export MUSE_CONSOLE_NO_FALLBACK=1
+          export ANTHROPIC_BASE_URL=http://127.0.0.1:9
+          export PLENUM_TEST_REAL_LAN=1
+          preload_url="$(node -e 'process.stdout.write(require("node:url").pathToFileURL(process.argv[1]).href)' "$tools/accept-preload.mjs")"
+          export NODE_OPTIONS="--import=$preload_url"
+          if [ -n "${PAIR_HOST:-}" ]; then export PAIR_HOST; fi
+          nohup node "$tools/pair-driver.mjs" > "$pair/driver.log" 2>&1 < /dev/null &
+          echo $! > "$pair/driver.pid"
+          for _ in $(seq 1 150); do
+            if grep -q '^link-ready$' "$pair/status.txt" 2>/dev/null; then
+              echo "Pairing link ready."
+              exit 0
+            fi
+            if grep -q '^failed' "$pair/status.txt" 2>/dev/null; then
+              echo "The pairing driver stopped: $(grep '^failed' "$pair/status.txt" | head -n 1)"
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "The pairing link was not ready in time."
+          exit 1
+          START
+          cat > "$tools/stop-pairing.sh" <<'STOP'
+          #!/usr/bin/env bash
+          # Stops the pairing driver, which stops the server it started.
+          pid="$(cat "$RUNNER_TEMP/pair/driver.pid" 2>/dev/null || true)"
+          if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null || true
+            for _ in $(seq 1 10); do
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill -9 "$pid" 2>/dev/null || true
+          fi
+          echo "Pairing driver stopped."
+          exit 0
+          STOP
+          cat > "$tools/android-smoke.sh" <<'ANDROID'
+          #!/usr/bin/env bash
+          # The emulator step of mobile.yml, run by reactivecircus/android-emulator-runner once the API 36 emulator has started.
+          # Installs the debug APK, opens the pairing link, waits for the pairing and takes a screenshot.
+          set -euo pipefail
+          pair="$RUNNER_TEMP/pair"
+          shots="$RUNNER_TEMP/shots"
+          mkdir -p "$shots"
+          adb wait-for-device
+          until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 3; done
+          adb install -r "$RUNNER_TEMP/apk/app-debug.apk"
+          link="$(cat "$pair/pair-link.txt")"
+          adb shell "am start -a android.intent.action.VIEW -d '$link'"
+          for _ in $(seq 1 150); do
+            if grep -q '^paired$' "$pair/status.txt" 2>/dev/null; then break; fi
+            if grep -q '^failed' "$pair/status.txt" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          adb exec-out screencap -p > "$shots/android-after-pairing.png"
+          grep -q '^paired$' "$pair/status.txt"
+          echo "The app paired with the throwaway computer."
+          ANDROID
+          node --check "$tools/pair-driver.mjs"
+          node --check "$tools/accept-preload.mjs"
+          bash -n "$tools/start-pairing.sh"
+          bash -n "$tools/stop-pairing.sh"
+          bash -n "$tools/android-smoke.sh"
+          chmod +x "$tools"/*.sh
+          ls -l "$tools"
+
+      - name: Upload the pairing tools
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plenum-pair-tools
+          path: ${{ runner.temp }}/pair-tools
+          if-no-files-found: error
