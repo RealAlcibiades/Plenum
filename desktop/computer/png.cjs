@@ -1,15 +1,18 @@
 'use strict';
-// A small PNG encoder and decoder, and a tiny RGBA canvas, for the fake computer backend (fake.cjs) and its tests. Pure Node: no
-// Electron, no native code. The real backend gets its PNG bytes from Electron's nativeImage and never uses this file.
+// A small PNG encoder and decoder, and a tiny RGBA canvas, for the fake computer backend (fake.cjs), the smoke test (smoke.cjs) and
+// their tests. Pure Node: no Electron, no native code. The real backend gets its PNG bytes from Electron's nativeImage.
 //  - encodePng({ width, height, rgba }) -> Buffer: 8-bit RGBA (colour type 6), filter 0 on every row, one IDAT chunk made with
 //    zlib.deflateSync, and a CRC32 on every chunk.
-//  - decodePng(buffer) -> { width, height, rgba }: reads what encodePng writes (8-bit RGBA, filter 0, one or more IDAT chunks) and
-//    checks every CRC. Anything else (palette, interlace, other filters) is refused with an Error: this is not a general decoder.
+//  - decodePng(buffer) -> { width, height, rgba }: reads any ordinary 8-bit PNG without interlace (greyscale, RGB, grey+alpha or
+//    RGBA, every row filter, one or more IDAT chunks), which covers what nativeImage.toPNG() writes, and checks every CRC.
+//    Palette, other bit depths and interlace are refused with an Error.
 //  - createCanvas(width, height, fill) and fillRect / drawText / resizeCanvas / cropCanvas: just enough drawing for a fake screen.
 const zlib = require('node:zlib');
 
 const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MAX_SIDE = 16384;
+// Bytes per pixel for each 8-bit colour type: greyscale, RGB, grey+alpha, RGBA.
+const CHANNELS = { 0: 1, 2: 3, 4: 2, 6: 4 };
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -67,6 +70,7 @@ function decodePng(bytes) {
   let pos = 8;
   let width = 0;
   let height = 0;
+  let colour = -1;
   let ended = false;
   const parts = [];
   while (pos + 12 <= buf.length) {
@@ -78,7 +82,8 @@ function decodePng(bytes) {
     if (type === 'IHDR') {
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
-      if (data[8] !== 8 || data[9] !== 6 || data[12] !== 0) throw new Error('Only 8-bit RGBA PNGs without interlace are read here.');
+      colour = data[9];
+      if (data[8] !== 8 || !Object.hasOwn(CHANNELS, colour) || data[12] !== 0) throw new Error('Only 8-bit PNGs without palette or interlace are read here.');
     } else if (type === 'IDAT') {
       parts.push(data);
     } else if (type === 'IEND') {
@@ -90,14 +95,58 @@ function decodePng(bytes) {
   if (!ended || parts.length === 0) throw new Error('The PNG is cut short.');
   checkSize(width, height);
   const raw = zlib.inflateSync(Buffer.concat(parts));
-  const stride = width * 4;
+  const bpp = CHANNELS[colour];
+  const stride = width * bpp;
   if (raw.length !== (stride + 1) * height) throw new Error('The PNG pixel data has the wrong length.');
-  const rgba = new Uint8Array(stride * height);
-  for (let y = 0; y < height; y++) {
-    if (raw[y * (stride + 1)] !== 0) throw new Error('Only filter 0 is read here.');
-    rgba.set(raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)), y * stride);
+  const px = unfilter(raw, stride, height, bpp);
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0, o = 0; i < width * height; i++, o += 4) {
+    const s = i * bpp;
+    if (colour === 6) {
+      rgba[o] = px[s]; rgba[o + 1] = px[s + 1]; rgba[o + 2] = px[s + 2]; rgba[o + 3] = px[s + 3];
+    } else if (colour === 2) {
+      rgba[o] = px[s]; rgba[o + 1] = px[s + 1]; rgba[o + 2] = px[s + 2]; rgba[o + 3] = 255;
+    } else if (colour === 4) {
+      rgba[o] = rgba[o + 1] = rgba[o + 2] = px[s]; rgba[o + 3] = px[s + 1];
+    } else {
+      rgba[o] = rgba[o + 1] = rgba[o + 2] = px[s]; rgba[o + 3] = 255;
+    }
   }
   return { width, height, rgba };
+}
+
+// Undoes the row filters (0 none, 1 sub, 2 up, 3 average, 4 Paeth) and returns the bare pixel bytes, stride bytes per row.
+function unfilter(raw, stride, height, bpp) {
+  const px = Buffer.alloc(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    const src = y * (stride + 1) + 1;
+    const dst = y * stride;
+    const up = y > 0 ? dst - stride : -1;
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? px[dst + i - bpp] : 0;
+      const b = up >= 0 ? px[up + i] : 0;
+      const c = up >= 0 && i >= bpp ? px[up + i - bpp] : 0;
+      let v = raw[src + i];
+      switch (filter) {
+        case 0: break;
+        case 1: v += a; break;
+        case 2: v += b; break;
+        case 3: v += (a + b) >> 1; break;
+        case 4: {
+          const p = a + b - c;
+          const pa = Math.abs(p - a);
+          const pb = Math.abs(p - b);
+          const pc = Math.abs(p - c);
+          v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+          break;
+        }
+        default: throw new Error('The PNG has an unknown row filter.');
+      }
+      px[dst + i] = v & 0xff;
+    }
+  }
+  return px;
 }
 
 // ---------- canvas ----------

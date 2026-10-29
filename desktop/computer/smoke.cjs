@@ -75,6 +75,18 @@ function readPicture(shot) {
   }
 }
 
+// Why a capture is not a picture: the backend's own refusal, or the decoder's complaint.
+function unreadable(shot) {
+  if (!shot) return { capture: null };
+  if (!shot.png) return { capture: shot.reason ?? null, message: shot.message ?? null };
+  try {
+    png.decodePng(shot.png);
+    return {};
+  } catch (err) {
+    return { decode: String(err?.message ?? err).slice(0, 160), bytes: shot.png.length ?? null };
+  }
+}
+
 function pixel(pic, x, y) {
   const i = (y * pic.width + x) * 4;
   return [pic.rgba[i], pic.rgba[i + 1], pic.rgba[i + 2]];
@@ -104,16 +116,28 @@ function placementOf(bar, t) {
   return 'top centre';
 }
 
-// The overlay's windows: the bar (the one of the bar's size) and the frame strips, found by their session partition.
+// The overlay's windows: the bar and the frame strips, found by their session partition. The bar is the one of the bar's size, give or
+// take the pixel a scaled display rounds away, or else the one that loads a page (the strips stay on about:blank). `seen` lists them
+// all for a failure report.
 function overlayParts(electron) {
   const ses = electron.session.fromPartition(PARTITION);
   const wins = electron.BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w.webContents.session === ses);
+  const near = (a, b) => Math.abs(a - b) <= 2;
   const isBar = w => {
     const b = w.getBounds();
-    return b.width === geometry.BAR_SIZE.width && b.height === geometry.BAR_SIZE.height;
+    return near(b.width, geometry.BAR_SIZE.width) && near(b.height, geometry.BAR_SIZE.height);
   };
-  const bar = wins.find(isBar) ?? null;
-  return { bar, strips: wins.filter(w => w !== bar) };
+  const urlOf = w => {
+    try {
+      return String(w.webContents.getURL?.() ?? '');
+    } catch {
+      return '';
+    }
+  };
+  const loadsPage = w => urlOf(w) !== '' && urlOf(w) !== 'about:blank';
+  const bar = wins.find(isBar) ?? wins.find(loadsPage) ?? null;
+  const seen = wins.map(w => ({ ...w.getBounds(), visible: w.isVisible(), page: loadsPage(w) }));
+  return { bar, strips: wins.filter(w => w !== bar), seen };
 }
 
 async function openTarget(BrowserWindow, wait) {
@@ -219,8 +243,9 @@ async function runSmoke({ electron, backend, log = () => {}, sleep: wait = sleep
     ok(2, { own: true, displayId: target.displayId ?? null });
 
     // 3. A window capture has the window's size, a green centre, and no mask grey unless another program covers it.
-    const seen = readPicture(await backend.capture({ scope: 'window', target: target.id, maxEdge: MAX_EDGE }));
-    if (!seen) return fail(3, 'The capture is not a PNG picture.');
+    const shot = await backend.capture({ scope: 'window', target: target.id, maxEdge: MAX_EDGE });
+    const seen = readPicture(shot);
+    if (!seen) return fail(3, 'The capture is not a PNG picture.', unreadable(shot));
     const want = geometry.fitEdge(target.bounds.width, target.bounds.height, MAX_EDGE);
     if (Math.abs(seen.width - want.width) > 1 || Math.abs(seen.height - want.height) > 1) {
       return fail(3, 'The picture is not the size of the window.', { size: [seen.width, seen.height], expected: [want.width, want.height] });
@@ -277,13 +302,14 @@ async function runSmoke({ electron, backend, log = () => {}, sleep: wait = sleep
     const shown = await backend.overlay({ show: true, displayId: display, rect, state: 'running', model: '', label: 'Smoke test' });
     if (!shown || shown.ok !== true) return fail(7, 'The overlay did not show.');
     await wait(800);
-    const screen = readPicture(await backend.capture({ scope: 'display', target: display, maxEdge: MAX_EDGE }));
-    if (!screen) return fail(7, 'The display capture is not a PNG picture.');
+    const screenShot = await backend.capture({ scope: 'display', target: display, maxEdge: MAX_EDGE });
+    const screen = readPicture(screenShot);
+    if (!screen) return fail(7, 'The display capture is not a PNG picture.', unreadable(screenShot));
     const magenta = countWhere(screen, isMagenta);
     if (magenta >= MARKER_MIN) return fail(7, 'The overlay marker shows in a capture, so the overlay is not kept out of pictures.', { magenta });
     overlayMode = (await backend.probe())?.overlay ?? 'unknown';
     const parts = overlayParts(electron);
-    if (!parts.bar) return fail(7, 'The overlay bar window is missing.');
+    if (!parts.bar) return fail(7, 'The overlay bar window is missing.', { windows: parts.seen });
     const placement = placementOf(parts.bar.getBounds(), win.getBounds());
     const runningFrame = overlayParts(electron).strips.filter(w => w.isVisible()).length;
     if (runningFrame === 0) return fail(7, 'No frame strip shows while the drive is running.');
@@ -330,7 +356,11 @@ function startOverlayServer() {
       const { port } = server.address();
       resolve({
         origin: `http://127.0.0.1:${port}`,
-        close: () => new Promise(done => server.close(() => done())),
+        // The hidden overlay bar keeps its keep-alive connection open, and close() alone would wait on it for ever.
+        close: () => new Promise(done => {
+          server.close(() => done());
+          server.closeAllConnections?.();
+        }),
       });
     });
   });
