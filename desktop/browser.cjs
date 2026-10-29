@@ -19,15 +19,19 @@
 //
 // Messages (the server's, each answered with an object that the handler posts as `${type}-result` with the same id):
 //   browser-open { url, wait? }  browser-navigate { tab?, url, wait? }  browser-back | browser-forward | browser-reload { tab?, wait? }
-//   browser-tabs { action: 'new' | 'close' | 'select', tab?, url?, select? }  browser-bounds { x, y, width, height, visible, snapshot? }
+//   browser-tabs { action: 'new' | 'close' | 'select', tab?, url?, select? }  browser-bounds { x, y, width, height, visible, snapshot?, keep? }
 //   browser-hide {}  browser-state {}  browser-screenshot { tab?, maxEdge? } -> { png, width, height }  browser-driving { agentDriving }
 //   browser-download-answer { download, allow, dir? }  browser-permission-answer { permission, allow }  browser-permission-reset {}  browser-clear {}
 //   browser-snapshot { tab?, maxElements?, maxChars? } -> { url, title, text, elements, password, captcha, ... }   (brw-03)
 //   browser-act { tab?, action, ref?, expect?, text?, value?, key?, direction?, amount?, submit? } -> { ok, url?, title?, ... }   (brw-03)
+//   browser-frame { tab?, maxEdge? } -> { ok, image (a JPEG data URL), width, height, shown, cached? }   (mob-20: a phone looks at the pane)
+//   browser-input { tab?, kind: 'tap' | 'scroll' | 'type' | 'key', x?, y?, width?, height?, dx?, dy?, text?, key?, count?, paused? }   (mob-20)
 // (`download` and `permission` name the question being answered; a message's own `id` is the server's request id and is never reused.)
 // `wait: true` makes open, navigate, back and reload answer when the page has loaded (or after 15 seconds), with its address and title.
 // Events it sends on its own (through `tell`, as { type: 'browser-event', kind, ... }): tabs, popup-blocked, download-blocked,
 // download-request, download-gone, download-saved, download-failed, permission-request, permission-gone, key.
+// browser-bounds with keep: true is a phone's call (the Bridge adds it): it takes the picture and leaves the page view where the desktop put it,
+// because the desktop's own pane puts its view back on every 2 seconds and would blink. The views of a desktop call are unchanged.
 // Nothing here logs a page's address, title or content. Cookies and page content never leave this process: only addresses, titles,
 // file names, sizes and, on request, a picture of the page.
 //
@@ -38,6 +42,14 @@
 // window, so a view that is not shown is put on the window's right edge with one pixel inside it for the moment of the action.
 // A page's answer is cut and checked here (cleanSnapshot) before it leaves. A password, one-time code or card field is never typed
 // into by 'type'; only 'type-secret', which the person starts from the pane, types into one, and it reads nothing back.
+//
+// A phone (mob-20): browser-frame is a JPEG of the page made only when a phone asks for one, at most five a second (a frame asked for sooner
+// is the last one, with cached: true). browser-input is the person's own hand: the tap, the scroll, the typing and the key arrive from the
+// phone as the person would make them, through the same real input as the model's click (withLive, deliver, sendClick), but they do not
+// go through browser-act, so none of the model's refusals apply to them and the model's tools are not involved. What a person types
+// into a password or code field from their phone is theirs: it goes to the page and is read back by nobody, kept nowhere, and left out of
+// every reply, log line and event. While the model drives, the server says by paused: true that the person has paused it; without that
+// the input is refused here too. Input needs the Plenum window to be showing (it is never shown for it).
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -62,6 +74,14 @@ const SETTLE_QUICK_MS = 350;
 const SETTLE_MAX_MS = 12_000;
 const LOAD_WAIT_MS = 15_000;
 const MAX_TYPED = 5000;
+// A phone's frames: at most five a second, a picture of at most FRAME_EDGE on its longest side unless the phone asks for another size.
+const FRAME_MIN_MS = 200;
+const FRAME_EDGE = { min: 200, max: 1600, default: 960 };
+const FRAME_QUALITY = 60;
+// A phone's typing, scrolling and keys.
+const MAX_PERSON_TEXT = 1000;
+const MAX_SCROLL = 4000;
+const PERSON_KINDS = new Set(['tap', 'scroll', 'type', 'key']);
 const SCREENSHOT_EDGE = { min: 200, max: 4000 };
 // Two animation frames, run in the isolated world: when they have passed, the page has been laid out at the size its view has now and
 // has drawn what the last action changed (a scroll), so a click lands where the page really is. A page that is not drawing gives up
@@ -73,9 +93,13 @@ const KEYS = Object.freeze({
   Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', PageUp: 'PageUp',
   PageDown: 'PageDown', Home: 'Home', End: 'End',
 });
+// The keys a person may press from the phone, as Electron names them: the model's keys, and the two that erase.
+const PERSON_KEYS = Object.freeze({ ...KEYS, Backspace: 'Backspace', Delete: 'Delete' });
 const ACT_ACTIONS = new Set(['click', 'type', 'type-secret', 'select', 'press', 'scroll', 'focus-info']);
 const NEEDS_REF = new Set(['click', 'type', 'select']);
 const SECRET_REFUSAL = 'This looks like a password, code or payment field. Plenum never types those.';
+const HIDDEN_WINDOW = 'The Plenum window is hidden, so taps cannot be sent. Show the window on the computer.';
+const MODEL_USING = 'The model is using this browser. Pause it first.';
 
 const NOT_HTTP = 'Only http and https addresses can be opened.';
 const NO_TAB = 'There is no such tab.';
@@ -94,7 +118,7 @@ try {
 const MESSAGE_TYPES = Object.freeze([
   'browser-open', 'browser-navigate', 'browser-back', 'browser-forward', 'browser-reload', 'browser-tabs', 'browser-bounds', 'browser-hide',
   'browser-state', 'browser-screenshot', 'browser-driving', 'browser-download-answer', 'browser-permission-answer', 'browser-permission-reset',
-  'browser-clear', 'browser-snapshot', 'browser-act',
+  'browser-clear', 'browser-snapshot', 'browser-act', 'browser-frame', 'browser-input',
 ]);
 
 // File types that can start a program when opened. The pane adds a line for them; the download is not refused.
@@ -667,6 +691,18 @@ function createBrowser(options = {}) {
     } catch {
       return null;
     }
+  }
+
+  // A JPEG of the active page for a phone: { image (a data URL), width, height }, or null when there is nothing to show. A view that is on the
+  // window is captured where it is; the rest is borrowed for the moment (see capture).
+  async function frameOf(tab, longest, quality) {
+    const image = await capture(tab);
+    if (!image || image.isEmpty()) return null;
+    const size = image.getSize();
+    const edge = Math.max(size.width, size.height);
+    const small = edge > longest ? image.resize({ width: Math.max(1, Math.round((size.width * longest) / edge)) }) : image;
+    const out = small.getSize();
+    return { image: `data:image/jpeg;base64,${small.toJPEG(quality).toString('base64')}`, width: out.width, height: out.height };
   }
 
   // ---------- permissions ----------
@@ -1353,6 +1389,144 @@ function createBrowser(options = {}) {
     });
   }
 
+  // ---------- a phone looks and acts (mob-20) ----------
+
+  // The last picture made for a phone, and the one being made. A phone that asks again within FRAME_MIN_MS gets the last one; one that
+  // asks while a picture is being made shares it. Nothing is made unless a phone asks.
+  let phoneFrame = null; // { tab, edge, at, reply }
+  let phoneJob = null; // { tab, edge, promise }
+
+  function phonePicture(tab, edge, quality) {
+    if (phoneFrame && phoneFrame.tab === tab.id && phoneFrame.edge === edge && Date.now() - phoneFrame.at < FRAME_MIN_MS) {
+      return Promise.resolve({ ...phoneFrame.reply, cached: true });
+    }
+    if (phoneJob && phoneJob.tab === tab.id && phoneJob.edge === edge) return phoneJob.promise;
+    const job = { tab: tab.id, edge, promise: null };
+    job.promise = serial(async () => {
+      try {
+        const got = await frameOf(tab, edge, quality);
+        if (!got) return fail('The page has nothing to show yet.');
+        const reply = { ok: true, tab: tab.id, ...got, shown: attached === tab.id };
+        phoneFrame = { tab: tab.id, edge, at: Date.now(), reply };
+        return reply;
+      } catch {
+        return fail('The page could not be captured.');
+      } finally {
+        if (phoneJob === job) phoneJob = null;
+      }
+    });
+    phoneJob = job;
+    return job.promise;
+  }
+
+  // The size of the tab's view in the page's own pixels, which is what a click is given in.
+  function viewSize(tab) {
+    try {
+      const b = tab.view.getBounds?.();
+      if (b && b.width > 0 && b.height > 0) return { width: b.width, height: b.height };
+    } catch {
+      // The size the pane last asked for is used.
+    }
+    const size = bounds ?? { width: 1024, height: 768 };
+    return { width: Math.max(1, size.width), height: Math.max(1, size.height) };
+  }
+
+  // A point of the phone's picture (x, y in a picture of width by height) as a point of the page's view, or null when it is outside.
+  function pointIn(message, size) {
+    const { x, y, width, height } = message;
+    if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0 || x < 0 || y < 0 || x > width || y > height) return null;
+    return { x: Math.min(size.width - 1, Math.round((x / width) * size.width)), y: Math.min(size.height - 1, Math.round((y / height) * size.height)) };
+  }
+
+  // One key as the person's real input (no check that the page saw it; the caller decides).
+  async function sendKey(tab, name) {
+    const keyCode = PERSON_KEYS[name];
+    tab.wc.sendInputEvent({ type: 'keyDown', keyCode });
+    if (name === 'Enter') tab.wc.sendInputEvent({ type: 'char', keyCode });
+    tab.wc.sendInputEvent({ type: 'keyUp', keyCode });
+    await pause(40);
+  }
+
+  // The person's tap, scroll, typing or key, from a phone. Checked here before anything is queued; sent as real input with the view on the
+  // window, one at a time with the model's actions. Answers { ok, tab, url, title } and never a word of what was typed.
+  async function personInput(message) {
+    if (!PERSON_KINDS.has(message.kind)) return fail('The browser does not know that input.');
+    const tab = tabFor(message.tab);
+    if (!tab) return fail(NO_TAB);
+    if (tab.crashed) return fail('This page stopped working. Reload it to try again.');
+    if (agentDriving && message.paused !== true) return fail(MODEL_USING);
+    if (message.kind === 'type') {
+      if (typeof message.text !== 'string' || message.text === '') return fail('Type something first.');
+    } else if (message.kind === 'key') {
+      if (!Object.hasOwn(PERSON_KEYS, message.key)) return fail('That key is not one a phone can press.');
+    } else if (message.kind === 'scroll') {
+      const dx = message.dx ?? 0;
+      const dy = message.dy ?? 0;
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return fail('Say how far to scroll.');
+    }
+    if ((message.kind === 'tap' || message.kind === 'scroll') && !pointIn(message, { width: 1, height: 1 })) return fail('That spot is outside the picture.');
+    if (!canSendInput()) return fail(HIDDEN_WINDOW);
+    return serial(async () => {
+      try {
+        return await withLive(tab, async () => {
+          const wc = tab.wc;
+          const size = viewSize(tab);
+          switch (message.kind) {
+            case 'tap': {
+              const at = pointIn(message, size);
+              await frames(tab);
+              const seen = await deliver(tab, 'mouse', () => sendClick(tab, at.x, at.y));
+              if (seen !== 'seen') return fail('The tap did not reach the page. Try again.');
+              await settle(tab, { quick: 150, max: 2500 });
+              return where(tab);
+            }
+            case 'scroll': {
+              const at = pointIn(message, size);
+              const along = (n, of, to) => Math.max(-MAX_SCROLL, Math.min(MAX_SCROLL, Math.round(n * (to / of))));
+              // dy > 0 moves the page down the way a finger swiping up does; the wheel's own sign is the other way round.
+              const deltaX = -along(message.dx ?? 0, message.width, size.width);
+              const deltaY = -along(message.dy ?? 0, message.height, size.height);
+              wc.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
+              wc.sendInputEvent({ type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY, canScroll: true });
+              await pause(150);
+              return where(tab);
+            }
+            case 'type': {
+              // Control characters are dropped; a line break is the Enter key.
+              const lines = message.text.slice(0, MAX_PERSON_TEXT).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f]/g, '').split('\n');
+              if (lines.every(l => l === '')) return fail('Type something first.');
+              let focus = null;
+              try {
+                focus = await runScript(tab, 'act', { action: 'focus-info' });
+              } catch {
+                focus = null;
+              }
+              if (focus && focus.ok === true && focus.editable !== true) return fail('Tap a text field first.');
+              for (let i = 0; i < lines.length; i += 1) {
+                if (lines[i] !== '') await wc.insertText(lines[i]);
+                if (i < lines.length - 1) await sendKey(tab, 'Enter');
+              }
+              return where(tab);
+            }
+            default: {
+              const count = clampInt(message.count, 1, 20, 1);
+              if (count === 1) {
+                const seen = await deliver(tab, 'key', () => sendKey(tab, message.key));
+                if (seen !== 'seen') return fail('The key did not reach the page. Try again.');
+              } else {
+                for (let i = 0; i < count; i += 1) await sendKey(tab, message.key);
+              }
+              if (message.key === 'Enter') await settle(tab, { quick: 150, max: 2500 });
+              return where(tab);
+            }
+          }
+        });
+      } catch {
+        return fail('The page changed or did not answer. Try again.');
+      }
+    });
+  }
+
   // ---------- messages ----------
 
   const actions = {
@@ -1416,7 +1590,10 @@ function createBrowser(options = {}) {
       return fail(FAILED);
     },
     'browser-bounds': async message => {
-      const seq = (boundsSeq += 1);
+      // A phone's call (keep) takes a picture and leaves the views where the desktop put them; it is not a newer layout, so it does not
+      // cancel a desktop call that is still waiting for its own picture.
+      const keep = message.keep === true && message.visible !== true;
+      const seq = keep ? boundsSeq : (boundsSeq += 1);
       const numbers = ['x', 'y', 'width', 'height'].map(name => message[name]);
       const valid = numbers.every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0);
       if (message.visible === true) {
@@ -1428,10 +1605,14 @@ function createBrowser(options = {}) {
         return { ok: true, shown: attached !== null };
       }
       let image = null;
-      if (message.snapshot === true && attached) {
-        const tab = tabs.get(attached);
-        if (tab) image = await coverPicture(tab);
+      // A phone with no page view on the window (the pane is closed on the desktop) still gets a picture of the active tab.
+      const shownTab = attached ?? (keep ? active : null);
+      if (message.snapshot === true && shownTab) {
+        const tab = tabs.get(shownTab);
+        // A view that is not on the window is borrowed for the picture, so it waits its turn behind the model's actions.
+        if (tab) image = attached === null ? await serial(() => coverPicture(tab)) : await coverPicture(tab);
       }
+      if (keep) return image ? { ok: true, shown: attached !== null, image } : { ok: true, shown: attached !== null };
       // A newer bounds message arrived while the picture was taken: it decides.
       if (seq === boundsSeq) {
         wantVisible = false;
@@ -1439,6 +1620,13 @@ function createBrowser(options = {}) {
       }
       return image ? { ok: true, shown: false, image } : { ok: true, shown: false };
     },
+    'browser-frame': async message => {
+      const tab = tabFor(message.tab);
+      if (!tab) return fail(NO_TAB);
+      if (tab.crashed) return fail('This page stopped working. Reload it to try again.');
+      return phonePicture(tab, clampInt(message.maxEdge, FRAME_EDGE.min, FRAME_EDGE.max, FRAME_EDGE.default), FRAME_QUALITY);
+    },
+    'browser-input': message => personInput(message),
     'browser-hide': () => {
       hide();
       return { ok: true };

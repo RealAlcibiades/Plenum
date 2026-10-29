@@ -19,11 +19,11 @@
 .ext-board-side-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 .ext-board-side-head .badge[hidden] { display: none; }
 /* The count and its word ("2 running") stay on one line: the badge is a pill, and a wrapped word fell outside it, unreadable. */
-.ext-board-side-head .badge { white-space: nowrap; }
+.ext-board-side-head .badge { display: inline-flex; align-items: center; justify-content: center; gap: 0.3em; white-space: nowrap; }
 .ext-board-side-list { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ext-board-side-more { align-self: flex-start; }
 .ext-board-side-more[hidden] { display: none; }
-/* The icon strip (1100 to 1439 px with a pane open; data-strip on .app, style.css): only the Running now count shows, centred in the
+/* The icon strip (861 to 1439 px with the pane or Settings open; data-strip on .app, style.css): only the Running now count shows, centred in the
    56 px column (UI-ARCH section 8). The head still opens the Agents pane. The words of the badge are hidden, so the number alone fits. */
 .app[data-strip] .ext-board-side { padding: 8px 0 10px; align-items: stretch; }
 .app[data-strip] .ext-board-side .kicker,

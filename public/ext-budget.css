@@ -23,10 +23,9 @@
 :root[data-shell="desktop"] .ext-budget-chip { -webkit-app-region: no-drag; }
 
 /* On a phone-width window, and in a 480 px desktop window, the chip keeps only the amount spent so it can still open the
-   drawer. The top bar wraps while a chip is shown there (ext-git.css), so the chip stays clear of the controls and the window
-   buttons. */
+   drawer. style.css's fit ladder (app.js fitTitlebar) keeps the chip clear of the controls and the window buttons. */
 @media (max-width: 520px) {
-  .ext-budget-chip { min-width: 0; max-width: 100%; }
+  .ext-budget-chip { max-width: 100%; }
   .ext-budget-long { display: none; }
   .ext-budget-short { display: inline; }
 }

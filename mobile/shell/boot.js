@@ -208,7 +208,7 @@ export function installShim(options = {}) {
   let connState = { status: 'idle' };
   let locked = false;
   let stopView = { state: 'idle', text: '', seq: 0 };
-  let helloInfo = null;     // { deviceId, tier } from the last HELLO, kept while the phone is away
+  let helloInfo = null;     // { deviceId, tier, caps } from the last HELLO, kept while the phone is away
   let lockInfo = { mode: 'off' };
   let hadSession = false;   // a computer is paired: the lock screen offers "Unlock and stop everything"
   let lockStop = { ready: false, computerName: '' };   // the shell's lockStop: whether a Stop can go out without unlocking
@@ -344,6 +344,9 @@ export function installShim(options = {}) {
       // The phone's own tier (full, approve or read) from the computer's HELLO, and whether an app lock is set (the phone layer shows "Lock now"
       // only then). A phone that has not heard from a computer yet is 'full' to the layer, as before.
       tier: helloInfo?.tier ?? null,
+      // What the computer says it can do (HELLO.caps, by the phone's tier): the phone layer shows the Browser and Computer controls only when
+      // 'browser-control' or 'computer-control' is in it. A copy, so a screen cannot change what the shell keeps.
+      caps: helloInfo ? [...helloInfo.caps] : [],
       lockMode: lockInfo.mode ?? 'off',
     };
   }
@@ -952,7 +955,11 @@ export function installShim(options = {}) {
       hadSession = Boolean(snapshot.activeId) || (Array.isArray(snapshot.computers) && snapshot.computers.length > 0) || hadSession;
       // The phone's own id and tier come with the HELLO and are kept while the computer is away (a locked or reconnecting phone is the same phone).
       if (snapshot.hello) {
-        helloInfo = { deviceId: snapshot.hello.deviceId ?? helloInfo?.deviceId ?? '', tier: snapshot.hello.tier ?? helloInfo?.tier ?? null };
+        helloInfo = {
+          deviceId: snapshot.hello.deviceId ?? helloInfo?.deviceId ?? '',
+          tier: snapshot.hello.tier ?? helloInfo?.tier ?? null,
+          caps: Array.isArray(snapshot.hello.caps) ? snapshot.hello.caps.filter(c => typeof c === 'string') : (helloInfo?.caps ?? []),
+        };
         if (helloInfo.deviceId && shell.device.id !== helloInfo.deviceId) shell.device.id = helloInfo.deviceId;
       }
       if (snapshot.notice && snapshot.notice.seq !== notice?.seq) {

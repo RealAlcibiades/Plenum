@@ -1216,6 +1216,21 @@ describe('boot.js: the phone layer\'s contract with the shell (M9, F4, L15, M6, 
     assert.equal(inst.win.plenumShell.connection().tier, 'approve', 'a tier event for this phone is followed; one for another phone is not');
   });
 
+  test('wave 121: the computer\'s HELLO caps reach the phone layer through connection(), stay while the computer is away, and are a copy', () => {
+    const { win, core } = install();
+    assert.deepEqual(win.plenumShell.connection().caps, [], 'nothing is known before the first HELLO');
+    const caps = ['events', 'browser-picture', 'browser-control', 'computer-control'];
+    core.push({ hello: { deviceId: 'dev-1234', tier: 'full', caps, desktopName: 'Home PC', pending: {} } });
+    assert.deepEqual(win.plenumShell.connection().caps, caps, 'ext-phone shows the Browser and Computer controls only with these in the connection');
+    win.plenumShell.connection().caps.push('forged');
+    caps.push('mutated-after');
+    assert.deepEqual(win.plenumShell.connection().caps, ['events', 'browser-picture', 'browser-control', 'computer-control'], 'neither a screen nor the snapshot changes what the shell keeps');
+    core.push({ hello: null, connection: { status: 'reconnecting', desktopName: 'Home PC' } });
+    assert.deepEqual(win.plenumShell.connection().caps, ['events', 'browser-picture', 'browser-control', 'computer-control'], 'the same computer while it is away');
+    core.push({ hello: { deviceId: 'dev-1234', tier: 'full', caps: ['events'], desktopName: 'Old PC', pending: {} }, connection: { status: 'connected', desktopName: 'Old PC' } });
+    assert.deepEqual(win.plenumShell.connection().caps, ['events'], 'a computer that names fewer caps replaces them');
+  });
+
   test('M9: app.js and boot.js report the same capabilities for the same page, on a LAN page and on an https page', () => {
     const pages = [
       { location: new URL('http://192.168.1.5:40123/'), isSecureContext: false },

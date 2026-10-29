@@ -213,6 +213,7 @@
       badge.textContent = n > 99 ? '99+' : String(n);
       badge.hidden = n === 0;
     }
+    document.getElementById('reviewBtn')?.setAttribute('aria-label', n > 0 ? `${TITLE}, ${n}` : TITLE);
   }
 
   function paint() {
@@ -692,7 +693,8 @@
     b.title = `${TEXT.openTitle} (${MOD}+Shift+D)`;
     const badge = make('span', 'badge', '');
     badge.hidden = true;
-    b.replaceChildren(MuseUI.icon('layers'), document.createTextNode(TITLE), badge);
+    b.replaceChildren(MuseUI.icon('layers'), MuseUI.span('pane-btn-label', TITLE), badge);
+    b.setAttribute('aria-label', TITLE);
     b.addEventListener('click', openPane);
     controls.insertBefore(b, controls.firstElementChild);
   }

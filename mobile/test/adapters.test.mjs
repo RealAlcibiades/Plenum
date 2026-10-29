@@ -233,11 +233,10 @@ describe('against a sealed server with a fake desktop shell', { skip: SEALED ? f
     assert.equal(seen.snapshot, true);
   });
 
-  // H5 (wave 103). The Bridge forwards keep: true (proxy.mjs, and the fake-upstream test above holds that). Until lib/routes/browser.mjs
-  // passes keep on to the shell and desktop/browser.cjs skips its detach for it, a phone's Browser pane makes the desktop's live page
-  // view detach every 2 s. The todo flag keeps the rest of the suite green until then; when the real fix lands the assertion passes and
-  // the todo flag comes off (node:test reports a todo that passes as ok, so nothing hides the change).
-  test('a phone bounds call reaches the desktop with keep true, so the desktop leaves its live page view on the window', { todo: 'needs lib/routes/browser.mjs and desktop/browser.cjs keep (wave 119)' }, async () => {
+  // H5 (wave 103, fixed in wave 120). The Bridge forwards keep: true (proxy.mjs, and the fake-upstream test above holds that), the route
+  // passes it on to the shell and desktop/browser.cjs skips its detach for it, so a phone's Browser pane no longer makes the desktop's live
+  // page view detach every 2 s (the desktop half is checked in build/v06/mob-20-120/browser-keep.test.cjs).
+  test('a phone bounds call reaches the desktop with keep true, so the desktop leaves its live page view on the window', async () => {
     const res = await session.request('POST', '/api/browser/bounds', { body: { x: 1, y: 2, width: 300, height: 200, visible: true } });
     assert.equal(res.status, 200);
     const seen = boundsSeen.at(-1);

@@ -80,8 +80,12 @@ let handlers = { messages: new Map(), hooks: [], reported: new Set() };
 // The handler modules that loaded, in file order ({ file, mod }). The startFailed hook is run from here, because it answers with a
 // value and the loader's runHooks (desktop/handler-loader.cjs) ignores what a hook returns.
 let handlerModules = [];
-// The item a handler adds to the tray menu ({ label, click }), or null. The updater sets it while an update is ready to install.
-let updateItem = null;
+// The items handlers add to the tray menu, by name ({ label, click }): 'update' is the updater's (while an update is ready to install),
+// 'phones' is the phones connected now. TRAY_ITEM_ORDER is the order they sit in, after the approval item and before the separator.
+const trayItems = new Map();
+const TRAY_ITEM_ORDER = ['update', 'phones'];
+// How many phones the server reports as connected (its phones-indicator message). The tray shows them while there are some.
+let phonesConnected = 0;
 // Set once a handler has taken over the error box for a failed start, so the 30-second wait and the server's exit cannot each show
 // another box for the same failure.
 let startFailureHandled = false;
@@ -164,18 +168,12 @@ const desktopShell = {
   tray: {
     count: n => {
       trayCount = n;
-      if (tray) {
-        tray.setToolTip(tooltipFor(n));
-        tray.setContextMenu(buildTrayMenu(n));
-      }
+      refreshTray();
     },
-    // The updater's item: { label, click } while an update is downloaded, null otherwise. The menu is rebuilt when it changes.
-    setUpdateItem: item => {
-      const next = item && typeof item === 'object' && typeof item.label === 'string' && typeof item.click === 'function' ? { label: item.label, click: item.click } : null;
-      if (next?.label === updateItem?.label && next?.click === updateItem?.click) return;
-      updateItem = next;
-      if (tray) tray.setContextMenu(buildTrayMenu(trayCount));
-    },
+    // A handler's item: { label, click } to show it, null to take it away. The menu is rebuilt when it changes (see setTrayItem).
+    setItem: (name, item) => setTrayItem(name, item),
+    // The updater's item (app-update.cjs): the same as setItem('update', item).
+    setUpdateItem: item => setTrayItem('update', item),
   },
   serverPid: () => server?.pid ?? null,
 };
@@ -262,6 +260,8 @@ function startServer() {
   child.on('exit', code => {
     if (child !== server) return;
     server = null;
+    // The server's phones are gone with it, so the tray stops saying so.
+    setPhonesConnected([]);
     callHooks('serverExited', code);
     if (quitting) return;
     if (code === RESTART_EXIT_CODE) {
@@ -299,6 +299,8 @@ function tell(child, message) {
 // is ignored, and a message with no string type is not a request.
 async function onServerMessage(child, message) {
   if (child !== server || !message || typeof message !== 'object' || typeof message.type !== 'string') return;
+  // The phones connected now also show in the tray. The phones handler (desktop/handlers/phones.cjs) gets the same message for its notice.
+  if (message.type === 'phones-indicator') setPhonesConnected(message.connected);
   await handleMessage(handlers, message, desktopShell, { post: reply => tell(child, reply), log: writeLog });
 }
 
@@ -329,6 +331,7 @@ function stopServer() {
   if (!server) return;
   const child = server;
   server = null;
+  setPhonesConnected([]);
   try {
     // taskkill /t also ends anything the server started (for example a run_command process).
     execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
@@ -588,16 +591,53 @@ function showWindow() {
   win.focus();
 }
 
-// The tray menu. "Show waiting approval" is enabled only while an approval card waits, and then it says how many. While a handler has
-// set an update item (desktop/handlers/app-update.cjs), it sits after the approval item and before the separator.
+// The tray menu. "Show waiting approval" is enabled only while an approval card waits, and then it says how many. The items a handler
+// set (trayItems: the update, then the phones) sit after the approval item and before the separator.
 function buildTrayMenu(waiting) {
+  // The named order first; a name no one put in the order follows, in the order it was set.
+  const rank = name => (TRAY_ITEM_ORDER.includes(name) ? TRAY_ITEM_ORDER.indexOf(name) : TRAY_ITEM_ORDER.length);
+  const extra = [...trayItems.keys()].sort((a, b) => rank(a) - rank(b)).map(name => ({ label: trayItems.get(name).label, click: trayItems.get(name).click }));
   return Menu.buildFromTemplate([
     { label: 'Show Plenum', click: () => showWindow() },
     { label: waiting ? `Show waiting approval (${waiting})` : 'Show waiting approval', enabled: waiting > 0, click: () => showWindow() },
-    ...(updateItem ? [{ label: updateItem.label, click: updateItem.click }] : []),
+    ...extra,
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
   ]);
+}
+
+// Sets or removes one tray item (desktop/handlers/ through shell.tray.setItem). item is { label, click }, or null to take it away. The menu
+// is rebuilt only when the item changes.
+function setTrayItem(name, item) {
+  const next = item && typeof item === 'object' && typeof item.label === 'string' && typeof item.click === 'function' ? { label: item.label, click: item.click } : null;
+  const prev = trayItems.get(name);
+  if (next ? (prev?.label === next.label && prev?.click === next.click) : !prev) return;
+  if (next) trayItems.set(name, next);
+  else trayItems.delete(name);
+  refreshTray();
+}
+
+// The phones the server reports connected (its phones-indicator message, lib/remote/index.mjs): the tray item 'Phones (n connected)'
+// while there are some, and the same words in the tray tooltip.
+function setPhonesConnected(names) {
+  const count = Array.isArray(names) ? names.length : 0;
+  if (count === phonesConnected) return;
+  phonesConnected = count;
+  setTrayItem('phones', count > 0 ? { label: `Phones (${count} connected)`, click: () => showWindow() } : null);
+}
+
+// The tray tooltip: the approval count (alerts.cjs), then the phones when some are connected.
+function trayTooltip() {
+  const parts = [tooltipFor(trayCount)];
+  if (phonesConnected > 0) parts.push(`Phones (${phonesConnected} connected)`);
+  return parts.join(' · ');
+}
+
+// Writes the tray's tooltip and menu from the current state. Does nothing before the tray exists.
+function refreshTray() {
+  if (!tray) return;
+  tray.setToolTip(trayTooltip());
+  tray.setContextMenu(buildTrayMenu(trayCount));
 }
 
 // Creates the tray icon on first use. Returns false when it cannot be made, and then the window
@@ -614,8 +654,7 @@ function ensureTray() {
     return false;
   }
   // The tray starts with the count the alerts last gave it, so a tray made while an approval waits says so at once.
-  tray.setToolTip(tooltipFor(trayCount));
-  tray.setContextMenu(buildTrayMenu(trayCount));
+  refreshTray();
   // A left click on the icon shows the window; the context menu opens on a right click.
   tray.on('click', () => showWindow());
   return true;

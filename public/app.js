@@ -3772,16 +3772,38 @@ events.on('state', ev => applyState(ev.state));
 
 // An approval card answered in another window is replaced by one quiet line. A card this window answered itself is left alone.
 // A card the Agents board answered says so (ev.by is 'board'). Every copy of the card on the page is replaced, the board's own too.
+// The names of the paired phones, by device id. An approval, a run or an activity event names the phone that acted by its id (the via
+// fields, from x-plenum-device), and the id is never shown: the name comes from the presence events and from GET /api/phones at start.
+// A phone whose name is not known yet reads as "a phone".
+const phoneNames = new Map();
+const phoneNamed = id => phoneNames.get(String(id)) || 'a phone';
+async function readPhoneNames() {
+  try {
+    const data = await api('/api/phones');
+    for (const d of Array.isArray(data?.devices) ? data.devices : []) if (d && typeof d.id === 'string') phoneNames.set(d.id, String(d.name ?? ''));
+  } catch {
+    // The presence events name the phones that connect later.
+  }
+}
+ready.then(readPhoneNames);
+events.on('phone', ev => {
+  if (ev.kind !== 'presence' || !Array.isArray(ev.connected)) return;
+  for (const c of ev.connected) if (c && typeof c.id === 'string') phoneNames.set(c.id, String(c.name ?? ''));
+});
 events.on('approval', ev => {
   const selector = `[data-approval-id="${CSS.escape(String(ev.approvalId))}"]`;
   // A card in the box of a thread that is not on screen is not in the document, so those boxes are looked at too.
   const cards = [...document.querySelectorAll(selector), ...[...runBoxes.values()].filter(box => !box.isConnected).flatMap(box => [...box.querySelectorAll(selector)])];
+  // A card a phone answered says who did it: "Approved on Will's iPhone" (ev.via is the phone's device id; MOBILE-UI 8.6 and 15.9).
+  const answeredOn = ev.via && ev.action === 'answered' ? `${ev.allow ? 'Approved' : 'Denied'} on ${phoneNamed(ev.via)}` : '';
   for (const card of cards) {
     if (card.dataset.answeredHere) continue;
     // A card on the Agents board (inside its pane, .ext-agl) says where it was answered in the chat's words.
     const onBoard = Boolean(card.closest?.('.ext-agl'));
     if (ev.by === 'board') {
       card.replaceWith(span('note-quiet', 'Answered from the Agents board.'));
+    } else if (answeredOn) {
+      card.replaceWith(onBoard ? span('note-quiet', answeredOn) : systemTurn(answeredOn));
     } else if (onBoard) {
       card.replaceWith(span('note-quiet', ev.action === 'expired' ? 'Timed out' : ev.action === 'stopped' ? 'Stopped' : 'Answered in the chat.'));
     } else {
@@ -3789,6 +3811,16 @@ events.on('approval', ev => {
       card.replaceWith(systemTurn(text));
     }
   }
+});
+
+// A phone switched the project (MOBILE-UI 15, item 9). The first switch from each phone in this window says so here: the event names the
+// project and carries the phone's device id as via. Server side, POST /api/settings publishes it when a phone sets activeProject.
+const phonesSwitched = new Set();
+events.on('project', ev => {
+  if (document.documentElement.dataset.surface === 'phone') return;
+  if (ev.action !== 'switched' || typeof ev.via !== 'string' || !ev.via || phonesSwitched.has(ev.via)) return;
+  phonesSwitched.add(ev.via);
+  toast(`Switched to ${String(ev.project ?? '')} from ${phoneNamed(ev.via)}.`);
 });
 
 // What a run started in another window looks like here. A chat turn, a review or a relay is drawn like a run of this window
@@ -5058,10 +5090,10 @@ function paneSyncChrome() {
   // With the column open the chat is narrower, so the title bar drops its secondary labels to keep one line (see style.css).
   if (paneShown) app.dataset.paneOpen = '';
   else delete app.dataset.paneOpen;
-  // UI-ARCH section 8: from 1100 to 1439 px, with the pane open (not while expanded) or the Settings page open, the sidebar becomes a
+  // UI-ARCH section 8: from 861 to 1439 px, with the pane open (not while expanded) or the Settings page open, the sidebar becomes a
   // 56 px icon strip.
   const w = window.innerWidth;
-  if ((paneShown && !paneExpanded || app.hasAttribute('data-settings-open')) && w >= 1100 && w <= 1439) app.dataset.strip = '';
+  if ((paneShown && !paneExpanded || app.hasAttribute('data-settings-open')) && w >= 861 && w <= 1439) app.dataset.strip = '';
   else delete app.dataset.strip;
 }
 
@@ -5301,7 +5333,7 @@ window.addEventListener('resize', () => el.paneGrip.setAttribute('aria-valuemax'
 el.paneBack.addEventListener('click', () => paneHide());
 el.paneClose.addEventListener('click', () => paneCloseTab());
 el.paneExpand.addEventListener('click', () => paneSetExpanded(!paneExpanded));
-// The icon strip and the Expand state follow the window width (1100 to 1439 px) as well as the column.
+// The icon strip and the Expand state follow the window width (861 to 1439 px) as well as the column.
 window.addEventListener('resize', () => paneSyncChrome());
 paneSyncChrome();
 
@@ -5380,13 +5412,14 @@ const SETTINGS_GROUPS = [
   { key: 'roles', label: 'Roles' },
   { key: 'agents', label: 'Agents' },
   { key: 'safety', label: 'Safety' },
+  { key: 'phones', label: 'Phones' },
   { key: 'general', label: 'General' },
   { key: 'updates', label: 'Updates' },
   { key: 'legal', label: 'Legal' },
   { key: 'more', label: 'More' },
 ];
 const SECTION_GROUP = {
-  rules: 'rules', accounts: 'accounts', 'api-finder': 'api', roles: 'roles', sessions: 'roles', agents: 'agents', approvals: 'safety',
+  rules: 'rules', accounts: 'accounts', 'api-finder': 'api', roles: 'roles', sessions: 'roles', agents: 'agents', approvals: 'safety', phones: 'phones',
   appearance: 'general', music: 'general', desktop: 'general', legal: 'legal', updates: 'updates', 'plenum-changes': 'updates',
 };
 const groupOfSection = def => SECTION_GROUP[def.id] ?? (SETTINGS_GROUPS.some(g => g.key === def.group) ? def.group : 'more');
@@ -6630,6 +6663,8 @@ window.MuseUI = {
   sendComputer,
   computer: { frameUrl: frameDataUrl, busy: () => busyNow(), stopWord: stopWordOf },
   openAddForm,
+  // The name of a paired phone from its device id (a via field), or '' while it is not known. The callers write "a phone" for ''.
+  phoneName: id => phoneNames.get(String(id)) || '',
   // Overwritable. public/ext-notices.js assigns the real notice strip and risk here. A notice is information, so the stub draws
   // nothing; a risk is a question, so the stub asks with the caller's own text (confirmBox) rather than allowing the switch.
   notice: (id, { before, after } = {}) => null,
@@ -6675,5 +6710,40 @@ window.MuseUI = {
   codingAgents: { add: addCodingAgent },
 };
 
+
+// The title bar fits its items (the fit ladder, style.css): the bar sets data-fit to the smallest step at which nothing overflows, and
+// --bar-now to its own height, which the Settings page, the side pane and the toasts read. The phone's bar is fixed by ext-phone.css, so it
+// is left alone. Measured after each change of the bar, the window's size or the fonts, once per frame.
+const FIT_LAST = 5;
+let fitFrame = 0;
+function titlebarTight(bar, step) {
+  const end = bar.getBoundingClientRect().right - parseFloat(getComputedStyle(bar).paddingRight);
+  const rects = [...bar.children].filter(n => n.getClientRects().length > 0).map(n => n.getBoundingClientRect());
+  if (rects.some(r => r.right > end + 1)) return true;
+  const title = bar.querySelector('.proj-title');
+  if (title && title.scrollWidth > title.clientWidth + 1) return true;
+  if (step < 3) return false;
+  const mids = rects.map(r => r.top + r.height / 2).sort((a, b) => a - b);
+  let lines = 0; let last = -Infinity;
+  for (const m of mids) { if (m - last > 6) lines += 1; last = m; }
+  return lines > 2;
+}
+function fitTitlebar() {
+  fitFrame = 0;
+  const bar = $('titlebar');
+  if (!bar) return;
+  if (document.documentElement.dataset.surface === 'phone') { delete bar.dataset.fit; document.documentElement.style.removeProperty('--bar-now'); return; }
+  let step = 0;
+  bar.dataset.fit = '0';
+  while (step < FIT_LAST && titlebarTight(bar, step)) { step += 1; bar.dataset.fit = String(step); }
+  document.documentElement.style.setProperty('--bar-now', `${Math.ceil(bar.getBoundingClientRect().height)}px`);
+}
+const queueFit = () => { if (!fitFrame) fitFrame = requestAnimationFrame(fitTitlebar); };
+if ($('titlebar')) {
+  new ResizeObserver(queueFit).observe($('titlebar'));
+  new MutationObserver(queueFit).observe($('titlebar'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
+  window.addEventListener('resize', queueFit);
+  document.fonts?.ready.then(queueFit);
+}
 
 boot();

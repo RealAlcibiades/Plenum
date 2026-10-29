@@ -160,11 +160,11 @@
     }
     for (const r of [...runs.values()].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))) {
       if (waitingScopes.has(r.scope)) continue;
-      rows.push({ key: `r:${r.scope}`, scope: r.scope, kind: 'run', tone: '', status: `Running ${Math.floor(Math.max(0, Date.now() - (r.startedAt ?? Date.now())) / 60000)}m`, projectName: r.projectName, threadName: r.threadName, model: r.modelLabel, step: stepText(r), clock: clock(Date.now() - (r.startedAt ?? Date.now())), unseen: false });
+      rows.push({ key: `r:${r.scope}`, scope: r.scope, kind: 'run', tone: '', status: `Running ${Math.floor(Math.max(0, Date.now() - (r.startedAt ?? Date.now())) / 60000)}m`, projectName: r.projectName, threadName: r.threadName, model: r.modelLabel, step: stepText(r), clock: clock(Date.now() - (r.startedAt ?? Date.now())), unseen: false, via: r.via ?? '' });
     }
     for (const r of recent) {
       if (isSeen(r)) continue;
-      rows.push({ key: `d:${r.scope}:${r.endedAt}`, scope: r.scope, kind: 'done', tone: r.status === 'error' ? 'red' : '', status: ENDED_WORDS[r.status] ?? 'Done', projectName: r.projectName, threadName: r.threadName, model: r.modelLabel, step: stepText(r), clock: clock((r.endedAt ?? 0) - (r.startedAt ?? 0)), unseen: true });
+      rows.push({ key: `d:${r.scope}:${r.endedAt}`, scope: r.scope, kind: 'done', tone: r.status === 'error' ? 'red' : '', status: ENDED_WORDS[r.status] ?? 'Done', projectName: r.projectName, threadName: r.threadName, model: r.modelLabel, step: stepText(r), clock: clock((r.endedAt ?? 0) - (r.startedAt ?? 0)), unseen: true, via: r.via ?? '' });
     }
     return rows;
   }
@@ -209,9 +209,12 @@
     top.append(el('span', row.tone ? `pill ext-board-pill ${row.tone}` : 'pill ext-board-pill', row.status));
     if (row.unseen) top.append(el('span', 'ext-board-dot'));
     b.append(top, el('span', 'ext-board-row-name', `${row.projectName || 'Project'} · ${row.threadName || 'Main'}`));
+    // A run that a phone acted in says so: via <device> (DECISIONS 68). The name comes from the phone list, never the id.
     const meta = [row.model, row.step, row.clock].filter(Boolean).join(' · ');
     if (meta) b.append(el('span', 'ext-board-row-meta', meta));
-    b.setAttribute('aria-label', `${row.status}: ${row.projectName || 'Project'} · ${row.threadName || 'Main'}`);
+    const via = row.via ? `via ${MuseUI.phoneName?.(row.via) || 'a phone'}` : '';
+    if (via) b.append(el('span', 'ext-board-row-meta', via));
+    b.setAttribute('aria-label', `${row.status}: ${row.projectName || 'Project'} · ${row.threadName || 'Main'}${via ? `, ${via}` : ''}`);
     b.addEventListener('click', () => openScope(row.scope));
     return b;
   }
@@ -248,7 +251,7 @@
     const rows = sideRows();
     const waiting = approvals.size;
     const running = runs.size;
-    const sig = JSON.stringify([rows.map(r => [r.key, r.status, r.projectName, r.threadName, r.model, r.step, r.clock]), waiting]);
+    const sig = JSON.stringify([rows.map(r => [r.key, r.status, r.projectName, r.threadName, r.model, r.step, r.clock, r.via, r.via ? MuseUI.phoneName?.(r.via) ?? '' : '']), waiting]);
     side.hidden = rows.length === 0;
     // The badge shows the cards waiting (amber) when there are any, else the runs in progress.
     sideBadge.hidden = waiting === 0 && running === 0;

@@ -637,7 +637,10 @@
       run.live ? 'still going' : stopped,
       sizeText(run.bytes ?? 0),
     ].filter(Boolean).join(' · ');
-    body.append(el('p', 'cu-facts', facts));
+    const factsEl = el('p', 'cu-facts', facts);
+    // The timeline's live state for the phone's Take over (ext-phone.js reads it), so no words are matched.
+    factsEl.dataset.live = String(Boolean(run.live));
+    body.append(factsEl);
     const taskText = String(run.task ?? '');
     const task = el('p', 'cu-task-text', taskText);
     body.append(task);

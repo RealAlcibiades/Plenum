@@ -9,6 +9,8 @@
 //   - composer row 2: [+] [model chip] [Mode] [Send]; the keyboard through visualViewport (with the iOS 26 re-measure); text zoom;
 //   - long-press and a visible "⋯" on project rows and replies; one back stack (sheet, settings, drawer, pane, Chat, Projects);
 //   - window.plenumPhoneDebug, only with ?debug=1, ?demo or ?selftest: safeArea, keyboard, textZoom, tab, back, connection.
+//   - track B (wave 121, MOBILE-UI 8.10 and 8.11): taps, drags, typing and keys on the Browser picture, and Take over from phone on a computer
+//     run, only where the connection says this computer allows them (the remote section below).
 // Every desktop control is driven through its original element (click, or set the value and dispatch one change). No app logic is copied.
 // Text reaches the page only through textContent. No inline script, no style attribute, no colour literal (ext-phone.css holds the look).
 (function () {
@@ -1805,6 +1807,7 @@
     paintAgents();
     hideAddPhone();
     paintSettingsNotes();
+    paintControl();
   }
 
   // ---------- the waiting bar (8.6, P-31): shown while an approval or a hand-over waits and its card is not on screen ----------
@@ -2386,10 +2389,12 @@
       if (e.defaultPrevented) return;
       const target = e.target instanceof Element ? e.target : null;
       if (!target) return;
-      // The picture of the browser (8.11): a tap is not input in v1, so it says so once.
+      // The picture of the browser (8.11): a tap is not input in v1, so it says so once. With the remote controls on (track B, below) the
+      // picture's own pointer handler sends the tap, and this click only stops here.
       if (target.closest('.ext-brw-shot')) {
         e.preventDefault();
         e.stopPropagation();
+        if (controlOn('browser')) return;
         if (!p2.pictureTold) {
           p2.pictureTold = true;
           MuseUI.toast(`This is a picture of the page on ${deskName()}. Use the address bar and the buttons here to steer it.`);
@@ -2651,7 +2656,8 @@
       }
     };
     // The name is the computer's name in every line the phone shows. Tests pass another name to check that the phone uses it.
-    // extra: { tier, lockMode } go through connection() like the shell's own, so the tier and the Lock now row follow the production path.
+    // extra: { tier, lockMode, caps, carrier } go through connection() like the shell's own, so the tier, the Lock now row and the remote controls
+    // (caps: the computer's capabilities, carrier: the way the phone reaches it) follow the production path.
     dbg.connection = (s, name = 'Studio PC', extra = {}) => {
       const st = String(s);
       const known = ['connected', 'reconnecting', 'offline', 'asleep', 'phone-offline'];
@@ -2659,6 +2665,8 @@
       state.connOverride = { state: word, carrier: word === 'connected' ? 'lan' : '', desktopName: String(name), lastSeen: Date.now() - 120000 };
       if (extra && typeof extra.tier === 'string') state.connOverride.tier = extra.tier;
       if (extra && typeof extra.lockMode === 'string') state.connOverride.lockMode = extra.lockMode;
+      if (extra && Array.isArray(extra.caps)) state.connOverride.caps = extra.caps.map(String);
+      if (extra && typeof extra.carrier === 'string') state.connOverride.carrier = extra.carrier;
       refreshAll();
     };
     dbg.route = link => handleRoute(link);
@@ -2682,6 +2690,7 @@
     paintTier();
     refreshWait();
     paintNewer();
+    paintControl();
   }
 
   function observeAll() {
@@ -2710,6 +2719,412 @@
     window.addEventListener('online', refreshAll);
     window.addEventListener('offline', refreshAll);
     setInterval(refreshAll, 1000);
+  }
+
+  // ---------- track B (MOBILE-UI 8.10 and 8.11, wave 121): the phone as the person ----------
+  // A tap, a drag, typing and a key on the Browser picture, and Take over from phone on a computer run, are sent the way the person would send
+  // them at the computer. The desktop and the Bridge check each one again (Full tier, the control capability, a run this phone holds). The
+  // controls show only when the connection says this computer lets the phone act, the Full tier, a connected carrier, and on the iOS app only over
+  // the LAN (lib/remote/tiers.mjs controlRefusal). Typed text is cleared once it is sent and kept nowhere else.
+  const REMOTE_NOTICE = 'phone-remote-control';
+  const TAKE_LABEL = 'Take over from phone';
+  const RESUME_LABEL = 'Resume';
+  const TYPE_LABEL = 'Type it for me';
+  const KEY_NAMES = ['Enter', 'Tab', 'Backspace', 'Escape'];
+  const TYPE_MAX = 1000;
+  const TAP_PX = 10;
+  const DRIVE_MS = 2000;
+  const FRAME_NEXT_MIN = 250;
+  const FRAME_NEXT_MAX = 2000;
+  const FRAME_IDLE_MS = 2000;
+  const FRAME_FAIL_MS = 4000;
+  const LIVE_FAIL_MS = 1000;
+  const NO_ANSWER = 'Plenum on this computer did not answer.';
+  const CONTROL_CAP = { browser: 'browser-control', computer: 'computer-control' };
+  // Pictures keep the size the desktop reported: a point is sent in that picture's pixels.
+  const pictureSize = new WeakMap();
+  const remote = {
+    frame: { timer: 0, busy: false, fails: 0 },
+    drive: { at: 0, busy: false },
+    run: { held: false, drive: null, timer: 0, busy: false, dom: null, warned: false },
+  };
+
+  const setHidden = (node, flag) => {
+    if (node && node.hidden !== flag) node.hidden = flag;
+  };
+  const drawerOpen = () => {
+    const d = $('drawer');
+    return Boolean(d) && !d.hidden;
+  };
+  const paneOpen = () => {
+    const p = $('pane');
+    return Boolean(p) && !p.hidden && MuseUI.pane.active() === 'browser';
+  };
+  const browserShot = () => {
+    const root = q('.ext-brw');
+    const view = root ? q('.ext-brw-view', root) : null;
+    return view ? q('.ext-brw-shot', view) : null;
+  };
+  const briefDrive = d => ({ id: String(d.id), state: String(d.state || ''), pausedBy: String(d.pausedBy || '') });
+
+  // Whether this page may send a kind of input: the computer's capability is in the connection (caps), the tier is Full, the phone is
+  // connected, and the iOS app reaches the computer only over the LAN. Without caps in the connection the controls stay off.
+  function controlOn(kind) {
+    const c = connView();
+    if (phoneTier() !== 'full' || connNow() !== 'connected') return false;
+    if (!Array.isArray(c.caps) || !c.caps.includes(CONTROL_CAP[kind])) return false;
+    const caps = shellProp('caps');
+    const ios = shellProp('app') === 'ios' || (Array.isArray(caps) && caps.includes('lan-control') && shellProp('platform') !== 'android');
+    return !ios || c.carrier === 'lan';
+  }
+
+  // POST to a route as the person. A refusal keeps its status and the server's own sentence; a dropped request says the computer did not answer.
+  async function callPhone(path, body) {
+    try {
+      const res = await MuseUI.request(path, { method: 'POST', body });
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data, error: res.ok ? '' : String(data.error || `Request failed (${res.status})`) };
+    } catch {
+      return { ok: false, status: 0, data: {}, error: NO_ANSWER };
+    }
+  }
+
+  async function readPhone(path) {
+    const res = await MuseUI.request(path);
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return res.json();
+  }
+
+  // The strip the notice draws at the top of its place, once per launch (the notices registry decides; a hidden notice is not drawn).
+  function noticeOnce(container) {
+    if (!container || q(`[data-notice="${REMOTE_NOTICE}"]`, container) || typeof MuseUI.notice !== 'function') return;
+    MuseUI.notice(REMOTE_NOTICE, { into: container });
+  }
+
+  function showPicture(img, data) {
+    pictureSize.set(img, { width: Number(data.width), height: Number(data.height) });
+    if (img.getAttribute('src') !== data.image) img.src = data.image;
+    img.hidden = false;
+  }
+
+  // The point of the picture under a point of the screen. The picture is drawn from the top left at the size its box gives it (contain), so one
+  // scale serves both axes. Null when the point is outside the picture.
+  function pictureAt(img, cx, cy) {
+    const size = pictureSize.get(img) || (img.naturalWidth > 0 ? { width: img.naturalWidth, height: img.naturalHeight } : null);
+    const r = img.getBoundingClientRect();
+    if (!size || !(size.width > 0) || !(r.width > 0) || !(r.height > 0)) return null;
+    const scale = Math.min(r.width / size.width, r.height / size.height);
+    const x = (cx - r.left) / scale;
+    const y = (cy - r.top) / scale;
+    if (x < 0 || y < 0 || x > size.width || y > size.height) return null;
+    return { x: Math.round(x), y: Math.round(y), width: size.width, height: size.height, scale };
+  }
+
+  // A press and release within TAP_PX is a tap; a longer move is a drag. The gesture is judged at release.
+  function wirePicture(img, act) {
+    let press = null;
+    img.addEventListener('pointerdown', e => {
+      if (e.button === 0 || e.pointerType !== 'mouse') press = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    });
+    img.addEventListener('pointercancel', () => {
+      press = null;
+    });
+    img.addEventListener('pointerup', e => {
+      const p = press;
+      press = null;
+      if (!p || p.id !== e.pointerId) return;
+      act(img, p.x, p.y, e.clientX - p.x, e.clientY - p.y);
+    });
+  }
+
+  // A tap or a drag on the picture, as the person's input. The gate and the point are judged now. A drag moves the page the other way: a finger
+  // that goes up scrolls the page down, so the sent dy is positive.
+  function pictureGesture(kind, img, x, y, dx, dy) {
+    if (!controlOn(kind)) return;
+    const at = pictureAt(img, x, y);
+    if (!at) return;
+    if (Math.hypot(dx, dy) < TAP_PX) {
+      sendAct(kind, { kind: 'tap', x: at.x, y: at.y, width: at.width, height: at.height });
+      return;
+    }
+    const sx = Math.round(-dx / at.scale);
+    const sy = Math.round(-dy / at.scale);
+    if (!sx && !sy) return;
+    sendAct(kind, { kind: 'scroll', x: at.x, y: at.y, width: at.width, height: at.height, dx: sx, dy: sy });
+  }
+
+  // One input as the person: the browser's route, or the computer run's (only while this phone holds the run). A refusal is said once. A
+  // 409 from the run means the hold is over, so the view is released.
+  async function sendAct(kind, body) {
+    let route = '/api/browser/input';
+    let payload = body;
+    if (kind === 'computer') {
+      const d = remote.run.drive;
+      if (!remote.run.held || !d) return false;
+      route = '/api/computer/input';
+      payload = { id: d.id, ...body };
+    }
+    const r = await callPhone(route, payload);
+    if (r.ok) return true;
+    if (kind === 'computer' && r.status === 409) releaseRun();
+    MuseUI.toast(r.error, 'bad');
+    return false;
+  }
+
+  // The typing box and the keys, for the browser picture or a computer run. The box is cleared once its text is sent.
+  function buildRows(kind) {
+    const node = mk('div', 'ph-rc-rows');
+    const row = mk('div', 'ph-rc-row');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'ph-rc-text';
+    input.maxLength = TYPE_MAX;
+    input.autocomplete = 'off';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', kind === 'computer' ? 'Text to type on the computer' : 'Text to type on the page');
+    input.placeholder = 'Text to type';
+    const send = mk('button', 'ph-rc-btn ph-rc-send', TYPE_LABEL);
+    send.type = 'button';
+    send.addEventListener('click', async () => {
+      const text = input.value;
+      if (!text) return;
+      if (await sendAct(kind, { kind: 'type', text })) input.value = '';
+    });
+    row.append(input, send);
+    const keys = mk('div', 'ph-rc-keys');
+    keys.setAttribute('role', 'group');
+    keys.setAttribute('aria-label', kind === 'computer' ? 'Keys for the computer' : 'Keys for the page');
+    for (const name of KEY_NAMES) {
+      const b = mk('button', 'ph-rc-btn ph-rc-key', name);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        sendAct(kind, { kind: 'key', key: name });
+      });
+      keys.append(b);
+    }
+    node.append(row, keys);
+    return { node, input };
+  }
+
+  // ----- the Browser pane: the picture takes taps and drags, the typing box and the keys sit under it, and the picture is made again live -----
+
+  function paneWatching() {
+    return paneOpen() && controlOn('browser') && Boolean(browserShot());
+  }
+
+  function paintBrowserRemote() {
+    const root = q('.ext-brw');
+    const view = root ? q('.ext-brw-view', root) : null;
+    const shot = view ? q('.ext-brw-shot', view) : null;
+    if (!root || !view || !shot) return;
+    let block = q('.ph-rc-browser', root);
+    if (!block) {
+      block = mk('div', 'ph-rc ph-rc-browser');
+      block.hidden = true;
+      block.append(buildRows('browser').node);
+      view.after(block);
+    }
+    if (!shot.dataset.phRc) {
+      shot.dataset.phRc = 'picture';
+      wirePicture(shot, (img, x, y, dx, dy) => pictureGesture('browser', img, x, y, dx, dy));
+    }
+    const on = controlOn('browser') && !shot.hidden && Boolean(shot.getAttribute('src'));
+    shot.toggleAttribute('data-ph-rc-on', on);
+    setHidden(block, !on);
+    if (on) noticeOnce(root);
+  }
+
+  function ensureBrowserFrames() {
+    if (!paneWatching()) {
+      if (remote.frame.timer) clearTimeout(remote.frame.timer);
+      remote.frame.timer = 0;
+      return;
+    }
+    if (!remote.frame.timer && !remote.frame.busy) remote.frame.timer = setTimeout(pollBrowser, 0);
+  }
+
+  // A picture of the page, made again at the rate the desktop asks (nextMs). It stops when the pane is not on screen.
+  async function pollBrowser() {
+    remote.frame.timer = 0;
+    if (!paneWatching() || remote.frame.busy) return;
+    remote.frame.busy = true;
+    let next = FRAME_IDLE_MS;
+    try {
+      const r = await callPhone('/api/browser/frame', {});
+      const shot = browserShot();
+      if (!r.ok) {
+        remote.frame.fails += 1;
+        next = Math.min(FRAME_FAIL_MS, 500 * remote.frame.fails);
+      } else if (shot && typeof r.data.image === 'string' && r.data.image.startsWith('data:image/')) {
+        remote.frame.fails = 0;
+        showPicture(shot, r.data);
+        next = Math.min(FRAME_NEXT_MAX, Math.max(FRAME_NEXT_MIN, Number(r.data.nextMs) || FRAME_NEXT_MIN));
+      }
+    } finally {
+      remote.frame.busy = false;
+    }
+    if (paneWatching() && !remote.frame.timer) remote.frame.timer = setTimeout(pollBrowser, next);
+  }
+
+  // ----- a computer run in the Computer runs panel: Take over from phone, then the run's picture, the typing box, the keys and Resume -----
+
+  // The computer's live drive, read at most every DRIVE_MS. The drive bar reads the same list.
+  function refreshDrive() {
+    if (remote.drive.busy || Date.now() - remote.drive.at < DRIVE_MS) return;
+    remote.drive.busy = true;
+    remote.drive.at = Date.now();
+    readPhone('/api/drive').then(data => {
+      const list = Array.isArray(data.drives) ? data.drives : [];
+      const d = list.find(x => x && x.kind === 'computer' && x.state !== 'stopped') || null;
+      const next = d ? briefDrive(d) : null;
+      if (!next || (remote.run.drive && remote.run.drive.id !== next.id)) releaseRun();
+      remote.run.drive = next;
+    }).catch(() => {
+      // The list could not be read; the view keeps what it has.
+    }).finally(() => {
+      remote.drive.busy = false;
+    });
+  }
+
+  function buildRunRemote() {
+    const block = mk('div', 'ph-rc ph-rc-run');
+    block.hidden = true;
+    const take = mk('button', 'ph-rc-btn ph-rc-takeover', TAKE_LABEL);
+    take.type = 'button';
+    take.addEventListener('click', takeOver);
+    const frame = mk('div', 'ph-rc-frame');
+    const img = document.createElement('img');
+    img.className = 'ph-rc-pic';
+    img.alt = '';
+    img.hidden = true;
+    frame.append(img);
+    const rows = buildRows('computer');
+    const resume = mk('button', 'ph-rc-btn ph-rc-resume', RESUME_LABEL);
+    resume.type = 'button';
+    resume.addEventListener('click', resumeRun);
+    block.append(take, frame, rows.node, resume);
+    wirePicture(img, (el, x, y, dx, dy) => pictureGesture('computer', el, x, y, dx, dy));
+    remote.run.dom = { block, take, frame, img, rows: rows.node, resume };
+    return block;
+  }
+
+  function paintRunRemote() {
+    const body = $('drawerBody');
+    const facts = body ? q('.cu-facts', body) : null;
+    let block = body ? q('.ph-rc-run', body) : null;
+    // ext-computer.js sets data-live on the facts line, so a change of its wording does not remove Take over.
+    const live = facts?.dataset.live === 'true';
+    if (!live || !controlOn('computer')) {
+      if (block) block.remove();
+      return;
+    }
+    if (!block) {
+      block = buildRunRemote();
+      facts.after(block);
+    }
+    refreshDrive();
+    const dom = remote.run.dom;
+    const drive = remote.run.drive;
+    setHidden(block, !drive);
+    if (!drive || !dom) return;
+    setHidden(dom.take, remote.run.held);
+    setHidden(dom.frame, !remote.run.held);
+    setHidden(dom.rows, !remote.run.held);
+    setHidden(dom.resume, !remote.run.held);
+    if (!remote.run.held && dom.block.contains(document.activeElement) && document.activeElement.closest('[hidden]')) dom.take.focus({ preventScroll: true });
+    noticeOnce(block);
+  }
+
+  // Pauses the run and gives this phone its screen. The desktop answers only a Full phone that the Bridge brought, and holds the run for it.
+  async function takeOver() {
+    const d = remote.run.drive;
+    if (!d) return;
+    const r = await callPhone('/api/computer/takeover', { id: d.id });
+    if (!r.ok) {
+      MuseUI.toast(r.error, 'bad');
+      return;
+    }
+    remote.run.held = true;
+    remote.run.warned = false;
+    if (r.data.drive) remote.run.drive = briefDrive(r.data.drive);
+    paintRunRemote();
+    remote.run.dom?.resume.focus({ preventScroll: true });
+    ensureLive();
+  }
+
+  async function resumeRun() {
+    const d = remote.run.drive;
+    if (!d) return;
+    const r = await callPhone('/api/drive/resume', { id: d.id });
+    if (!r.ok) {
+      MuseUI.toast(r.error, 'bad');
+      return;
+    }
+    releaseRun();
+    paintRunRemote();
+    remote.run.dom?.take.focus({ preventScroll: true });
+  }
+
+  // The hold is over here: the picture stops and the view goes back to Take over from phone.
+  function releaseRun() {
+    remote.run.held = false;
+    if (remote.run.timer) clearTimeout(remote.run.timer);
+    remote.run.timer = 0;
+    const img = remote.run.dom ? remote.run.dom.img : null;
+    if (img) {
+      img.hidden = true;
+      img.removeAttribute('src');
+    }
+  }
+
+  function ensureLive() {
+    const block = remote.run.dom ? remote.run.dom.block : null;
+    const on = remote.run.held && Boolean(block) && block.isConnected && !block.hidden && drawerOpen();
+    if (!on) {
+      if (remote.run.timer) clearTimeout(remote.run.timer);
+      remote.run.timer = 0;
+      return;
+    }
+    if (!remote.run.timer && !remote.run.busy) remote.run.timer = setTimeout(pollLive, 0);
+  }
+
+  // The run's picture, made again at the rate the desktop asks. A 409 means the hold is over (the run resumed or stopped, or a card waits).
+  async function pollLive() {
+    remote.run.timer = 0;
+    if (!remote.run.held || !remote.run.drive || remote.run.busy || !drawerOpen()) return;
+    remote.run.busy = true;
+    let next = FRAME_IDLE_MS;
+    try {
+      const r = await callPhone('/api/computer/live', { id: remote.run.drive.id });
+      if (r.status === 409) {
+        releaseRun();
+        MuseUI.toast(r.error, 'bad');
+      } else if (r.ok && remote.run.dom) {
+        if (typeof r.data.image === 'string' && r.data.image.startsWith('data:image/')) {
+          remote.run.warned = false;
+          showPicture(remote.run.dom.img, r.data);
+          next = Math.min(FRAME_NEXT_MAX, Math.max(FRAME_NEXT_MIN, Number(r.data.nextMs) || FRAME_NEXT_MIN));
+        }
+      } else {
+        next = LIVE_FAIL_MS;
+        if (!remote.run.warned) {
+          remote.run.warned = true;
+          MuseUI.toast(r.error, 'bad');
+        }
+      }
+    } finally {
+      remote.run.busy = false;
+    }
+    if (remote.run.held && !remote.run.timer) remote.run.timer = setTimeout(pollLive, next);
+  }
+
+  // Redraws the remote controls and keeps their polls going. It runs from the sweep and the one-second refresh and changes only what differs.
+  function paintControl() {
+    paintBrowserRemote();
+    paintRunRemote();
+    ensureBrowserFrames();
+    ensureLive();
   }
 
   function startPart2() {

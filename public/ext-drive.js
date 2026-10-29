@@ -43,6 +43,7 @@
   let pillKindShown = '';
   let pillText = null;
   let pillDot = null;
+  let pillOpen = null;
   let pillStop = null;
   let barDot = null;
 
@@ -197,6 +198,8 @@
           pillKindShown = entry.s.kind;
         }
         pillText.textContent = d.text;
+        pillOpen.setAttribute('aria-label', entry.s.state === 'running' ? pillName(entry.s) : `${d.text}. Open the run`);
+        pillOpen.title = d.text;
         pillStop.disabled = false;
         pillStop.title = STOP_TIP;
       }
@@ -263,6 +266,22 @@
     }
   }
 
+  // The name of the pill for assistive technology, while a drive runs: "A model is driving the computer: Notepad, step 12 of 80. Open the
+  // run". A drive with no step limit says the step it is on, without the "of". A paused or waiting drive is named by its visible words.
+  function pillName(s) {
+    const label = s.label || KIND_NAME[s.kind];
+    const step = typeof s.limits?.steps === 'number' ? `step ${s.steps} of ${s.limits.steps}` : `step ${s.steps}`;
+    return `A model is driving the ${s.kind === 'browser' ? 'browser' : 'computer'}: ${label}, ${step}. Open the run`;
+  }
+
+  // The pill opens the run view: the computer runs (their steps and screenshots) for a computer drive, the browser pane for a browser one.
+  function openRunView() {
+    const entry = current();
+    if (!entry) return;
+    if (entry.s.kind === 'browser') MuseUI.pane?.open('browser');
+    else MuseUI.openComputerRuns?.();
+  }
+
   function build() {
     bar = document.createElement('div');
     bar.className = 'drivebar';
@@ -313,8 +332,14 @@
       pillKind = MuseUI.span('db-kind');
       pillKind.setAttribute('aria-hidden', 'true');
       pillText = MuseUI.span('dp-text');
+      // The part of the pill that opens the run view is a button of its own. Stop is a second button beside it, never inside it.
+      pillOpen = document.createElement('button');
+      pillOpen.type = 'button';
+      pillOpen.className = 'dp-open';
+      pillOpen.append(pillDot, pillKind, pillText);
+      pillOpen.addEventListener('click', openRunView);
       pillStop = MuseUI.button('ghost small dp-stop', 'Stop');
-      pillEl.append(pillDot, pillKind, pillText, pillStop);
+      pillEl.append(pillOpen, pillStop);
       host.append(pillEl);
       pillStop.addEventListener('click', () => {
         const entry = current();

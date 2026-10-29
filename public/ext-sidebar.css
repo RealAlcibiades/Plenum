@@ -19,6 +19,10 @@
   body.ext-side-open .ext-side-close { display: inline-flex; align-self: flex-end; }
   /* Above the chat, below the toasts (40 in style.css). The drawer (21) sits lower than the menu, so ext-sidebar.js closes the menu when a drawer opens. */
   body.ext-side-open .ext-side-scrim { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0, 0, 0, 0.4); }
+  /* Under the title bar, as the pane is; the drive bar sits under the menu, and the drive pill (in the bar) stays visible. */
+  html:not([data-surface="phone"]) body.ext-side-open .sidebar { top: var(--bar-now, var(--bar-h)); }
+  html:not([data-surface="phone"]) body.ext-side-open .ext-side-scrim { top: var(--bar-now, var(--bar-h)); }
+  body.ext-side-open .drivebar { z-index: auto; }
   .topbar .proj-title { min-width: 0; }
   /* The Updates count, as a small accent circle at the top right of the menu button. */
   .ext-side-dot {

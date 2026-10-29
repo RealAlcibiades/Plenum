@@ -28,6 +28,7 @@ import { toolsAllowed } from './lib/tool-trust.mjs';
 import { toolsOnFor } from './lib/tool-verify.mjs';
 import { geminiSignIn, geminiUsage } from './lib/gemini.mjs';
 import { normalizeRoute, runSend, runBroadcast, runRoute, RelayLog, hashText } from './lib/relay.mjs';
+import { clipText } from './lib/collab.mjs';
 import { effectiveSettings, storedSettings, denyPatternsOf, chatModeOf, approvalModeOf, approvalSummary, approveAllBlockedOf, approveAllCoversOf, codersCannotAskOf, normalizeAppCovers, normalizeProjectSettings } from './lib/projects.mjs';
 import { forgetProjectSessions, forgetSession, sessionMode } from './lib/sessions.mjs';
 import { buildFocusOf, FOCUS_REMINDER } from './lib/focus.mjs';
@@ -463,6 +464,14 @@ function withTheme(html) {
   return attrs.length ? html.replace('<html lang="en">', `<html lang="en" ${attrs.join(' ')}>`) : html;
 }
 
+// The phone that answered a request, from x-plenum-device. Only the Bridge sets that header (lib/remote/proxy.mjs), and it drops any
+// x-plenum-* header a phone sends, so the value is the Bridge's own device id. It is never read from a body. '' for a desktop window.
+const DEVICE_ID = /^[A-Za-z0-9_-]{8,128}$/;
+function viaOf(req) {
+  const value = req.headers['x-plenum-device'];
+  return typeof value === 'string' && DEVICE_ID.test(value) ? value : '';
+}
+
 // Asks the user to approve a tool action. Resolves true/false, and false on timeout or stop.
 // A denial can carry the user's reason: finish puts it on the payload (the card object the caller passed), where the caller
 // reads it. Only the answer is resolved, so a reason can never turn a denial into an approval.
@@ -481,8 +490,8 @@ function approvalRequester(send, signal) {
     let expired = false;
     let settled = false;
     // by is 'board' when the Agents board answered the card (POST /api/approve with from: 'board'), else ''. It goes on the events
-    // channel, so the chat card in another window says where it was answered.
-    const finish = (allow, reason = '', by = '') => {
+    // channel, so the chat card in another window says where it was answered. via is the phone that answered (viaOf), when one did.
+    const finish = (allow, reason = '', by = '', via = '') => {
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
       pendingApprovals.delete(approvalId);
@@ -492,8 +501,8 @@ function approvalRequester(send, signal) {
       // Every window is told how the card ended, so one that did not answer it can replace the card. Said once.
       if (settled) return;
       settled = true;
-      activity.approvalDone(approvalId, allow ? 'approved' : expired ? 'timed-out' : signal.aborted ? 'stopped' : 'denied', by);
-      events.publish({ type: 'approval', action: allow ? 'answered' : (expired ? 'expired' : signal.aborted ? 'stopped' : 'answered'), approvalId, allow, ...(by ? { by } : {}) });
+      activity.approvalDone(approvalId, allow ? 'approved' : expired ? 'timed-out' : signal.aborted ? 'stopped' : 'denied', by, via);
+      events.publish({ type: 'approval', action: allow ? 'answered' : (expired ? 'expired' : signal.aborted ? 'stopped' : 'answered'), approvalId, allow, ...(by ? { by } : {}), ...(via ? { via } : {}) });
       events.publishState('approvals');
     };
     const onAbort = () => finish(false);
@@ -501,8 +510,11 @@ function approvalRequester(send, signal) {
     signal.addEventListener('abort', onAbort, { once: true });
     // fullDetail stays here and is never sent with the card: GET /api/approve/detail serves it, and only while the approval is waiting.
     const fullDetail = typeof payload.fullDetail === 'string' && payload.fullDetail ? payload.fullDetail : null;
+    // meta is the run this card belongs to (beginRun), which says the project, the thread and the model on the board.
+    const meta = runMeta.get(signal) ?? null;
     // defaultDeny and blocked come from a deny list card (denyListHit in lib/tools.mjs). A plain card carries neither.
     // card is what the chat shows; the Agents board shows the same card (lib/activity.mjs), so it is kept here, without the full diff.
+    // who is the model's label, for the "Codex wants to run:" line; it is left out until the run has a model.
     const card = {
       approvalId,
       summary: payload.summary,
@@ -513,9 +525,8 @@ function approvalRequester(send, signal) {
       ...(payload.frame ? { frame: payload.frame } : {}),
       // A card that only a click answers (a rewind or a restore, lib/checkpoints.mjs restorePrompt): Y and N do nothing on it.
       ...(payload.clickOnly === true ? { clickOnly: true } : {}),
+      ...(meta?.modelLabel ? { who: String(meta.modelLabel).slice(0, 80) } : {}),
     };
-    // meta is the run this card belongs to (beginRun), which says the project, the thread and the model on the board.
-    const meta = runMeta.get(signal) ?? null;
     pendingApprovals.set(approvalId, { finish, fullDetail, card, meta, at: Date.now() });
     send({ type: 'approval', ...card, ...(payload.kind ? { kind: payload.kind } : {}) });
     activity.approvalAdded({
@@ -890,6 +901,23 @@ async function computerSupportFor(ref) {
   return (typeof generic?.genericSupportDetail === 'function' ? await generic.genericSupportDetail(ref) : null) ?? detail;
 }
 
+// A phone's send carries x-plenum-client-id (the phone layer sets it, lib/remote/proxy.mjs passes it on), so a retry after a dropped
+// connection cannot send the same message twice. A repeat within SEND_REPEAT_MS of the first is refused with the usual 409. A send is
+// recorded when its run starts (see handleTurn), so one refused before that (busy, folder gone) can be sent again.
+const SEND_REPEAT_MS = 60_000;
+const SEND_IDS_MAX = 256;
+const CLIENT_SEND_ID = /^[A-Za-z0-9._-]{1,64}$/;
+const sentClientIds = new Map(); // x-plenum-client-id -> when its send started
+function noteSend(req) {
+  const id = req.headers['x-plenum-client-id'];
+  if (typeof id !== 'string' || !CLIENT_SEND_ID.test(id)) return;
+  const now = Date.now();
+  for (const [key, at] of sentClientIds) if (now - at >= SEND_REPEAT_MS) sentClientIds.delete(key);
+  if (sentClientIds.has(id)) throw httpError(409, 'That message was already sent.');
+  sentClientIds.set(id, now);
+  while (sentClientIds.size > SEND_IDS_MAX) sentClientIds.delete(sentClientIds.keys().next().value);
+}
+
 // Chat turns and /review share this path. /review reviews the last answer plus the working-tree diff, and streams the
 // answer as server-sent events. A message that arrives while the project is running is refused with 409. Follow-ups
 // typed during a run wait in the page, which sends each one as a normal message when the run before it ends, so every
@@ -910,6 +938,8 @@ async function handleTurn(req, res, { review }) {
   // here, with nothing awaited between this and beginRun.
   scope = refuseClosingCopy(project, scope);
 
+  // Nothing is awaited between the checks above and beginRun, so a repeat cannot pass the check while the first is being started.
+  if (!review) noteSend(req);
   const ac = new AbortController();
   beginRun(project, scope, ac, { kind: review ? 'review' : 'chat' });
   events.publishState('run');
@@ -1636,6 +1666,25 @@ function relaySeats(project, scope) {
   });
 }
 
+// The person's request a relay serves: the newest message the person typed before the source reply in this thread's log (a chat turn or a
+// council question, both store the text as content). Only typed messages count: an auto-fix follow-up holds raw check output and a compact
+// summary is written by a model. A reply that a relay saved keeps the request that relay served (requestTs, saveRelayHop), and that message
+// is used while it is still in the log, so a relay from the reply is not told a newer question. Returns { text, ts }; the text is empty and
+// the ts null when there is none.
+const MAX_RELAY_REQUEST = 40_000;
+const isTypedRequest = m => m.role === 'user' && (m.kind === 'chat' || m.kind === 'council') && !m.auto && !m.compact && String(m.content ?? '').trim();
+function requestBefore(log, index) {
+  const pinned = log[index]?.relay?.requestTs;
+  const kept = pinned != null ? log.find(m => m.ts === pinned && isTypedRequest(m)) : null;
+  if (kept) return { text: clipText(String(kept.content).trim(), MAX_RELAY_REQUEST), ts: kept.ts ?? null };
+  for (let i = index - 1; i >= 0; i--) {
+    const m = log[i];
+    if (isTypedRequest(m)) return { text: clipText(String(m.content).trim(), MAX_RELAY_REQUEST), ts: m.ts ?? null };
+  }
+  return { text: '', ts: null };
+}
+const isSeatReply = (m, seatId) => m.role === 'assistant' && ((m.kind === 'chat' && m.relay?.to === seatId) || (m.kind === 'council' && Array.isArray(m.council?.seats) && m.council.seats.some(x => x.id === seatId)));
+
 // The source of a relay. With messageTs (the chat message the person clicked, sent by the page), that reply is the source when it is a chat
 // reply of this thread; otherwise the seat's own newest reply is (relaySeats). A message that is no longer in the chat is refused.
 function relaySource(seats, sourceId, { messageTs = null, log = [] } = {}) {
@@ -1643,8 +1692,9 @@ function relaySource(seats, sourceId, { messageTs = null, log = [] } = {}) {
   if (!seat) throw httpError(400, `There is no council seat called "${sourceId}".`);
   let text = seat.reply;
   let messageId = null;
+  let hit = null;
   if (messageTs !== null && messageTs !== undefined && String(messageTs) !== '') {
-    const hit = log.find(m => m.ts !== undefined && String(m.ts) === String(messageTs));
+    hit = log.find(m => m.ts !== undefined && String(m.ts) === String(messageTs)) ?? null;
     if (!hit) throw httpError(400, 'That reply is no longer in this chat, so there is nothing to relay.');
     if (hit.role === 'assistant' && hit.kind === 'chat' && String(hit.content ?? '').trim()) {
       text = String(hit.content);
@@ -1652,19 +1702,22 @@ function relaySource(seats, sourceId, { messageTs = null, log = [] } = {}) {
     }
   }
   if (!text.trim()) throw httpError(400, `${seat.label} has not replied yet, so there is nothing to relay.`);
-  return { seat: seat.id, label: seat.label, ref: seat.ref, text, messageId };
+  const at = messageId !== null ? log.indexOf(hit) : log.findLastIndex(m => isSeatReply(m, seat.id));
+  const req = at >= 0 ? requestBefore(log, at) : { text: '', ts: null };
+  return { seat: seat.id, label: seat.label, ref: seat.ref, text, messageId, request: req.text, requestTs: req.ts };
 }
 
 // A relayed reply is kept in the chat as the target seat's own reply, with where it came from. The target's native session has not seen
 // this reply, so it is forgotten: its next turn starts a new session with the chat, this reply included (B-56), as compare and pipelines do.
-function saveRelayHop(scope, seats, ev, kind) {
+// requestTs is the ts of the person's request the relay served (relaySource), so a relay from this reply is told that request (requestBefore).
+function saveRelayHop(scope, seats, ev, kind, requestTs = null) {
   const target = seats.find(x => x.id === ev.to?.seat);
   store.addMessage(scope.id, {
     role: 'assistant',
     kind: 'chat',
     model: target?.ref ?? null,
     content: ev.text,
-    relay: { from: ev.from?.seat ?? null, fromLabel: ev.from?.label ?? null, to: ev.to?.seat ?? null, hop: ev.hop, kind },
+    relay: { from: ev.from?.seat ?? null, fromLabel: ev.from?.label ?? null, to: ev.to?.seat ?? null, hop: ev.hop, kind, ...(requestTs != null ? { requestTs } : {}) },
   });
   if (target?.ref) forgetSession(scope.id, target.ref);
 }
@@ -1698,7 +1751,7 @@ async function handleRelaySend(req, res) {
       at: Date.now(), hop: ev.hop, kind, from: ev.from, to: ev.to,
       chars: source.text.length, sha256: hashText(source.text), ok: ev.ok, error: ev.error,
     });
-    if (ev.ok && ev.text) saveRelayHop(scope, seats, ev, kind);
+    if (ev.ok && ev.text) saveRelayHop(scope, seats, ev, kind, source.requestTs);
   }, { kind: 'relay', scope });
 }
 
@@ -1739,7 +1792,7 @@ async function handleRelayRoute(req, res) {
     const agents = effectiveAgents(store.get(), project);
     const run = openRun({ projectId: project.id, kind: 'relay', signal });
     return withRun(run, runRoute({
-      route, seats, startText: source.text, startLabel: source.label, cwd: scope.root, signal,
+      route, seats, startText: source.text, startLabel: source.label, request: source.request, cwd: scope.root, signal,
       isPaused: () => relayPaused.has(scope.id),
       onHop: rec => log.push(rec),
       mode,
@@ -1750,7 +1803,7 @@ async function handleRelayRoute(req, res) {
       project, agents, run, denyPatterns: denyPatternsOf(project), approve: approvalRequester(send, signal),
     }));
   }, ev => {
-    if (ev.type === 'hop-done' && ev.ok && ev.text) saveRelayHop(scope, seats, ev, 'route');
+    if (ev.type === 'hop-done' && ev.ok && ev.text) saveRelayHop(scope, seats, ev, 'route', source.requestTs);
   }, { kind: 'relay', scope });
 }
 
@@ -1913,8 +1966,14 @@ async function handleApi(req, res, url) {
       if (body.computerLogDays !== undefined) next.computerLogDays = normalizeLogDays(body.computerLogDays);
       if (body.computerLogMB !== undefined) next.computerLogMB = normalizeLogMB(body.computerLogMB);
       if (body.activeProject) next.activeProject = projectById(body.activeProject).id;
+      const switchedTo = next.activeProject && next.activeProject !== st.activeProject ? projectById(next.activeProject).name : '';
       Object.assign(st, next);
       await store.saveOrFail();
+      // A phone that switched the project says so on the events channel, so a desktop window can tell the person where the switch came from
+      // (MOBILE-UI 15.9; public/app.js shows "Switched to <project> from <phone>" once per phone). A desktop window's own switch is silent, and
+      // so is a phone that asks for the project that is already active.
+      const via = switchedTo ? viaOf(req) : '';
+      if (via) events.publish({ type: 'project', action: 'switched', project: switchedTo, via });
       return json(res, 200, publicState());
     }
 
@@ -2051,7 +2110,8 @@ async function handleApi(req, res, url) {
       // The reason is cleaned here and is used only for a denial. Approve never reads it.
       const reason = cleanReason(body.reason);
       // from: 'board' marks an answer given on the Agents board, so the chat card says where it was answered (lib/activity.mjs).
-      entry.finish(body.allow === true, reason, body.from === 'board' ? 'board' : '');
+      // The phone that answered (viaOf) goes on the answered event, so the card can say "Approved on <phone>".
+      entry.finish(body.allow === true, reason, body.from === 'board' ? 'board' : '', viaOf(req));
       return json(res, 200, { ok: true });
     }
 
@@ -2233,6 +2293,24 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Phones (lib/remote/index.mjs, MOBILE.json desktop.server_mjs_lines). The Bridge gets this server's running map and publicState, so
+// stop.mjs can abort a run in this process. It starts only when "Let phones connect" is on in the saved state; with it off nothing is
+// bound, and lib/routes/remote.mjs starts the Bridge on the first phone request. The module is loaded by import(), so a build without
+// the phone packages (@noble, ws) still starts: its phone routes answer 503 "Phones need a newer Plenum build.".
+async function startPhones() {
+  let remote;
+  try {
+    remote = await import('./lib/remote/index.mjs');
+  } catch (err) {
+    console.error(`Phones are not available in this build (${err?.code ?? 'load error'}).`);
+    return;
+  }
+  if (store.get().phones?.enabled !== true) return;
+  // Not awaited: the start reads the keys and binds the phones' port, and the server answers meanwhile.
+  remote.startRemote({ running, publicState, port: PORT, options: { log: line => console.error(String(line).slice(0, 200)) } })
+    .catch(() => console.error('Phones could not start. Settings > Phones shows why.'));
+}
+
 // After an applied update the old process may still hold the port for a moment, so a restarted process retries.
 async function listen() {
   const retryUntil = Date.now() + (process.env.MUSE_CONSOLE_RESTART ? 20_000 : 0);
@@ -2270,6 +2348,7 @@ ensureToken();
 // What the events channel sends as the state: everything but the transcript (see publicState).
 events.useStateProvider(() => publicState({ messages: false }));
 await listen();
+await startPhones();
 // A clean stop before the desktop app quits (B-29). Every run is stopped the way Stop stops it, so its reply is stored with what it had;
 // the state is saved; then the app is told it may end the process. Only the desktop channel can ask (lib/shell.mjs), so no page, phone
 // or route can stop the server this way. The app ends the process anyway if this takes longer than its own wait.

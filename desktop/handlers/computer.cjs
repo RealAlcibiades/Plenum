@@ -11,6 +11,10 @@
 //    (desktop/computer/overlay.cjs), so the page never holds it.
 //  - Everything the backend holds (keys, buttons, overlay windows) is let go when the server restarts or exits, when the main
 //    window closes, and when the app quits, so a stopped run never leaves a key down or a frame on the screen.
+//  - computer-live-frame { scope, target, maxEdge, quality } is the one message that is not the backend's own (mob-20): the backend's capture,
+//    the very one the model's screenshot uses, made again as a JPEG for a phone that has taken a run over (lib/routes/computer.mjs). It answers
+//    { ok: true, jpeg (base64), width, height, physical, scale }, or { ok: false } when there is no image encoder here (the server then asks
+//    for the PNG). The picture is not kept.
 const { createComputerBackend } = require('../computer/index.cjs');
 const { isLoopbackHttp } = require('../computer/overlay.cjs');
 
@@ -20,6 +24,10 @@ const TYPES = Object.freeze([
   'computer-user-input', 'computer-focus', 'computer-is-secure-field', 'computer-secure-field', 'computer-release',
   'computer-overlay', 'computer-request-access',
 ]);
+
+// The message that makes a JPEG of what a run sees, for a phone.
+const LIVE_TYPE = 'computer-live-frame';
+const JPEG_QUALITY = { min: 30, max: 90, default: 60 };
 
 // The address the app's own server is normally at, used until the main window shows a page from it.
 const FALLBACK_OVERLAY_URL = 'http://127.0.0.1:4317/overlay.html';
@@ -62,7 +70,7 @@ function defaultFactory(shell) {
   });
 }
 
-function createHandler({ factory = defaultFactory } = {}) {
+function createHandler({ factory = defaultFactory, nativeImage = null } = {}) {
   let backend = null;
 
   const get = shell => {
@@ -98,6 +106,27 @@ function createHandler({ factory = defaultFactory } = {}) {
     };
   }
 
+  // The backend's capture, re-encoded as a JPEG. A refusal of the backend is passed on as it is; no encoder here is { ok: false }.
+  messages[LIVE_TYPE] = async (message, shell) => {
+    let reply;
+    try {
+      reply = await get(shell).handle({ type: 'computer-capture', id: message.id, scope: message.scope, target: message.target, maxEdge: message.maxEdge });
+    } catch {
+      throw new Error('the computer-use request could not be handled');
+    }
+    if (!reply || reply.ok === false || !reply.png) return { ok: false, reason: reply?.reason ?? 'failed', message: String(reply?.message ?? 'The capture failed.') };
+    const images = nativeImage ?? electronParts()?.nativeImage ?? null;
+    if (!images) return { ok: false, reason: 'unsupported', message: 'This computer cannot make a JPEG.' };
+    const quality = Number.isInteger(message.quality) ? Math.min(JPEG_QUALITY.max, Math.max(JPEG_QUALITY.min, message.quality)) : JPEG_QUALITY.default;
+    try {
+      const image = images.createFromBuffer(Buffer.from(reply.png));
+      if (image.isEmpty()) return { ok: false, reason: 'failed', message: 'The capture came back empty.' };
+      return { ok: true, jpeg: image.toJPEG(quality).toString('base64'), width: reply.width, height: reply.height, physical: reply.physical, scale: reply.scale };
+    } catch {
+      return { ok: false, reason: 'failed', message: 'The picture could not be made.' };
+    }
+  };
+
   return {
     name: 'computer',
     messages,
@@ -123,4 +152,4 @@ function createHandler({ factory = defaultFactory } = {}) {
   };
 }
 
-module.exports = { ...createHandler(), createHandler, defaultFactory, overlayUrlFor, TYPES };
+module.exports = { ...createHandler(), createHandler, defaultFactory, overlayUrlFor, TYPES, LIVE_TYPE };

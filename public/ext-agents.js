@@ -185,11 +185,21 @@
 
   const pillOf = r => make('span', r.kind === 'edit' ? 'pill warn' : 'pill', r.label);
 
-  function countText(live) {
-    if (!live.length) return 'No agents running';
-    const running = live.filter(r => r.state === 'running').length;
-    const waiting = live.length - running;
+  // The head's words count what the pane lists: the agents, the board's runs and the cards that wait on the person.
+  function countText(live, board) {
+    const agentsOn = live.filter(r => r.state === 'running').length;
+    const asking = live.filter(r => r.state === 'approval').length;
+    const running = (board ? board.runs.length : 0) + agentsOn;
+    // The board's cards already include the agents' own waiting cards, so with a board those are counted once, there.
+    const queued = live.length - agentsOn - asking;
+    const waiting = queued + (board ? board.approvals.length : asking);
+    if (!running && !waiting) return 'Nothing is running.';
     return waiting ? `${running} running · ${waiting} waiting` : `${running} running`;
+  }
+
+  // Stop all is enabled while anything runs or waits, in this project or on the board (every project's runs are stopped by it).
+  function anyLive(live, board) {
+    return live.length > 0 || (board ? board.runs.length + board.approvals.length : 0) > 0 || Boolean(MuseUI.state.running) || Number(MuseUI.state.agentsRunning) > 0;
   }
 
   // ---------- the lists ----------
@@ -336,7 +346,7 @@
   function paintCount() {
     const live = [...rows.values()];
     const board = boardView();
-    const waiting = live.filter(r => r.state === 'approval').length + (board ? board.approvals.length : 0);
+    const waiting = board ? board.approvals.length : live.filter(r => r.state === 'approval').length;
     if (waiting) return MuseUI.pane.count(TAB, waiting, 'amber');
     const n = board ? board.runs.length : (live.length || (!loaded ? Number(MuseUI.state.agentsRunning) || 0 : 0));
     if (n) return MuseUI.pane.count(TAB, n, '');
@@ -365,7 +375,9 @@
     btn.textContent = busy ? 'Stopping…' : 'Stop';
     btn.disabled = busy || !r.stoppable;
     btn.title = r.stoppable ? '' : 'Runs inside Claude Code. Stop the whole reply with Esc.';
-    btn.setAttribute('aria-label', `Stop ${r.title}`);
+    // The Stop names the agent and the project it runs in (the project on screen, which is where its rows are listed; P-30).
+    const name = (MuseUI.state.projects ?? []).find(p => p.id === project)?.name ?? '';
+    btn.setAttribute('aria-label', name ? `Stop ${r.title} in ${name}` : `Stop ${r.title}`);
   }
 
   function runningRow(r, depth) {
@@ -432,10 +444,10 @@
     // A card that was answered or ended is no longer open.
     if (expanded && !(board?.approvals ?? []).some(c => c.approvalId === expanded)) expanded = '';
     const head = make('div', 'ext-agl-head');
-    const count = make('span', 'ext-agl-count', countText(live));
+    const count = make('span', 'ext-agl-count', countText(live, board));
     const all = make('button', 'ghost small ext-agl-stop-all', 'Stop all');
     all.type = 'button';
-    all.disabled = live.length === 0;
+    all.disabled = !anyLive(live, board);
     all.addEventListener('click', stopAll);
     head.append(count, all);
     headRefs = { count, all };
@@ -499,7 +511,9 @@
   const runClock = run => clock((run.endedAt ?? Date.now()) - (run.startedAt ?? Date.now()));
   const stepLine = run => (run.step ? `Last step: ${run.step.name} ${run.step.summary}`.trim() : 'No step yet');
   const runStateOf = (run, board) => ((board?.approvals ?? []).some(c => c.scope === run.scope) ? 'Waiting for you' : 'Running');
-  const runMetaText = (run, board) => [runStateOf(run, board), run.modelLabel, runClock(run)].filter(Boolean).join(' · ');
+  // The phone that acted in a run says so: via <device> (DECISIONS 68). The name comes from the phone list, never the id.
+  const viaOf = run => (run.via ? `via ${MuseUI.phoneName?.(run.via) || 'a phone'}` : '');
+  const runMetaText = (run, board) => [runStateOf(run, board), run.modelLabel, runClock(run), viaOf(run)].filter(Boolean).join(' · ');
   const titleOf = r => `${r.projectName || 'Project'} · ${r.threadName || 'Main'}`;
 
   function openProjectButton(scope) {
@@ -515,7 +529,7 @@
     const line = make('div', 'ext-board-run-line');
     const stop = make('button', 'ghost small ext-board-stop', 'Stop');
     stop.type = 'button';
-    stop.setAttribute('aria-label', `Stop the run in ${run.projectName || 'Project'}`);
+    stop.setAttribute('aria-label', `Stop the run in ${titleOf(run)}`);
     stop.addEventListener('click', () => stopRun(run));
     line.append(make('strong', 'ext-board-run-title', titleOf(run)), openProjectButton(run.scope), stop);
     const meta = make('div', 'ext-board-run-meta', runMetaText(run, board));
@@ -550,7 +564,7 @@
     const row = make('div', 'ext-board-run is-ended');
     const line = make('div', 'ext-board-run-line');
     line.append(make('strong', 'ext-board-run-title', titleOf(run)), openProjectButton(run.scope));
-    row.append(line, make('div', 'ext-board-run-meta', [RUN_WORDS[run.status] ?? 'Done', run.modelLabel, runClock(run)].filter(Boolean).join(' · ')));
+    row.append(line, make('div', 'ext-board-run-meta', [RUN_WORDS[run.status] ?? 'Done', run.modelLabel, runClock(run), viaOf(run)].filter(Boolean).join(' · ')));
     if (run.error) row.append(make('div', 'ext-board-run-error', run.error));
     return row;
   }
@@ -658,8 +672,10 @@
 
   // Changes the text that moves while an agent runs: the count, each row's state word, steps and clock, and its Stop button.
   function patchRows() {
-    if (headRefs.count) headRefs.count.textContent = countText(sortedRows());
-    if (headRefs.all) headRefs.all.disabled = rows.size === 0;
+    const board = boardView();
+    const live = sortedRows();
+    if (headRefs.count) headRefs.count.textContent = countText(live, board);
+    if (headRefs.all) headRefs.all.disabled = !anyLive(live, board);
     for (const [id, ref] of refs) {
       const r = rows.get(id);
       if (!r) continue;
@@ -669,7 +685,6 @@
       fillStop(r, ref.stop);
     }
     if (runRefs.size) {
-      const board = boardView();
       for (const [scope, ref] of runRefs) {
         const run = (board?.runs ?? []).find(r => r.scope === scope);
         if (!run) continue;
@@ -704,23 +719,28 @@
     }, STOP_WAIT_MS);
   }
 
+  // The same route as the phone's Stop and the desktop's Stop everything (POST /api/stop-all): every reply, agent and computer or browser
+  // run in every project, and the cards they wait on are denied.
   async function stopAll() {
-    const pid = project;
-    if (!pid || !rows.size) return;
     const yes = await MuseUI.confirm({
-      title: 'Stop all agents?',
-      body: 'Stop every running agent in this project? The models that asked are told each one was stopped.',
+      title: 'Stop everything?',
+      body: 'Every reply, agent and computer or browser run stops, in every project, and the cards they wait on are denied. Files already changed stay as they are.',
       action: 'Stop all',
       tone: 'danger',
       focusCancel: true,
     });
     if (!yes) return;
     try {
-      const data = await MuseUI.api('/api/agents/stop', { project: pid, id: 'all' });
-      const n = Number(data?.stopped) || 0;
-      MuseUI.toast(n ? `Stopped ${n} ${n === 1 ? 'agent' : 'agents'}.` : 'Nothing was stopped. An agent inside Claude Code stops with Esc.');
+      const d = await MuseUI.api('/api/stop-all', {});
+      const words = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+      const replies = Number(d?.cancelled) || 0;
+      const drives = Number(d?.drivesStopped) || 0;
+      const agents = Number(d?.agentsStopped) || 0;
+      const cards = Number(d?.cardsDenied) || 0;
+      if (!replies && !drives && !agents && !cards) MuseUI.toast('Nothing was running.');
+      else MuseUI.toast(`Stopped. ${words(replies, 'reply', 'replies')}, ${words(drives, 'computer or browser run', 'computer or browser runs')}, ${words(agents, 'agent', 'agents')}. ${words(cards, 'waiting card', 'waiting cards')} denied.`);
     } catch (err) {
-      MuseUI.toast(err?.message || 'The agents could not be stopped.', 'bad');
+      MuseUI.toast(err?.message || 'Stop did not answer.', 'bad');
     }
     refresh();
   }

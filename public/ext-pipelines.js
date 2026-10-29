@@ -24,7 +24,7 @@
   const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
   const STATUS_TEXT = { waiting: 'Waiting', writing: 'Writing', done: 'Done', failed: 'Failed', stopped: 'Stopped', skipped: 'Not run' };
   const INTRO = 'A pipeline sends your message through a chain of models, one after another. The reply of each step goes to the next. Steps never open files or run commands, and nothing reaches the chat until you keep the final reply.';
-  const EDIT_HINT = 'In a prompt, {input} is your message and {previous} is the reply of the step before it (empty in the first step).';
+  const EDIT_HINT = 'In a prompt, {input} is your message and {previous} is the reply of the step before it (empty in the first step). A prompt without {input} still gets your message, and a later step\'s prompt without {previous} still gets that reply, quoted between BEGIN and END.';
   const HINT = 'Ctrl+Enter to run';
 
   // The project's pipelines: { project, list }. Null until the first load for that project has come back.

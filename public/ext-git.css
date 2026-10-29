@@ -22,18 +22,8 @@
 /* The top bar of the desktop app is the window's drag strip, which would swallow the click and the hover text. */
 :root[data-shell="desktop"] .ext-git-chip { -webkit-app-region: no-drag; }
 
-/* While a chip is shown the top bar wraps once the name, the chips and the controls no longer fit one row: the name and the
-   chips share the first row and the controls take the second row on the right. The wrap starts at 720 px, because the advisor
-   pick (up to 240 px) and the Project settings gear would otherwise overlap from about 521 px to 690 px. Below 520 px the git
-   chip keeps only the branch name, cut with an ellipsis at 96 px. The right padding that keeps the window buttons clear is
-   unchanged, so no row runs under them. */
-@media (max-width: 720px) {
-  .topbar:has(:is(.ext-git-chip, .ext-budget-chip):not([hidden])) { flex-wrap: wrap; gap: 6px 12px; }
-  .topbar:has(:is(.ext-git-chip, .ext-budget-chip):not([hidden])) .proj-title { display: contents; }
-  .topbar:has(:is(.ext-git-chip, .ext-budget-chip):not([hidden])) .controls { margin-left: auto; }
-}
 @media (max-width: 520px) {
-  .ext-git-chip { min-width: 0; max-width: min(96px, 100%); }
+  .ext-git-chip { max-width: min(96px, 100%); }
   .ext-git-long { display: none; }
   .ext-git-short { display: inline; }
 }

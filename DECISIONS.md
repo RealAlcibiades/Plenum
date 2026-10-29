@@ -765,6 +765,46 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Words only, in this round. Not released; the code they describe comes with the phone groups.
 
+## 72. Every seat, hop, step and column is told that it is one of several models working for one person, and what the next reader needs
+
+**Decision.** A council seat, a relay hop, a pipeline step and a quick compare column each get a short collaboration text in their system prompt: that they are one of several AI models working for one person, the shared goal, the roster (each participant's label and role or step purpose, in order, with their own place marked), who reads their reply and what that reader needs, how to disagree (name the claim and say why, do not smooth it over) and not to redo work already done well. The person's exact request reaches every participant: relay hops and pipeline steps carry it in their user message, found for a relay by walking back from the source reply to the nearest user message in the thread. Quick compare says that its models work independently and nobody fills a gap, with a count and no names. An agent that a seat, hop, step or column starts is told who started it and that its report goes back to that model, not to the person. The shared texts live in `lib/collab.mjs`. Every safety sentence that existed before is kept word for word; the council CHARTER, the layouts and the parsers are unchanged; CLIs receive the system text exactly as before, through `promptText`.
+
+**Reason.** Before this, a seat was never told who the other seats were, a relay hop saw only the previous reply with no question, a pipeline step saw one generic line and a raw `{previous}`, and nothing said that the models were meant to collaborate. A model that knows the roster, its own job and the hand-off can leave another role's ground to that role, carry forward what the next model needs, and disagree on the record, which is what the owner asked for on 28 Oct 2026. The texts are kept short because every model reads them on every call. The relay says "read-only" rather than "text-only" because a Codex, Gemini, Cursor or Grok hop runs in the project folder and can read it.
+
+**Source.** `lib/collab.mjs`; `seatSystem`, `councilRoster`, `roundsLine` and `MODERATOR_BRIEF` in `lib/council.mjs`; `hopSystem` and `frameRelay` in `lib/relay.mjs`; `relaySource` and `requestBefore` in `server.mjs`; `stepSystem` and `stepMessage` in `lib/pipelines.mjs`; `compareSystem` in `lib/routes/compare.mjs`; `SEAT_AGENT_NOTE` and `callerLine` in `lib/agent-run.mjs` and `lib/claude-cli.mjs`. Spec: COLLAB-PROMPTS.md (28 Oct 2026).
+
+**Status.** In build.
+
+## 73. A relayed reply keeps the request it served, and only what the person typed counts as a request
+
+**Decision.** A relay saves each hop's reply with `relay.requestTs`, the ts of the person's request that the relay served, and a later relay from that reply is told that same request, even when newer messages come after it in the thread. The request is found from that ts while the message is still in the chat; otherwise the nearest earlier message the person typed is used, as decision 72 says. Only a chat turn or a council question counts: an auto-fix follow-up (raw check output) and a compact summary (written by a model) do not. A thread export keeps `requestTs` when it is a number, so an imported thread keeps it too.
+
+**Reason.** A relay's reply is saved at the end of the thread, so walking back from it found whatever the person typed last. A reply relayed on after a later council question was answered as if that question were the request. The auto-fix and summary messages are stored with the user role, and the hop's quoted-text rule lets a hop follow instructions in quoted text when the person's request asks for it, so they must never stand in for the request.
+
+**Source.** `requestBefore`, `relaySource` and `saveRelayHop` in `server.mjs` (the two relay routes pass `source.requestTs`); `cleanMessage` in `lib/routes/transfer.mjs`. This refines decision 72. COLLAB-PROMPTS.md section 2.10 still lists `saveRelayHop` as unchanged; this entry is the note that changes that.
+
+**Status.** In build.
+
+## 74. A phone at Full control steers the Browser pane and a computer run as the person, never through the model
+
+**Decision.** Five routes let a phone steer the computer: `/api/browser/frame` and `/api/browser/input` for the Browser pane, and `/api/computer/takeover`, `/api/computer/live` and `/api/computer/input` for a computer run. All five are Full tier (`CONTROL_POSTS` in `lib/remote/tiers.mjs`). The Bridge checks the tier on every request before anything reaches the server. Each route also refuses a request without the Bridge-set `x-plenum-device` header. A phone's taps, drags, typing and keys go straight to the real input (`personInput` in `desktop/browser.cjs`, `driver.input` for the computer). No model tool, step log, tools row or reply sees them. The activity line says only that a phone used the control, never what was typed. Pictures are made only when a phone asks, at most five a second, with no timer. **Take over from phone** pauses the model's run as the person (`drive.pause('user')`). It waits up to three seconds for any model input already on its way to finish (`run.idle()`), and it holds the run only after that wait. A phone input re-checks the hold in the same tick as it is sent. Resume hands the run back, and the model must take a fresh screenshot first. Stop works throughout, from the desktop, the phone and the hotkey. The iOS store build may steer only over the LAN carrier, judged on the carrier the Bridge accepted, never on what the phone says (`controlRefusal`). The phone shows the controls only when the computer's HELLO lists `browser-control` or `computer-control` for that phone.
+
+**Reason.** The owner wanted the phone to be as capable as the desk (MOBILE.json powers.browser_and_computer). A person steering from a phone is the person, so their input must not become model input, which a model run could read back or replay. The same rule (decision 57) keeps a model's actions off the screen the person is using. The Full tier and the per-request check keep this power on phones the owner raised to Full on purpose. Apple's guideline 4.2.7 allows a remote-control client only on the local network, hence the LAN rule for the iOS app.
+
+**Source.** `lib/remote/tiers.mjs` (`CONTROL_POSTS`, `controlRefusal`, `lanOnlyClient`), `lib/remote/proxy.mjs`, `lib/routes/browser.mjs`, `lib/routes/computer.mjs` (`takeoverRoute`, `inputRoute`), `lib/computer/run.mjs` (`doAct` re-checks the drive after the pacing sleep and just before `bridge.input`; `run.idle()`), `desktop/browser.cjs`, `public/ext-phone.js`, `mobile/shell/boot.js` (`connectionView` passes the HELLO caps). Waves 120 and 121, with a Fable review and two fix rounds (28 Oct 2026).
+
+**Status.** In build. Needs a run with a real phone over each carrier.
+
+## 75. The desktop title bar takes a second row before the floor items shrink
+
+**Decision.** The title bar fits itself through five measured steps (`fitTitlebar` in `public/app.js`, `data-fit` on `#titlebar`). Step 1 hides the pane-button words, the project path and the last-reply cost. Step 2 shortens the git and spend chips. Step 3 moves the slots, the pane buttons and the drive pill to a second row. Step 4 shortens the Phone connected chip to "Phone". Step 5 leaves the drive pill as its dot plus Stop. The bar takes the first step at which nothing overflows. Its measured height is published as `--bar-now`, so the toasts, the Settings page and the narrow-window pane start below it. The drive pill sits above toasts (z-index 41). This replaces UI-ARCH section 8's "the title bar never wraps", with its "…" chip and merged "Panes" button.
+
+**Reason.** At 480 px the window buttons leave about 300 px. The drive indicator with its Stop and the Phone connected chip are floor items that no setting may hide. They did not fit on one row with an overflow menu: the first attempt cut the drive pill to "C…" and the phone chip to "Phone connected:", and drew the pane buttons under the thread tabs. A second row keeps every floor item whole and clickable at every width (Opus design, 28 Oct 2026).
+
+**Source.** `public/app.js` (`fitTitlebar`, `titlebarTight`), `public/style.css` (the title-bar block and the `data-fit` rules), `public/ext-remote.js` (`data-short`), `public/ext-drive.css`. UI-ARCH.md section 8 and MOBILE-UI.md section 3 were amended to match.
+
+**Status.** In build.
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).

@@ -99,6 +99,8 @@ html[data-surface="phone"] .topbar > :is(.controls, .titlebar-space, .titlebar-s
 }
 html[data-surface="phone"] #drivePillSlot:not(:empty) { display: flex; align-items: center; }
 html[data-surface="phone"] .drive-pill { min-width: var(--tap); min-height: var(--tap); justify-content: center; }
+html[data-surface="phone"] .drive-pill { padding: 0; }
+html[data-surface="phone"] .drive-pill .dp-open { justify-content: center; }
 html[data-surface="phone"] #titlebar .proj-title {
   flex: 1 1 0;
   display: flex;
@@ -1060,6 +1062,66 @@ html[data-surface="phone"] .ext-brw-shot {
 }
 html[data-surface="phone"] .ext-brw-url { font-size: 16px; min-height: var(--tap); }
 html[data-surface="phone"] .ext-brw-tabs { overflow-x: auto; }
+
+/* ---------- 8.10 and 8.11, track B (wave 121): taps, drags, typing and keys on the picture; Take over from phone. The picture is drawn from its
+   top left at the size its box gives it (contain), which is how the phone maps a touch to a point of the picture. Every control is 44 px or more. */
+html[data-surface="phone"] .ext-brw-shot { object-fit: contain; object-position: left top; }
+html[data-surface="phone"] .ext-brw-shot[data-ph-rc-on] { touch-action: none; }
+html[data-surface="phone"] .ph-rc { display: grid; gap: 8px; box-sizing: border-box; }
+html[data-surface="phone"] .ph-rc[hidden] { display: none; }
+html[data-surface="phone"] .ph-rc-browser { margin: 8px 6px 0; }
+html[data-surface="phone"] .ph-rc-run { margin: 8px 0 0; }
+html[data-surface="phone"] .ph-rc-run > .risk-note { margin: 0; }
+html[data-surface="phone"] .ph-rc-rows { display: grid; gap: 8px; }
+html[data-surface="phone"] .ph-rc-rows[hidden] { display: none; }
+html[data-surface="phone"] .ph-rc-row { display: flex; flex-wrap: wrap; gap: 8px; }
+html[data-surface="phone"] .ph-rc-text {
+  flex: 1 1 160px;
+  min-width: 0;
+  min-height: var(--tap-lg);
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--ph-btn-radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 16px/1.3 var(--ui);
+}
+html[data-surface="phone"] .ph-rc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-lg);
+  min-width: var(--tap);
+  box-sizing: border-box;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--ph-btn-radius);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 600 15px/1.2 var(--ui);
+  text-align: center;
+  touch-action: manipulation;
+}
+html[data-surface="phone"] .ph-rc-keys { display: flex; flex-wrap: wrap; gap: 8px; }
+html[data-surface="phone"] .ph-rc-key { flex: 1 1 auto; min-width: max-content; }
+html[data-surface="phone"] .ph-rc-send { flex: 0 0 auto; }
+html[data-surface="phone"] .ph-rc-takeover,
+html[data-surface="phone"] .ph-rc-resume { width: 100%; }
+html[data-surface="phone"] .ph-rc-takeover { background: var(--brand); color: var(--accent-ink); border: 0; }
+html[data-surface="phone"] .ph-rc-frame { overflow: hidden; border-radius: 8px; background: var(--surface-2); }
+html[data-surface="phone"] .ph-rc-frame[hidden] { display: none; }
+html[data-surface="phone"] .ext-brw > .risk-note { width: auto; margin: 8px 6px 10px; }
+html[data-surface="phone"] .ph-rc-pic {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: left top;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
 
 /* ---------- 8.12 Settings: This phone, and the Report sheet ---------- */
 html[data-surface="phone"] .ph-note-line {

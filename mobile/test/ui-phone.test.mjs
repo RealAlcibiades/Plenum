@@ -7,7 +7,8 @@
 // Screenshots: C:/t/mob/m11-*.png (read back by the builder for Fable's review).
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { APP_ROOT, ELECTRON, startPhoneHarness } from './harness/phone-window.mjs';
@@ -1802,3 +1803,349 @@ describe('phone layer part 3 (stabilization): the checks left open, routes, back
     assert.deepEqual(fails, [], `${fails.length} phone-layer check(s) failed:\n${fails.join('\n')}`);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------------------
+// Phone layer, track B (mob-11, wave 121): the phone as the person. Taps, drags, typing and keys on the Browser picture, and Take over from
+// phone on a computer run (MOBILE-UI 8.10 and 8.11). The harness server has no Bridge and no run, so the computer's routes are answered by a
+// stub in the page, and each check reads the request the phone made. Checks by viewport: MOB11_ONLY (or MOB11_P2_ONLY) = 360x780,390x844, ...
+//   MOB11_PART=p2 MOB11_ONLY=390x844 node build/mobile/run.mjs --id mob11rc --timeout 540000 ui-phone.test.mjs
+// Screenshots of the controls at 390 x 844 (light and dark) are written to the MOB11_SHOTS folder (plenum-mob11-shots in the temp folder by default).
+// ---------------------------------------------------------------------------------------------------------------------------------------
+
+const RC_ONLY = (process.env.MOB11_ONLY || process.env.MOB11_P2_ONLY || '').split(',').filter(Boolean);
+const RC_VIEWS = VIEWS.filter(v => RC_ONLY.length === 0 || RC_ONLY.includes(v.name));
+const SHOTS = process.env.MOB11_SHOTS || path.join(os.tmpdir(), 'plenum-mob11-shots');
+const REMOTE_CAPS = ['browser-control', 'computer-control'];
+const settle = ms => new Promise(r => setTimeout(r, ms));
+
+// The stub of the computer's routes, installed in the page after each load. It answers the routes the phone calls for the browser picture, the
+// computer run and its drive, records every request that is not a GET (with its body), and holds the run the way the desktop does.
+const TB_PAGE = String.raw`(function () {
+  if (window.__tb) return true;
+  const canvas = document.createElement('canvas');
+  canvas.width = 960;
+  canvas.height = 540;
+  const cx = canvas.getContext('2d');
+  cx.fillStyle = '#2b3550';
+  cx.fillRect(0, 0, 960, 540);
+  cx.fillStyle = '#f3c26b';
+  cx.fillRect(120, 80, 360, 160);
+  cx.fillStyle = '#ffffff';
+  cx.fillRect(480, 300, 300, 120);
+  const picture = canvas.toDataURL('image/png');
+  const st = {
+    posts: [],
+    held: false,
+    inputStatus: 200,
+    drive: { id: 'drv-1', kind: 'computer', state: 'paused', pausedBy: 'user', steps: 12, label: 'Notepad' },
+  };
+  window.__tb = st;
+  const nativeFetch = window.fetch.bind(window);
+  const json = (obj, status) => new Response(JSON.stringify(obj), { status: status || 200, headers: { 'content-type': 'application/json' } });
+  const run = { id: 'drv-1', live: true, startedAt: Date.now(), model: 'echo:offline', settings: { allow: [{ app: 'Notepad' }], scope: 'window' }, frames: 0, frameSizes: [], actions: [], events: [], result: {}, bytes: 0 };
+  window.fetch = (input, init) => {
+    const url = String(typeof input === 'string' ? input : (input && input.url) || '');
+    const path = url.replace(/^https?:\/\/[^/]+/, '');
+    if (!/^\/api\/(browser|computer|drive)/.test(path)) return nativeFetch(input, init);
+    const method = String((init && init.method) || 'GET').toUpperCase();
+    const route = path.split('?')[0];
+    let body = null;
+    try { body = init && init.body ? JSON.parse(init.body) : null; } catch (e) { body = null; }
+    if (method !== 'GET') st.posts.push({ route: route, body: body });
+    if (method === 'GET' && route === '/api/drive') return json({ drives: st.drive ? [st.drive] : [], hotkey: { ok: false } });
+    if (method === 'GET' && route === '/api/computer/run') return json(run);
+    if (method === 'GET' && route === '/api/computer/runs') return json({ runs: [{ id: 'drv-1', startedAt: Date.now(), model: 'echo:offline', apps: ['Notepad'], actions: 0, bytes: 0, live: true }] });
+    if (route === '/api/browser/frame') return json({ available: true, image: picture, width: 960, height: 540, shown: true, viewers: 1, nextMs: 250 });
+    if (route === '/api/browser/input') return st.inputStatus === 200 ? json({ ok: true }) : json({ error: 'The model is using the browser. Pause it first.' }, 409);
+    if (route === '/api/computer/takeover') { st.held = true; st.drive.state = 'paused'; return json({ ok: true, takeover: true, drive: st.drive }); }
+    if (route === '/api/computer/live') return st.held ? json({ ok: true, image: picture, width: 960, height: 540, nextMs: 250 }) : json({ error: 'Take over the run from your phone first.' }, 409);
+    if (route === '/api/computer/input') return st.held ? json({ ok: true, app: 'Notepad' }) : json({ error: 'Take over the run from your phone first.' }, 409);
+    if (route === '/api/drive/resume') { st.held = false; st.drive.state = 'running'; return json({ ok: true, drive: st.drive }); }
+    return nativeFetch(input, init);
+  };
+  return true;
+})()`;
+
+// A pointer press at one point and a release at another, given as fractions of the element's box (the picture's left and top are 0).
+const pointerJs = (sel, [fx0, fy0], [fx1, fy1]) => `(() => {
+  const s = document.querySelector(${JSON.stringify(sel)});
+  const r = s.getBoundingClientRect();
+  const at = (type, fx, fy) => s.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy, button: 0, pointerType: 'touch', pointerId: 41, isPrimary: true }));
+  at('pointerdown', ${fx0}, ${fy0});
+  at('pointerup', ${fx1}, ${fy1});
+  return true;
+})()`;
+
+const countPosts = route => js(`window.__tb.posts.filter(p => p.route === ${JSON.stringify(route)}).length`);
+const lastBody = route => js(`(() => { const list = window.__tb.posts.filter(p => p.route === ${JSON.stringify(route)}); return list.length ? list[list.length - 1].body : null; })()`);
+const pictureShown = sel => js(`(() => { const s = document.querySelector(${JSON.stringify(sel)}); return !!s && !s.hidden && (s.getAttribute('src') || '').startsWith('data:image/'); })()`);
+const visibleIn = sel => js(`(() => { const b = document.querySelector(${JSON.stringify(sel)}); return !!b && !b.hidden && b.getClientRects().length > 0; })()`);
+// The shots of the controls are taken at these sizes (zoom 1, both themes): the phone, the small phone and the landscape phone.
+const SHOT_VIEWS = ['390x844', '360x780', '844x390'];
+// Brings a control area (its typing box and keys) into view before a shot, so the keys are in the picture.
+const scrollRowsIntoView = sel => js(`(() => { const r = document.querySelector(${JSON.stringify(sel)}); if (r) r.scrollIntoView({ block: 'center' }); return !!r; })()`);
+
+// A phone at this size with the computer's control capabilities, a Full tier and a LAN carrier, the Browser pane open on its picture.
+async function remoteReady(v, theme, { caps = REMOTE_CAPS, carrier = 'lan', tier = 'full' } = {}) {
+  await openPhone(v, theme);
+  await h.eval(TB_PAGE);
+  await js(`plenumPhoneDebug.connection("connected", "Studio PC", ${JSON.stringify({ caps, carrier, tier })})`);
+}
+async function openBrowserPicture() {
+  await js('MuseUI.pane.open("browser")');
+  const shown = await waitFor(() => pictureShown('.ext-brw .ext-brw-shot'), 20000);
+  if (!shown) throw new Error('the Browser picture did not arrive');
+  return waitFor(() => visibleIn('.ext-brw .ph-rc-browser'), 6000);
+}
+// The checks on one control area: no horizontal scroll, every target 44 px or more, every target named, inputs 16 px or more, and Stop inside
+// the screen and hittable.
+async function checkRemote(cfg, scopeSel) {
+  const r = await js(`(() => {
+    const blk = document.querySelector(${JSON.stringify(scopeSel)});
+    if (!blk) return null;
+    return {
+      small: __ph.small(blk), unnamed: __ph.unnamed(blk),
+      inputs: [...blk.querySelectorAll('input')].map(i => parseFloat(getComputedStyle(i).fontSize)).filter(v => v < 16).length,
+      wide: __ph.hOverflow(), stop: __ph.stopState(),
+    };
+  })()`);
+  if (!r) {
+    log(cfg, `${scopeSel} is not drawn`);
+    return;
+  }
+  if (r.small.length) log(cfg, `P-02 small controls: ${r.small.slice(0, 4).join(' | ')}`);
+  if (r.unnamed.length) log(cfg, `P-16 unnamed: ${r.unnamed.slice(0, 4).join(' | ')}`);
+  if (r.inputs) log(cfg, `P-03 ${r.inputs} inputs below 16 px`);
+  if (r.wide) log(cfg, 'P-01 horizontal scroll');
+  if (!r.stop.inside || !r.stop.hit) log(cfg, `P-04 Stop not inside (${r.stop.inside}) or not hittable (${r.stop.hit}) with the controls shown`);
+}
+
+// Track B runs with part 2 (MOB11_PART=p2) and on its own (MOB11_PART=rc); a full run (no MOB11_PART) runs it too.
+const RC_SKIP = SKIP || (PART === '' || PART === 'p2' || PART === 'rc' ? false : `MOB11_PART=${PART}`);
+describe('phone layer, track B (mob-11, wave 121): taps, drags, typing and keys on the picture; take over from phone', { skip: RC_SKIP, timeout: 1_500_000 }, () => {
+  let startFails = 0;
+  before(async () => {
+    if (SKIP) return;
+    startFails = fails.length;
+    h = await startPhoneHarness({ name: 'mob11-trackb' });
+  });
+
+  after(async () => {
+    if (!h) return;
+    const left = await h.close();
+    h = null;
+    assert.deepEqual(left.leftover, [], 'processes left behind');
+  });
+
+  test('RC-0: without the computer\'s control capabilities the picture takes no input: a tap says what it is once and sends nothing', { skip: RC_SKIP }, async () => {
+    await openPhone(VIEWS[1], 'light');
+    await h.eval(TB_PAGE);
+    await js(`(() => { const img = document.createElement('img'); img.className = 'ext-brw-shot'; img.alt = ''; img.dataset.phTest = 'rc0'; document.getElementById('chat').append(img); return true; })()`);
+    await js(`(() => { document.querySelector('[data-ph-test="rc0"]').click(); return true; })()`);
+    const told = await waitFor(() => js('Array.from(document.querySelectorAll(".toast")).some(t => t.textContent.includes("This is a picture of the page on"))'), 3000);
+    assert.ok(told, 'the picture tap did not say what it is');
+    assert.equal(await countPosts('/api/browser/input'), 0, 'a tap was sent without the control capability');
+    await js(`(() => { document.querySelector('[data-ph-test="rc0"]').remove(); return true; })()`);
+  });
+
+  test('RC-1: the strip shows only for the Full tier with the control capabilities over a connected carrier, and on the iOS app only over the LAN', { skip: RC_SKIP }, async () => {
+    await remoteReady(VIEWS[1], 'light');
+    assert.ok(await openBrowserPicture(), 'with Full, the capabilities and LAN the strip did not show');
+    const changed = async (label, extra, expect) => {
+      await js(`plenumPhoneDebug.connection("connected", "Studio PC", ${JSON.stringify(extra)})`);
+      const got = await waitFor(async () => (await visibleIn('.ext-brw .ph-rc-browser')) === expect, 3000);
+      if (!got) log('RC-1', `${label}: the strip is ${expect ? 'missing' : 'still shown'}`);
+    };
+    await changed('tier approve', { caps: REMOTE_CAPS, carrier: 'lan', tier: 'approve' }, false);
+    await changed('tier read', { caps: REMOTE_CAPS, carrier: 'lan', tier: 'read' }, false);
+    await changed('no control capability', { caps: ['browser-picture'], carrier: 'lan', tier: 'full' }, false);
+    await changed('Full again', { caps: REMOTE_CAPS, carrier: 'lan', tier: 'full' }, true);
+    await js('plenumPhoneDebug.shell({ app: "ios" })');
+    await changed('iOS over a tailnet', { caps: REMOTE_CAPS, carrier: 'tailscale', tier: 'full' }, false);
+    await changed('iOS over the LAN', { caps: REMOTE_CAPS, carrier: 'lan', tier: 'full' }, true);
+    await js('plenumPhoneDebug.shell({ app: undefined })');
+  });
+
+  test('RC-2: a tap on the picture is sent as a tap at that point of the picture; a drag up is sent as a scroll down the page', { skip: RC_SKIP }, async () => {
+    await remoteReady(VIEWS[1], 'light');
+    assert.ok(await openBrowserPicture(), 'the strip did not show');
+    const geo = await js('(() => { const s = document.querySelector(".ext-brw .ext-brw-shot"); const r = s.getBoundingClientRect(); return { w: r.width, h: r.height }; })()');
+    const scale = Math.min(geo.w / 960, geo.h / 540);
+    const before = await countPosts('/api/browser/input');
+    await js(pointerJs('.ext-brw .ext-brw-shot', [0.25, 0.4], [0.25, 0.4]));
+    assert.ok(await waitFor(async () => (await countPosts('/api/browser/input')) > before, 3000), 'the tap was not sent');
+    const tap = await lastBody('/api/browser/input');
+    assert.equal(tap.kind, 'tap');
+    assert.ok(Math.abs(tap.x - Math.round(0.25 * 960)) <= 1 && Math.abs(tap.y - Math.round(0.4 * 540)) <= 1, `the tap point ${tap.x},${tap.y}`);
+    assert.equal(tap.width, 960);
+    assert.equal(tap.height, 540);
+    await js('document.querySelector(".ext-brw .ext-brw-shot").click()');
+    const told = await js('Array.from(document.querySelectorAll(".toast")).some(t => t.textContent.includes("This is a picture of the page on"))');
+    assert.equal(told, false, 'a tap that was sent still said the picture is not input');
+    // A drag from 80% of the height up to 50%: the page scrolls down, so dy is positive by the same amount the finger moved.
+    const sc = await countPosts('/api/browser/input');
+    await js(pointerJs('.ext-brw .ext-brw-shot', [0.5, 0.8], [0.5, 0.5]));
+    assert.ok(await waitFor(async () => (await countPosts('/api/browser/input')) > sc, 3000), 'the drag was not sent');
+    const drag = await lastBody('/api/browser/input');
+    assert.equal(drag.kind, 'scroll');
+    assert.ok(drag.dy > 0, `dy ${drag.dy} should move the page down`);
+    assert.ok(Math.abs(drag.dy - Math.round(0.3 * geo.h / scale)) <= 2, `dy ${drag.dy} is not the finger's move`);
+    assert.equal(drag.dx, 0);
+  });
+
+  test('RC-3: typing sends the text and clears the box; each key is sent once; a refusal keeps the text and says why', { skip: RC_SKIP }, async () => {
+    await remoteReady(VIEWS[1], 'light');
+    assert.ok(await openBrowserPicture(), 'the strip did not show');
+    await js(`(() => { const i = document.querySelector('.ext-brw .ph-rc-browser .ph-rc-text'); i.value = 'hello page'; return true; })()`);
+    const typed = await countPosts('/api/browser/input');
+    await js(`(() => { document.querySelector('.ext-brw .ph-rc-browser .ph-rc-send').click(); return true; })()`);
+    assert.ok(await waitFor(async () => (await countPosts('/api/browser/input')) > typed, 3000), 'the text was not sent');
+    assert.deepEqual(await lastBody('/api/browser/input'), { kind: 'type', text: 'hello page' });
+    assert.ok(await waitFor(() => js('document.querySelector(".ext-brw .ph-rc-browser .ph-rc-text").value === ""'), 2000), 'the box was not cleared');
+    for (const name of ['Enter', 'Tab', 'Backspace', 'Escape']) {
+      const n = await countPosts('/api/browser/input');
+      await js(`(() => { [...document.querySelectorAll('.ext-brw .ph-rc-browser .ph-rc-key')].find(b => b.textContent === ${JSON.stringify(name)}).click(); return true; })()`);
+      assert.ok(await waitFor(async () => (await countPosts('/api/browser/input')) === n + 1, 3000), `${name} was not sent once`);
+      assert.deepEqual(await lastBody('/api/browser/input'), { kind: 'key', key: name });
+    }
+    await js('window.__tb.inputStatus = 409');
+    await js(`(() => { document.querySelector('.ext-brw .ph-rc-browser .ph-rc-text').value = 'kept'; document.querySelector('.ext-brw .ph-rc-browser .ph-rc-send').click(); return true; })()`);
+    const said = await waitFor(() => js('Array.from(document.querySelectorAll(".toast")).some(t => t.textContent.includes("The model is using the browser. Pause it first."))'), 3000);
+    assert.ok(said, 'the refusal was not said');
+    assert.equal(await js('document.querySelector(".ext-brw .ph-rc-browser .ph-rc-text").value'), 'kept', 'a refused text was cleared');
+    await js('window.__tb.inputStatus = 200');
+  });
+
+  test('RC-4: Take over from phone pauses the run and shows its picture; a tap, text and a key on it go to the run; a lost hold says so and goes back', { skip: RC_SKIP }, async () => {
+    await remoteReady(VIEWS[1], 'light');
+    await js('MuseUI.openComputerRuns("drv-1")');
+    const seen = await waitFor(() => visibleIn('#drawerBody .ph-rc-run'), 15000);
+    assert.ok(seen, 'the run view did not show the remote block');
+    assert.equal(await js('document.querySelector("#drawerBody .ph-rc-takeover").textContent'), 'Take over from phone');
+    const notice = await waitFor(() => js('!!document.querySelector("#drawerBody .ph-rc-run [data-notice=\\"phone-remote-control\\"]")'), 6000);
+    if (!notice) log('RC-4', 'the phone-remote-control notice did not draw at the top of the run view');
+    const taken = await countPosts('/api/computer/takeover');
+    await js('document.querySelector("#drawerBody .ph-rc-takeover").click()');
+    assert.ok(await waitFor(async () => (await countPosts('/api/computer/takeover')) === taken + 1, 3000), 'Take over was not sent');
+    assert.deepEqual(await lastBody('/api/computer/takeover'), { id: 'drv-1' });
+    assert.ok(await waitFor(() => pictureShown('#drawerBody .ph-rc-pic'), 6000), 'the run picture did not arrive');
+    assert.equal(await js('document.querySelector("#drawerBody .ph-rc-takeover").hidden'), true, 'Take over stays after the hold');
+    assert.equal(await js('document.querySelector("#drawerBody .ph-rc-rows").hidden'), false, 'the typing box and keys did not show');
+    const tapped = await countPosts('/api/computer/input');
+    await js(pointerJs('#drawerBody .ph-rc-pic', [0.25, 0.4], [0.25, 0.4]));
+    assert.ok(await waitFor(async () => (await countPosts('/api/computer/input')) > tapped, 3000), 'the tap on the run was not sent');
+    const tap = await lastBody('/api/computer/input');
+    assert.equal(tap.id, 'drv-1');
+    assert.equal(tap.kind, 'tap');
+    assert.ok(Math.abs(tap.x - Math.round(0.25 * 960)) <= 1 && Math.abs(tap.y - Math.round(0.4 * 540)) <= 1, `the run tap point ${tap.x},${tap.y}`);
+    const keyed = await countPosts('/api/computer/input');
+    await js(`(() => { [...document.querySelectorAll('#drawerBody .ph-rc-key')].find(b => b.textContent === 'Escape').click(); return true; })()`);
+    assert.ok(await waitFor(async () => (await countPosts('/api/computer/input')) === keyed + 1, 3000), 'the key was not sent once');
+    assert.deepEqual(await lastBody('/api/computer/input'), { id: 'drv-1', kind: 'key', key: 'Escape' });
+    // The desktop ends the hold (the run resumed elsewhere): the next picture is refused, and the view goes back to Take over.
+    await js('window.__tb.held = false');
+    const back = await waitFor(() => visibleIn('#drawerBody .ph-rc-takeover'), 6000);
+    assert.ok(back, 'a lost hold did not bring Take over back');
+    assert.equal(await js('document.querySelector("#drawerBody .ph-rc-pic").hidden'), true, 'the picture stayed after the hold ended');
+    const said = await js('Array.from(document.querySelectorAll(".toast")).some(t => t.textContent.includes("Take over the run from your phone first."))');
+    assert.equal(said, true, 'a lost hold was not said');
+  });
+
+  test('RC-5: Resume sends the resume for the run and ends the hold', { skip: RC_SKIP }, async () => {
+    await remoteReady(VIEWS[1], 'light');
+    await js('MuseUI.openComputerRuns("drv-1")');
+    assert.ok(await waitFor(() => visibleIn('#drawerBody .ph-rc-takeover'), 15000), 'the run view did not show Take over');
+    await js('document.querySelector("#drawerBody .ph-rc-takeover").click()');
+    assert.ok(await waitFor(() => visibleIn('#drawerBody .ph-rc-resume'), 6000), 'Resume did not show with the hold');
+    await js('document.querySelector("#drawerBody .ph-rc-resume").click()');
+    assert.ok(await waitFor(() => visibleIn('#drawerBody .ph-rc-takeover'), 6000), 'Take over did not come back after Resume');
+    assert.deepEqual(await lastBody('/api/drive/resume'), { id: 'drv-1' });
+  });
+
+  test('RC-6: the run view before Take over draws its remote-control notice (a fresh page, 390 x 844 shot)', { skip: RC_SKIP }, async () => {
+    await remoteReady(VIEWS[1], 'light');
+    await js('MuseUI.openComputerRuns("drv-1")');
+    assert.ok(await waitFor(() => visibleIn('#drawerBody .ph-rc-takeover'), 15000), 'the run view did not show Take over');
+    const notice = await waitFor(() => js('!!document.querySelector("#drawerBody .ph-rc-run [data-notice=\\"phone-remote-control\\"]")'), 6000);
+    assert.ok(notice, 'the phone-remote-control notice did not draw at the top of the run view before Take over');
+    await js('__ph.stand()');
+    assert.equal((await js('__ph.stopState()')).hit, true, 'Stop is not hittable in the run view before Take over');
+    await shotTo('rc-run-before-takeover-390x844-light');
+  });
+
+  // wave 121 (Fable review): the other tests give the page its capabilities through plenumPhoneDebug.connection, a debug-only override. In
+  // production the page reads the connection the shell builds from the computer's HELLO (boot.js connectionView), which once left the caps out,
+  // so no control ever drew. Here the connection comes out of the real boot.js over a HELLO snapshot, and the page gets it as the shell's own
+  // connection(); the debug override is never set.
+  test('RC-6: the production path: boot.js builds the connection from a HELLO that carries the two caps, and the strip and the run view draw from it', { skip: RC_SKIP }, async () => {
+    const { installShim } = await import('../shell/boot.js');
+    const viewFor = hello => {
+      const snapshot = {
+        connection: { status: 'connected', carrier: 'lan', desktopName: 'Studio PC' },
+        hello: { deviceId: 'dev-rc6-0001', tier: 'full', desktopName: 'Studio PC', pending: {}, ...hello },
+        lock: { mode: 'off' },
+      };
+      const core = { state: () => snapshot, subscribe(fn) { fn(snapshot); return () => {}; }, request: async () => { throw new Error('offline'); } };
+      const win = { location: new URL(`http://127.0.0.1:7300/p/${'a'.repeat(32)}/`), Response, ReadableStream, fetch: async () => { throw new Error('no network'); }, setTimeout, clearTimeout, navigator: {} };
+      installShim({ win, doc: null, origFetch: async () => new Response(''), core });
+      return win.plenumShell.connection();
+    };
+    const give = view => js(`plenumPhoneDebug.shell({ connection: () => (${JSON.stringify(view)}) })`);
+    const withCaps = viewFor({ caps: ['events', 'browser-picture', 'browser-control', 'computer-control'] });
+    assert.deepEqual(withCaps.caps, ['events', 'browser-picture', 'browser-control', 'computer-control'], 'boot.js keeps the HELLO caps in the connection');
+    await openPhone(VIEWS[1], 'light');
+    await h.eval(TB_PAGE);
+    await give(withCaps);
+    assert.ok(await openBrowserPicture(), 'the strip did not draw from the shell\'s own connection');
+    // A computer whose HELLO names no control capability (an older one) draws no strip.
+    await give(viewFor({ caps: ['events', 'browser-picture'] }));
+    assert.ok(await waitFor(async () => !(await visibleIn('.ext-brw .ph-rc-browser')), 4000), 'the strip drew for a computer that did not say it can be steered');
+    await give(withCaps);
+    assert.ok(await waitFor(() => visibleIn('.ext-brw .ph-rc-browser'), 4000), 'the strip did not come back with the caps');
+    await js('MuseUI.openComputerRuns("drv-1")');
+    assert.ok(await waitFor(() => visibleIn('#drawerBody .ph-rc-takeover'), 15000), 'Take over from phone did not draw from the shell\'s own connection');
+    assert.equal(await js('document.querySelector("#drawerBody .ph-rc-takeover").textContent'), 'Take over from phone');
+  });
+
+  // The layout at every size, both themes and all three text zooms: the strip and the run view keep the screen clear of overflow, every control is
+  // 44 px or more and named, and Stop stays inside the screen and hittable. The 390 x 844 screenshots of the controls are taken here.
+  for (const v of RC_VIEWS) {
+    for (const theme of THEMES) {
+      for (const zoom of ZOOMS) {
+        const cfg = `${v.name} ${theme} z${zoom} remote`;
+        test(`${cfg}: the strip and the run view fit, their controls are 44 px or more and named, and Stop stays hittable`, { skip: RC_SKIP, timeout: 300_000 }, async () => {
+          await remoteReady(v, theme);
+          if (zoom !== 1) await js(`plenumPhoneDebug.textZoom(${zoom})`);
+          await settle(60);
+          const picked = await openBrowserPicture();
+          if (!picked) log(cfg, 'the strip did not show on the Browser pane');
+          await checkRemote(`${cfg} browser`, '.ext-brw .ph-rc-browser');
+          // The shots at zoom 1 are of the browser's picture with its typing box and keys in view, then of the held run.
+          const shotSize = zoom === 1 && SHOT_VIEWS.includes(v.name);
+          if (shotSize) await scrollRowsIntoView('.ext-brw .ph-rc-browser .ph-rc-rows');
+          if (shotSize) await shotTo(`rc-browser-${v.name}-${theme}`);
+          await js('MuseUI.openComputerRuns("drv-1")');
+          if (!(await waitFor(() => visibleIn('#drawerBody .ph-rc-run'), 15000))) log(cfg, 'the run view did not show');
+          await checkRemote(`${cfg} run`, '#drawerBody .ph-rc-run');
+          await js('document.querySelector("#drawerBody .ph-rc-takeover").click()');
+          if (!(await waitFor(() => pictureShown('#drawerBody .ph-rc-pic'), 8000))) log(cfg, 'the held run picture did not arrive');
+          await checkRemote(`${cfg} held`, '#drawerBody .ph-rc-run');
+          if (shotSize) await scrollRowsIntoView('#drawerBody .ph-rc-run .ph-rc-rows');
+          if (shotSize) await shotTo(`rc-run-${v.name}-${theme}`);
+          await js('window.__tb.held = false');
+        });
+      }
+    }
+  }
+
+  test('the suite leaves no failure behind (track B)', () => {
+    assert.deepEqual(fails.slice(startFails), [], `${fails.length - startFails} track B check(s) failed:\n${fails.slice(startFails).join('\n')}`);
+  });
+});
+
+// A screenshot of the page into the shots folder, named as the review expects (the harness writes its own copy first).
+async function shotTo(name) {
+  const r = await h.shot(name);
+  mkdirSync(SHOTS, { recursive: true });
+  copyFileSync(r.path, path.join(SHOTS, `${name}.png`));
+}

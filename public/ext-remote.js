@@ -254,14 +254,19 @@
     const short = list.length === 1 ? 'Phone' : `${list.length} phones`;
     const label = narrowQuery?.matches ? short : full;
     const tip = `Connected: ${names.join(', ')}. Open Settings › Phones.`;
+    // The accessible name keeps the full words even where the bar shows the short label (the fit ladder in style.css, step 4).
+    const aria = list.length === 1 ? `${full}. Open Settings › Phones.` : `${full}: ${names.join(', ')}. Open Settings › Phones.`;
     if (!chipEl || !chipEl.isConnected) {
       chipEl = MuseUI.ui.chip({ label, title: tip, tone: 'green', onClick: () => MuseUI.openSettings(SECTION_ID) });
       chipEl.classList.add('remote-chip');
+      chipEl.dataset.short = short;
+      chipEl.setAttribute('aria-label', aria);
       MuseUI.slots.add('titlebar', CHIP_ID, chipEl, CHIP_ORDER);
     } else {
       chipEl.textContent = label;
+      chipEl.dataset.short = short;
       chipEl.title = tip;
-      chipEl.setAttribute('aria-label', tip);
+      chipEl.setAttribute('aria-label', aria);
     }
   }
 
