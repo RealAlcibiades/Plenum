@@ -24,6 +24,13 @@ const trace = m => { if (process.env.MOB18_TRACE === '1') { try { fs.appendFileS
 const userDataArg = process.argv.find(a => a.startsWith('--harness-user-data='));
 if (userDataArg) app.setPath('userData', userDataArg.slice('--harness-user-data='.length));
 
+// The window is opacity 0 and often sits under other windows. Windows' occlusion check then stops its frames: requestAnimationFrame stalls
+// while the page still reports itself visible, and every check that waits for a frame times out (seen on 29 Oct: one frame in 20 s, 201
+// timer ticks). The harness draws whatever covers it.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
 // What the page may read. The token goes only to the frame at the server origin named by the last 'open' (tokenOrigin).
 const state = {
   win: null,
