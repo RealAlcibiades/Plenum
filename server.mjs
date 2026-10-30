@@ -2223,8 +2223,9 @@ async function handleApi(req, res, url) {
       const codex = providers.codex.installed ? await runCli('codex', ['login', 'status']) : null;
       const codexText = (codex?.output || codex?.error || '').split('\n')[0].trim();
       return json(res, 200, {
+        // keySaved on the CLI route says an Anthropic key is still saved though the CLI is in use, so the card can offer to remove it (B-60).
         claude: providers.anthropic.route === 'cli'
-          ? { route: 'cli', connected: cli.loggedIn, email: cli.email, plan: cli.plan }
+          ? { route: 'cli', connected: cli.loggedIn, email: cli.email, plan: cli.plan, keySaved: (await anthropicKey()).key !== null }
           // refused is set when the only credential found is a Claude subscription token, which the API route does not send.
           // storage and storageNote say where a saved key is kept on this computer (lib/keys.mjs keyStorage), so the card does not claim
           // the Windows account on a Mac or in a plain Node run (B-95).

@@ -4324,6 +4324,32 @@ function claudeCliCard(c) {
   });
   actions.append(signIn, refreshBtn);
   card.append(actions);
+  // B-60: an API key saved earlier stays on this computer while Claude runs through the CLI, so it can still be removed from here.
+  if (c.keySaved) {
+    card.append(para('An Anthropic API key is also saved on this computer. Claude does not use it while it runs through the Claude CLI.'));
+    const keyRow = document.createElement('div');
+    keyRow.className = 'actions';
+    const remove = button('ghost small', 'Remove saved key');
+    remove.addEventListener('click', async () => {
+      const sure = await confirmBox({ title: 'Remove the Anthropic API key?', body: 'Plenum deletes this key from the saved keys. Claude keeps running through the Claude CLI. To use the Anthropic API again, paste the key again.', action: 'Remove', tone: 'danger', focusCancel: true });
+      if (!sure) return;
+      remove.disabled = true;
+      try {
+        const r = await api('/api/accounts/claude/remove', {});
+        toast(r.message, r.ok ? undefined : 'bad');
+        if (r.ok) {
+          await loadProviders();
+          refreshDrawer();
+        }
+      } catch (err) {
+        toast(err.message, 'bad');
+      } finally {
+        remove.disabled = false;
+      }
+    });
+    keyRow.append(remove);
+    card.append(keyRow);
+  }
   // The strip sits above the Sign in row (provider-terms). It informs, and the sign-in still runs when the button is pressed.
   window.MuseUI?.notice?.('provider-terms', { before: actions });
   return card;

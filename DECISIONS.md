@@ -835,6 +835,16 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Built in the phone fix round. Open: a slower 60 s back-off for asleep (the same schedule is used for now), and the Ways dial order stays last-used-first. Also open for the owner: when a phone's Stop key cannot be read, its lock screen says so and points to the computer's Stop. That case does not meet "Stop always works" in the MOBILE.json floor. The owner has not accepted it, and the floor is unchanged.
 
+## 79. The number guard reads a card number typed in pieces
+
+**Decision.** The computer-use number guard (`checkTyped`) also checks each type action joined to the end of the text typed by the type actions just before it (the last 40 characters), with Tabs taken out. Four groups typed into split card fields, or one text with Tabs between the groups, are then refused like the whole number. A line break, a click, a key or any other action that can move the focus starts a new row; a pointer move or a scroll does not. A joined text is refused only for a number it holds, never for its length.
+
+**Reason.** A card number typed one group at a time passed the check, because each group alone is too short to be a number (B-18 follow-up). Starting a new row at every focus change keeps two numbers in two fields, such as a phone number and a postcode, from being read as one.
+
+**Source.** `lib/computer/run.mjs` (`TYPED_TAIL`, `gateTyping`).
+
+**Status.** Built after the 0.6 fix round. The number guard is still a setting; with it off nothing here runs.
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).

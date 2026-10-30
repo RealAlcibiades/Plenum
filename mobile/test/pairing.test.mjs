@@ -3,7 +3,7 @@
 // Run it through the sealed runner: node build/mobile/run.mjs --id mob-03 pairing.test.mjs
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createFakeClock } from './helpers/fake-clock.mjs';
@@ -737,6 +737,19 @@ describe('the registry', () => {
     assert.equal(again.counterOf(key(1)), 4);
     assert.equal(again.counterOf(key(2)), undefined, 'a key that is not held has no counter');
     assert.equal(again.counterOf(new Uint8Array(5)), undefined);
+  });
+
+  test('B-56: two damaged files on two starts keep both copies; a later start never replaces the first one', async () => {
+    const dir = tempDir();
+    const first = '{"v":1,"identity":';
+    const second = '{"v":1,"devices":[';
+    writeFileSync(path.join(dir, 'phones.json'), first);
+    assert.equal((await createRegistry({ storage: createFileStorage({ dir }) }).ready()).damaged, true);
+    writeFileSync(path.join(dir, 'phones.json'), second);
+    assert.equal((await createRegistry({ storage: createFileStorage({ dir }) }).ready()).damaged, true);
+    assert.deepEqual(readdirSync(dir).sort(), ['phones.json.damaged', 'phones.json.damaged-2']);
+    assert.equal(readFileSync(path.join(dir, 'phones.json.damaged'), 'utf8'), first, 'the first copy is untouched');
+    assert.equal(readFileSync(path.join(dir, 'phones.json.damaged-2'), 'utf8'), second);
   });
 
   test('a damaged file is set aside and the registry starts empty; a file that cannot be read makes it unavailable with the reason', async () => {

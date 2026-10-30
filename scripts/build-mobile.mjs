@@ -434,9 +434,12 @@ export function diffTrees(expected, actual, label) {
 }
 
 // Writes the whole tree into a sibling folder first, then swaps it in, so a failed write leaves the old tree in place (the phone and the
-// desktop never see half a build). A failure before the swap removes the new folder and rethrows.
+// desktop never see half a build). A failure before the swap removes the new folder and rethrows. The old tree is renamed aside before the
+// new one moves in and deleted only after: on Windows a file held open (by a running phone test) makes the first rename fail, so the live
+// tree stays whole instead of being deleted with nothing to replace it.
 export function writeTree(dir, files, { fsImpl = fs } = {}) {
   const tmp = `${dir}.tmp-${process.pid}`;
+  const old = `${dir}.old-${process.pid}`;
   fsImpl.rmSync(tmp, { recursive: true, force: true });
   try {
     fsImpl.mkdirSync(tmp, { recursive: true });
@@ -445,12 +448,25 @@ export function writeTree(dir, files, { fsImpl = fs } = {}) {
       fsImpl.mkdirSync(path.dirname(target), { recursive: true });
       fsImpl.writeFileSync(target, buf);
     }
-    fsImpl.rmSync(dir, { recursive: true, force: true });
-    fsImpl.renameSync(tmp, dir);
+    fsImpl.rmSync(old, { recursive: true, force: true });
+    let moved = false;
+    try {
+      fsImpl.renameSync(dir, old);
+      moved = true;
+    } catch (err) {
+      if (err?.code !== 'ENOENT') throw err;
+    }
+    try {
+      fsImpl.renameSync(tmp, dir);
+    } catch (err) {
+      if (moved) fsImpl.renameSync(old, dir);
+      throw err;
+    }
   } catch (err) {
     fsImpl.rmSync(tmp, { recursive: true, force: true });
     throw err;
   }
+  fsImpl.rmSync(old, { recursive: true, force: true });
 }
 
 const USAGE = 'usage: node scripts/build-mobile.mjs [--check] [--dev] [--root <dir>]';

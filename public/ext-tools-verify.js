@@ -25,7 +25,7 @@
     checking: 'Checking tool calls. This sends one tiny request with your key.',
     check: 'Check tool calls',
     again: 'Check again',
-    forget: 'Forget the check',
+    forget: 'Clear the tool check',
     tryAgain: 'Try again',
     noReason: 'the check did not say why',
   };

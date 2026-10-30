@@ -617,7 +617,40 @@ describe('writing the output', () => {
     writeTree(dir, new Map([['old.txt', Buffer.from('old')]]));
     writeTree(dir, new Map([['sub/new.txt', Buffer.from('new')]]));
     assert.deepEqual([...readTree(dir).keys()], ['sub/new.txt']);
-    assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-')), []);
+    assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-') || n.startsWith('out.old-')), []);
+  });
+
+  test('F8: a live tree that cannot be moved (a file held open on Windows) stays whole, and nothing is deleted', () => {
+    const root = freshRoot();
+    const dir = path.join(root, 'out');
+    writeTree(dir, new Map([['old.txt', Buffer.from('old')]]));
+    const locked = Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+    const fsImpl = {
+      ...fs,
+      renameSync(from, to) {
+        if (from === dir) throw locked;
+        return fs.renameSync(from, to);
+      },
+    };
+    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl }), /EPERM/);
+    assert.equal(fs.readFileSync(path.join(dir, 'old.txt'), 'utf8'), 'old', 'the live tree is untouched');
+    assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-') || n.startsWith('out.old-')), [], 'no temporary or old folder is left');
+  });
+
+  test('F8: when the new tree cannot move in, the old one is put back', () => {
+    const root = freshRoot();
+    const dir = path.join(root, 'out');
+    writeTree(dir, new Map([['old.txt', Buffer.from('old')]]));
+    const fsImpl = {
+      ...fs,
+      renameSync(from, to) {
+        if (to === dir && from.includes('.tmp-')) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+        return fs.renameSync(from, to);
+      },
+    };
+    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl }), /EBUSY/);
+    assert.equal(fs.readFileSync(path.join(dir, 'old.txt'), 'utf8'), 'old', 'the old tree is back in place');
+    assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-') || n.startsWith('out.old-')), []);
   });
 });
 
