@@ -632,7 +632,7 @@ describe('writing the output', () => {
         return fs.renameSync(from, to);
       },
     };
-    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl }), /EPERM/);
+    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl, retryMs: 1 }), /EPERM/);
     assert.equal(fs.readFileSync(path.join(dir, 'old.txt'), 'utf8'), 'old', 'the live tree is untouched');
     assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-') || n.startsWith('out.old-')), [], 'no temporary or old folder is left');
   });
@@ -648,9 +648,50 @@ describe('writing the output', () => {
         return fs.renameSync(from, to);
       },
     };
-    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl }), /EBUSY/);
+    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl, retryMs: 1 }), /EBUSY/);
     assert.equal(fs.readFileSync(path.join(dir, 'old.txt'), 'utf8'), 'old', 'the old tree is back in place');
     assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-') || n.startsWith('out.old-')), []);
+  });
+
+  test('a rename that Windows refuses for a moment (OneDrive or a virus scanner holding the new folder) is tried again and the tree still swaps', () => {
+    const root = freshRoot();
+    const dir = path.join(root, 'out');
+    writeTree(dir, new Map([['old.txt', Buffer.from('old')]]));
+    let refused = 0;
+    const fsImpl = {
+      ...fs,
+      renameSync(from, to) {
+        if (to === dir && from.includes('.tmp-') && refused < 2) {
+          refused += 1;
+          throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+        }
+        return fs.renameSync(from, to);
+      },
+    };
+    writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl, retryMs: 1 });
+    assert.equal(refused, 2);
+    assert.deepEqual([...readTree(dir).keys()], ['new.txt']);
+    assert.deepEqual(fs.readdirSync(root).filter(n => n.startsWith('out.tmp-') || n.startsWith('out.old-')), []);
+  });
+
+  test('a rename error that is not a passing lock (ENOTDIR) fails at once, without retries', () => {
+    const root = freshRoot();
+    const dir = path.join(root, 'out');
+    writeTree(dir, new Map([['old.txt', Buffer.from('old')]]));
+    let calls = 0;
+    const fsImpl = {
+      ...fs,
+      renameSync(from, to) {
+        if (to === dir && from.includes('.tmp-')) {
+          calls += 1;
+          throw Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' });
+        }
+        return fs.renameSync(from, to);
+      },
+    };
+    assert.throws(() => writeTree(dir, new Map([['new.txt', Buffer.from('new')]]), { fsImpl, retryMs: 1 }), /ENOTDIR/);
+    assert.equal(calls, 1);
+    assert.equal(fs.readFileSync(path.join(dir, 'old.txt'), 'utf8'), 'old');
   });
 });
 

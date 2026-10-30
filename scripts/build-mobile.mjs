@@ -433,13 +433,28 @@ export function diffTrees(expected, actual, label) {
   return lines;
 }
 
+// Windows answers EPERM, EACCES or EBUSY for a moment while OneDrive or a virus scanner looks at a folder that was just written, so a
+// rename is tried again (tries times, retryMs apart; about two seconds by default) before it counts as a failure. Other errors fail at once.
+const BUSY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+function renameSoon(fsImpl, from, to, { retryMs, tries }) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return fsImpl.renameSync(from, to);
+    } catch (err) {
+      if (!BUSY_CODES.has(err?.code) || attempt >= tries) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, retryMs);
+    }
+  }
+}
+
 // Writes the whole tree into a sibling folder first, then swaps it in, so a failed write leaves the old tree in place (the phone and the
 // desktop never see half a build). A failure before the swap removes the new folder and rethrows. The old tree is renamed aside before the
 // new one moves in and deleted only after: on Windows a file held open (by a running phone test) makes the first rename fail, so the live
-// tree stays whole instead of being deleted with nothing to replace it.
-export function writeTree(dir, files, { fsImpl = fs } = {}) {
+// tree stays whole instead of being deleted with nothing to replace it. Each rename is tried again for a moment (renameSoon).
+export function writeTree(dir, files, { fsImpl = fs, retryMs = 100, tries = 20 } = {}) {
   const tmp = `${dir}.tmp-${process.pid}`;
   const old = `${dir}.old-${process.pid}`;
+  const rename = (from, to) => renameSoon(fsImpl, from, to, { retryMs, tries });
   fsImpl.rmSync(tmp, { recursive: true, force: true });
   try {
     fsImpl.mkdirSync(tmp, { recursive: true });
@@ -451,15 +466,15 @@ export function writeTree(dir, files, { fsImpl = fs } = {}) {
     fsImpl.rmSync(old, { recursive: true, force: true });
     let moved = false;
     try {
-      fsImpl.renameSync(dir, old);
+      rename(dir, old);
       moved = true;
     } catch (err) {
       if (err?.code !== 'ENOENT') throw err;
     }
     try {
-      fsImpl.renameSync(tmp, dir);
+      rename(tmp, dir);
     } catch (err) {
-      if (moved) fsImpl.renameSync(old, dir);
+      if (moved) rename(old, dir);
       throw err;
     }
   } catch (err) {
