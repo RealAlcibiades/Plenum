@@ -138,4 +138,4 @@ The version and effective date are at the top. When this notice changes in a way
 
 ## 13. Contact
 
-[LICENSOR NAME] · [CONTACT EMAIL]
+[LICENSOR NAME] · theloved@muse.ai

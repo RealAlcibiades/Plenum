@@ -870,6 +870,16 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Built on 6 Nov 2026 with tests.
 
+## 81. The contact email
+
+**Decision.** On 7 Nov 2026 the owner gave the contact address: `theloved@muse.ai`. It replaces `[CONTACT EMAIL]` in the License Agreement (notices and the closing line), the Privacy Notice, THIRD-PARTY-SERVICES, `legal/terms.json` (`contact`) and the deb maintainer line. `package.json` gains `bugs` (the issues page and this address), so the phone's Report sheet offers Send by email. The change is editorial: terms stay version 4 and only the sha256 lines change. Commits keep the GitHub noreply address (item 23). `[LICENSOR NAME]`, `[GOVERNING LAW]` and `[EFFECTIVE DATE]` are unchanged.
+
+**Reason.** The owner supplied it. A contact line is public by nature, so it is fine in the public repository.
+
+**Source.** `legal/EULA.md`, `legal/PRIVACY.md`, `legal/THIRD-PARTY-SERVICES.md`, `legal/terms.json`, `package.json`, `mobile/ios/review-notes.md`.
+
+**Status.** Built on 7 Nov 2026.
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).

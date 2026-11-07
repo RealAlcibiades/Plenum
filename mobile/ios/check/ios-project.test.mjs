@@ -172,10 +172,12 @@ test('store icon is an opaque 1024 px PNG (no alpha) and every asset catalog ima
   }
 });
 
-test('review-notes.md keeps the placeholders, names no person or address, and covers the store sections', () => {
+// The owner gave the contact address on 7 Nov 2026 (DECISIONS item 81); it is the only address the notes may name.
+test('review-notes.md keeps the placeholders, names only the owner\'s address, and covers the store sections', () => {
   const notes = read('review-notes.md');
-  for (const ph of ['[LICENSOR NAME]', '[CONTACT EMAIL]', '[GOVERNING LAW]']) assert.ok(notes.includes(ph), ph);
-  assert.equal(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/.test(notes), false, 'no e-mail address written into the notes');
+  for (const ph of ['[LICENSOR NAME]', '[GOVERNING LAW]']) assert.ok(notes.includes(ph), ph);
+  const addresses = [...new Set(notes.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g) ?? [])];
+  assert.deepEqual(addresses.filter(a => a !== 'theloved@muse.ai'), [], 'no other e-mail address written into the notes');
   for (const heading of ['Demo mode', 'Export', 'Permissions', '5.1.2(i)', 'Privacy', 'Open items']) {
     assert.ok(notes.includes(heading), `section ${heading}`);
   }

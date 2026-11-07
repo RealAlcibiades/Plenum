@@ -1,10 +1,10 @@
 {
   "version": 4,
   "effective": "[EFFECTIVE DATE]",
-  "contact": "[CONTACT EMAIL]",
+  "contact": "theloved@muse.ai",
   "sha256": {
-    "EULA.md": "b02792986ff7f5c757b1ac73df7a4a53a6c0bc19dc5c619fc6130316df84547b",
-    "PRIVACY.md": "5068a3eacc9e944cedf0dca879623706c165bc6f6c7fa8c07f536c2348bdb071"
+    "EULA.md": "a2cf5633ec3861b89769645f54e870d7939982474d0458e2e96bae7e54126fe9",
+    "PRIVACY.md": "15f5ed5e69fa0d4d8ca7f9c284ef0b95bcfdba330a037269ade38d3df7bd4d99"
   },
   "changes": {
     "1": [

@@ -56,4 +56,4 @@ Plenum is built with open-source software, including Electron (MIT licence) and 
 
 ## Contact
 
-[LICENSOR NAME] · [CONTACT EMAIL]
+[LICENSOR NAME] · theloved@muse.ai

@@ -2,7 +2,7 @@
 
 Status: draft for the first TestFlight and App Store submission. Built from `mobile/ios/` (Capacitor 8.5.3, Swift Package Manager, no CocoaPods). Not yet built on a Mac; the simulator build and selftest run in `.github/workflows/mobile.yml` (ios-sim job).
 
-Placeholders in square brackets are the owner's to fill: [LICENSOR NAME], [CONTACT EMAIL], [GOVERNING LAW], [PRIVACY NOTICE URL], [DEMO VIDEO URL]. Nothing here names a person or a company that the owner has not supplied.
+Placeholders in square brackets are the owner's to fill: [LICENSOR NAME], [GOVERNING LAW], [PRIVACY NOTICE URL], [DEMO VIDEO URL]. Nothing here names a person or a company that the owner has not supplied.
 
 ## 1. Notes for App Review (paste into App Store Connect "Notes")
 
@@ -60,7 +60,7 @@ The app asks for no location, contacts, tracking or photo-library access (photos
 
 ## 7. Generated content and reports (1.2)
 
-- Replies come from the AI models the person chose. Each reply has "Report this reply": a local report, a send-by-e-mail to [CONTACT EMAIL], or an issue link. Counsel checks that this meets the rule (LEGAL.json).
+- Replies come from the AI models the person chose. Each reply has "Report this reply": a local report, a send-by-e-mail to theloved@muse.ai, or an issue link. Counsel checks that this meets the rule (LEGAL.json).
 
 ## 8. Build facts
 

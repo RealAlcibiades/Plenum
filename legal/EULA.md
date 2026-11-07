@@ -167,10 +167,10 @@ The laws of [GOVERNING LAW] govern this agreement, without regard to conflict-of
 - You may not transfer this agreement. We may transfer it to anyone who takes over Plenum.
 - No one other than you and us has rights under this agreement.
 - We are not responsible for delays or failures caused by events outside our reasonable control.
-- We may give you notices in the app. Send notices to us at [CONTACT EMAIL].
+- We may give you notices in the app. Send notices to us at theloved@muse.ai.
 - If this agreement is translated, the English version governs.
 - For United States government users, Plenum is "commercial computer software" and is licensed only with the rights in this agreement.
 
 ## 20. Contact
 
-[LICENSOR NAME] · [CONTACT EMAIL]
+[LICENSOR NAME] · theloved@muse.ai

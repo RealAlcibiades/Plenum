@@ -226,11 +226,15 @@
       "license": "legal/EULA.txt"
     },
     "deb": {
-      "maintainer": "[LICENSOR NAME] <[CONTACT EMAIL]>"
+      "maintainer": "[LICENSOR NAME] <theloved@muse.ai>"
     }
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/RealAlcibiades/Plenum.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RealAlcibiades/Plenum/issues",
+    "email": "theloved@muse.ai"
   }
 }
