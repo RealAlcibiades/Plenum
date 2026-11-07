@@ -330,7 +330,7 @@
         return !core2 || typeof id != "string" || !(state?.computers ?? []).some((c) => c.id === id) ? Promise.resolve(!1) : Promise.resolve(core2.connect(id)).then((out) => out?.ok !== !1, () => !1);
       },
       // The address the Report sheet may offer to email: set by the build from package.json bugs.email; empty while there is none.
-      contactEmail: "",
+      contactEmail: "theloved@muse.ai",
       switchComputer() {
         let core2 = coreOf();
         return core2?.openShell ? Promise.resolve(core2.openShell("#computers")).catch(() => !1) : Promise.resolve(!1);
