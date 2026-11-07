@@ -362,10 +362,13 @@
   }
 
   // Sets the model to openrouter:<id>, adding it to the model menu first (as ext-openrouter.js does).
-  // The model goes to the thread on screen, and the toast names that thread when it is not Main (B-98).
+  // The model goes to the thread on screen, and the toast names that thread when it is not Main, or the project when Main runs the
+  // project's own model (B-98).
   const threadWord = () => {
     const t = MuseUI.threads?.info?.();
-    return t && !t.main && t.name ? ` for ${t.name}` : '';
+    if (t && !t.main && t.name) return ` for ${t.name}`;
+    const project = (MuseUI.state.projects ?? []).find(p => p.id === MuseUI.state.activeProject);
+    return project?.ownModel && project.name ? ` for ${project.name}` : '';
   };
 
   function useOpenRouter(row) {
@@ -860,8 +863,8 @@
   function actionsBlock(row) {
     const box = make('div', 'af-actions');
     const d = state.data;
-    // The model of the thread on screen, which is the app's model for Main (B-98).
-    const current = MuseUI.threads?.info?.()?.model || MuseUI.state.model;
+    // The model the chat on screen runs: the thread's, the project's own, or the app's (B-98).
+    const current = MuseUI.modelInUse ? MuseUI.modelInUse() : (MuseUI.threads?.info?.()?.model || MuseUI.state.model);
     if (row.openrouterId) {
       const ref = `openrouter:${row.openrouterId}`;
       if (current === ref) box.append(make('span', 'pill ok', 'In use'));

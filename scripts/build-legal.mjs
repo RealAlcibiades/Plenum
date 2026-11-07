@@ -17,9 +17,9 @@
 //  (c) Runs scripts/third-party-notices.mjs, which writes THIRD-PARTY-NOTICES.txt.
 //  (d) With PLENUM_RELEASE=1 (set in .github/workflows/release.yml) it fails while [LICENSOR NAME],
 //      [CONTACT EMAIL], [GOVERNING LAW] or [EFFECTIVE DATE] remains in legal/*.md, legal/terms.json,
-//      legal/EULA.txt, LICENSE.txt or package.json. Without it, that is a warning.
-//  (e) Checks that every link in legal/*.md is https, because the desktop opens only https links
-//      in the system browser and denies every other scheme.
+//      legal/EULA.txt, LICENSE.txt, relay/LICENSE-RELAY.txt or package.json. Without it, that is a warning.
+//  (e) Checks that every link in legal/*.md is https: these are the terms people accept, so every page they point to is
+//      reached encrypted.
 //  Also checks legal/terms.json: its shape, the version in each document's header, and a changes
 //  line for the current version.
 
@@ -202,7 +202,7 @@ export function scanPlaceholders(root = ROOT) {
       if (f.endsWith('.md') || f === 'terms.json' || f === 'EULA.txt') files.push(`legal/${f}`);
     }
   }
-  files.push('LICENSE.txt', 'package.json');
+  files.push('LICENSE.txt', 'relay/LICENSE-RELAY.txt', 'package.json');
   const found = [];
   for (const rel of files) {
     const p = path.join(root, rel);

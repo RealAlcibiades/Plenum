@@ -4,7 +4,7 @@
 // and the artifact iframe's page side. The live Electron checks (the artifact iframe under its real CSP, one reload on a generation
 // bump in the Electron window) belong to the mob-18 harness; see the report for what this suite does not reach.
 // Run through the sealed runner, never from the project folder:
-//   node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id mob-09-shims-ui-manifest-and-loader shim.test.mjs
+//   node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id mob-09-shims-ui-manifest-and-loader shim.test.mjs
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MessageChannel } from 'node:worker_threads';

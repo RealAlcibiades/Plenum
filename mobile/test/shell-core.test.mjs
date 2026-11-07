@@ -1,16 +1,16 @@
 // Shell core suites (mob-10, wave 104). Node only: the channel Worker core runs against the fake computer (fixtures/shell-core/fake-desktop.mjs,
 // the real Noise responder and frame session in memory), the fake IndexedDB, and a fake clock for reconnect and STOP timing.
-// Run through the sealed runner: node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id mob-10-shell-core shell-core.test.mjs
+// Run through the sealed runner: node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id mob-10-shell-core shell-core.test.mjs
 // The Electron bridge mode (pair, REQ, server kill and restart, STOP of a running turn) is in shell-core.harness.test.mjs.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFakeClock } from './helpers/fake-clock.mjs';
 import { createFakeIndexedDB } from './fixtures/shell-core/fake-idb.mjs';
 import { createFakeNet, createFakeDesktop } from './fixtures/shell-core/fake-desktop.mjs';
-import { createChannelCore, DELAYS_MS, STOP_WINDOW_MS, STOP_RESEND_MS, RENEW_AFTER_MS, RENEW_DRAIN_MS, NOT_KNOWN_RETRY_MS, openSocket, requestPolicy } from '../shell/channel.worker.js';
+import { createChannelCore, DELAYS_MS, STOP_WINDOW_MS, STOP_RESEND_MS, RENEW_AFTER_MS, RENEW_DRAIN_MS, NOT_KNOWN_RETRY_MS, ASLEEP_RETRY_MS, ASLEEP_SLOW_AFTER_ROUNDS, openSocket, requestPolicy } from '../shell/channel.worker.js';
 import { openChannel, bytesToB64u, b64uToBytes, workerComputer, sendLockedStop } from '../shell/channel.js';
 import { carrierUrlOk, hostLabel, usableCarriers } from '../shell/carriers.js';
-import { createIdbKv, createSecureKv, createStore, publicComputer, createPlatformStore } from '../shell/store.js';
+import { createIdbKv, createSecureKv, createStore, publicComputer, createPlatformStore, createStopCards, STOP_CARDS_KEY } from '../shell/store.js';
 import { createLock, createPasskeyGate, pinWaitSeconds, isValidPin, wrapKey, unwrapKey, derivePinKey, PIN_ITERATIONS, BACKGROUND_LOCK_MS } from '../shell/lock.js';
 import { parsePairingText, pageCandidates, PairingError, describeTried, startPairing, validatePayload } from '../shell/pairing.js';
 import { createStopController, stopResultText, STOP_NEEDS_UNLOCK, STOP_NOT_ACCEPTED, STOP_WATCHDOG_MS } from '../shell/stop.js';
@@ -335,6 +335,39 @@ describe('channel core: connect, counter and reconnect', () => {
     desktop.counters.set(phoneId, 0);
     await walk(clock, 60_000);
     assert.equal(rig.core.phase, 'connected', 'a known phone connects on the next slow try');
+  });
+
+  it('B-121: a 4401 on one way and a way that cannot be reached is not-known too (away from home, Tailscale off)', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const TS = 'wss://fake-pc.tail1234.ts.net/b/key';
+    const desktop = createFakeDesktop({ net, url: TS, carrier: 'tailscale' });
+    const phone = generateKeyPair();
+    // The LAN address answers nothing; the computer, reached on its other way, does not know this phone.
+    const carriers = [{ kind: 'lan', urls: ['ws://192.168.1.5:41000/b/key'] }, { kind: 'tailscale', urls: [TS] }];
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone, { carriers }) });
+    rig.init();
+    await settle();
+    await walk(clock, 10_000);
+    assert.equal(rig.core.phase, 'not-known', 'the unreachable LAN does not hide the 4401');
+  });
+
+  it('B-121: a 4401 beside a relay host-offline is asleep, not not-known (the computer may still know the phone)', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    const RELAY = 'wss://relay.example/b/key';
+    net.listen(RELAY, ws => {
+      ws.dropFromDesktop(4001, 'host-offline');
+      return { gone() {}, onMessage() {} };
+    });
+    const carriers = [{ kind: 'lan', urls: ['ws://fake-pc.local/b/key'] }, { kind: 'relay', urls: [RELAY] }];
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone, { carriers }) });
+    rig.init();
+    await settle();
+    await walk(clock, 10_000);
+    assert.equal(rig.core.phase, 'asleep');
   });
 });
 
@@ -674,6 +707,77 @@ describe('store', () => {
     assert.equal((await store.get('n1')).name, 'Native PC');
     assert.ok([...data.keys()].every(k => k.startsWith('plenum.')), 'every key has the prefix');
     assert.equal(createSecureKv({ plugin }).kind, 'native');
+  });
+});
+
+describe('Stop cards: Stop without the store (MOBILE.json floor)', () => {
+  const memoryStorage = () => {
+    const m = new Map();
+    return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), raw: m };
+  };
+  // A key-value back end whose reads can be made to fail, as a damaged entry or a Keystore error does.
+  const breakableKv = () => {
+    const data = new Map();
+    const kv = {
+      kind: 'web',
+      broken: false,
+      get: async k => { if (kv.broken) throw new Error('cannot read (fake)'); return data.has(k) ? structuredClone(data.get(k)) : undefined; },
+      put: async (k, v) => { if (kv.broken) throw new Error('cannot write (fake)'); data.set(k, structuredClone(v)); },
+      delete: async k => { data.delete(k); },
+      keys: async () => [...data.keys()],
+    };
+    return kv;
+  };
+  const STOP = 'S'.repeat(43);
+  const ME = 'd'.repeat(64);
+  const record = (over = {}) => ({ id: 'c'.repeat(64), name: 'Home PC', desktopPub: 'PUB', myPriv: 'SECRET', pushKey: 'PUSH', psk: 'PSK', stopKey: STOP, myDeviceId: ME, carriers: [{ kind: 'lan', urls: ['ws://192.168.1.5:40000/b/k'] }], lastCarrier: 'lan', counter: 4, ...over });
+
+  it('a record with a Stop key gets a card that holds only what Stop needs, and the card goes with the computer', async () => {
+    const storage = memoryStorage();
+    const store = createStore({ kv: breakableKv(), stopCards: createStopCards({ storage }) });
+    await store.put(record());
+    const raw = storage.raw.get(STOP_CARDS_KEY);
+    for (const secret of ['SECRET', 'PUSH', 'PSK', 'PUB']) assert.equal(raw.includes(secret), false, `${secret} is not on the card`);
+    const [card] = store.stopCards.read();
+    assert.deepEqual(Object.keys(card).sort(), ['carriers', 'counter', 'id', 'lastCarrier', 'myDeviceId', 'name', 'stopKey']);
+    assert.equal(card.stopKey, STOP);
+    await store.put(record({ id: 'e'.repeat(64), stopKey: undefined }));
+    assert.equal(store.stopCards.read().length, 1, 'a computer without a Stop key has no card');
+    await store.remove(record().id);
+    assert.equal(storage.raw.has(STOP_CARDS_KEY), false, 'removing the computer removes its card');
+  });
+
+  it('with the store unreadable the card still raises the counter, and the store goes above it once it reads again', async () => {
+    const kv = breakableKv();
+    const store = createStore({ kv, stopCards: createStopCards({ storage: memoryStorage() }) });
+    await store.put(record());
+    assert.equal(await store.raiseCounter(record().id, 5), 5);
+    kv.broken = true;
+    await assert.rejects(store.get(record().id), /cannot read/);
+    assert.equal(await store.raiseCounter(record().id, 1), 6, 'the card keeps the rule while the store cannot be read');
+    assert.equal(await store.raiseCounter(record().id, 1), 7);
+    kv.broken = false;
+    assert.equal(await store.raiseCounter(record().id, 1), 8, 'the next handshake goes above the Stop sent from the card');
+    kv.broken = true;
+    await assert.rejects(store.raiseCounter('f'.repeat(64), 1), /cannot read/, 'no card and no store: no counter, so nothing is sent');
+  });
+
+  it('createPlatformStore keeps the cards in localStorage, and a phone paired before the cards gets them at launch', async () => {
+    const storage = memoryStorage();
+    const data = new Map();
+    const plugin = {
+      setItem: async ({ key, value }) => { data.set(key, value); },
+      getItem: async ({ key }) => ({ value: data.has(key) ? data.get(key) : null }),
+      removeItem: async ({ key }) => { data.delete(key); },
+      keys: async () => ({ keys: [...data.keys()] }),
+    };
+    const old = createPlatformStore({ secureStorage: plugin });
+    await old.put(record());
+    assert.equal(old.stopCards, null, 'without localStorage there are no cards');
+    const store = createPlatformStore({ secureStorage: plugin, localStorage: storage });
+    assert.equal(store.stopCards.read().length, 0);
+    await store.syncStopCards();
+    assert.equal(store.stopCards.get(record().id)?.stopKey, STOP);
   });
 });
 
@@ -3528,6 +3632,33 @@ describe('B-130: a lock that cannot be read and a Stop key that cannot be read l
     assert.equal(out.state, 'done');
     assert.equal(k.desktop.stats.stopOnly.length, 1);
   });
+
+  it('with the whole store unreadable, the Stop card sends the Stop, and the counter it used is above the stored one (floor)', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const desktop = createFakeDesktop({ net });
+    const phone = generateKeyPair();
+    desktop.counters.set(deviceId(phone.publicKey), 0);
+    const m = new Map();
+    const storage = { getItem: key => (m.has(key) ? m.get(key) : null), setItem: (key, v) => m.set(key, String(v)), removeItem: key => m.delete(key) };
+    const kv = createIdbKv({ indexedDB: createFakeIndexedDB() });
+    let broken = false;
+    const breakable = { ...kv, kind: kv.kind, get: async key => { if (broken) throw new Error('store unreadable (fake)'); return kv.get(key); } };
+    const store = createStore({ kv: breakable, stopCards: createStopCards({ storage }) });
+    await store.put(recordWithStopKey(desktop, phone));
+    broken = true;
+    const unreadable = { lockOnLaunch: async () => { throw new Error('lock record unreadable'); }, status: async () => { throw new Error('lock record unreadable'); }, lock() {}, protect: async r => r };
+    const shell = createShell({ store, lock: unreadable, createWorker: fakeWorkerFactory({ net, clock, store }), stopClock: createFakeClock(5) });
+    await shell.boot();
+    assert.equal(shell.state().lockStop.ready, true, 'the card makes Stop ready although the store cannot be read');
+    const out = await shell.stop();
+    assert.equal(out.state, 'done');
+    assert.equal(desktop.stats.stopOnly.length, 1, 'one signed Stop reached the computer');
+    const used = createStopCards({ storage }).read()[0].counter;
+    assert.ok(used >= 1, 'the card raised its counter before the Stop went out');
+    broken = false;
+    assert.ok(await store.raiseCounter(recordWithStopKey(desktop, phone).id, 1) > used, 'the next handshake goes above it');
+  });
 });
 
 describe('B-121: a phone the computer does not know is shown the revoked screen, and a UI page hands over to it', () => {
@@ -3705,8 +3836,35 @@ describe('B-124: the relay\'s 4001 (the computer is not connected to it) is asle
     assert.equal(rig.core.phase, 'asleep', 'it stays asleep, it is not offline');
     net.unlisten(RELAY);
     net.listen(RELAY, real[0][1]);
-    await walk(clock, 12_000);
-    assert.equal(rig.core.phase, 'connected');
+    await walk(clock, ASLEEP_RETRY_MS + 2000);
+    assert.equal(rig.core.phase, 'connected', 'the next once-a-minute try connects');
+  });
+
+  it('asleep tries on the quick schedule for three rounds, then once a minute, and Try again tries at once (B-124)', async () => {
+    const net = createFakeNet();
+    const clock = createFakeClock(0);
+    const dials = [];
+    net.listen(RELAY, ws => {
+      dials.push(clock.now());
+      ws.dropFromDesktop(4001, 'host-offline');
+      return { gone() {}, onMessage() {} };
+    });
+    const desktop = createFakeDesktop({ net, url: 'wss://unused.example/b/key', carrier: 'relay' });
+    const phone = generateKeyPair();
+    const rig = coreRig({ net, clock, computer: coreComputer(desktop, phone, { carriers: [{ kind: 'relay', urls: [RELAY] }] }) });
+    rig.init();
+    await settle();
+    await walk(clock, 10_000);
+    assert.equal(rig.core.phase, 'asleep');
+    assert.equal(dials.length, 3, 'tries at 0, 2 and 6 s');
+    assert.equal(ASLEEP_SLOW_AFTER_ROUNDS, 3);
+    const before = dials.length;
+    await walk(clock, 3 * ASLEEP_RETRY_MS);
+    assert.ok(dials.length - before <= 4, `about one try a minute, saw ${dials.length - before} in three minutes`);
+    const beforeTap = dials.length;
+    rig.core.handle({ op: 'reconnect' });
+    await settle();
+    assert.equal(dials.length, beforeTap + 1, 'Try again does not wait for the minute');
   });
 
   it('the LAN refused and the relay at 4001 is asleep too (LAN plus relay is the normal set of ways)', async () => {

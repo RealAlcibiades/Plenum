@@ -1616,9 +1616,62 @@ function publicComputer(record) {
     stopReady: typeof record.stopKey == "string" && /^[A-Za-z0-9_-]{43}$/.test(record.stopKey) && /^[0-9a-f]{64}$/.test(String(record.myDeviceId ?? ""))
   } : null;
 }
-function createStore({ kv } = {}) {
+var STOP_CARDS_KEY = "plenum.stop-cards", STOP_KEY = /^[A-Za-z0-9_-]{43}$/, DEVICE_ID = /^[0-9a-f]{64}$/;
+function cardOf(record, counter = 0) {
+  if (!isObject(record) || typeof record.id != "string" || !record.id || typeof record.stopKey != "string" || !STOP_KEY.test(record.stopKey) || !DEVICE_ID.test(String(record.myDeviceId ?? ""))) return null;
+  let carriers = Array.isArray(record.carriers) ? record.carriers.filter(isObject).map((c) => ({ kind: String(c.kind ?? ""), urls: Array.isArray(c.urls) ? c.urls.filter((u) => typeof u == "string") : [] })) : [];
+  return {
+    id: record.id,
+    name: String(record.name ?? ""),
+    myDeviceId: record.myDeviceId,
+    stopKey: record.stopKey,
+    carriers,
+    lastCarrier: typeof record.lastCarrier == "string" ? record.lastCarrier : null,
+    counter: Math.max(Number.isSafeInteger(record.counter) ? record.counter : 0, counter)
+  };
+}
+function createStopCards({ storage } = {}) {
+  if (!storage || typeof storage.getItem != "function") return null;
+  let read = () => {
+    try {
+      let list = JSON.parse(storage.getItem(STOP_CARDS_KEY) ?? "[]");
+      return Array.isArray(list) ? list.map((c) => cardOf(c)).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }, write = (list) => storage.setItem(STOP_CARDS_KEY, JSON.stringify(list));
+  return {
+    read,
+    get: (id) => read().find((c) => c.id === id) ?? null,
+    counterOf: (id) => read().find((c) => c.id === id)?.counter ?? 0,
+    // Writes a card for each record that holds a Stop key, and drops the cards of computers that are gone. A card's counter never falls.
+    sync(records) {
+      let before = new Map(read().map((c) => [c.id, c.counter])), next = (Array.isArray(records) ? records : []).map((r) => cardOf(r, before.get(r?.id) ?? 0)).filter(Boolean);
+      next.length ? write(next) : storage.removeItem(STOP_CARDS_KEY);
+    },
+    // The counter rule of the store (raiseCounter), on the card alone: used when the store cannot be read.
+    raise(id, minimum) {
+      let list = read(), card = list.find((c) => c.id === id);
+      if (!card) throw new Error("no Stop card for this computer");
+      let next = Math.max(card.counter, Number(minimum) - 1) + 1;
+      if (!Number.isSafeInteger(next)) throw new RangeError("counter out of range");
+      return card.counter = next, write(list), next;
+    },
+    // Keeps a card's counter at least `value` (each counter the store raises is noted here too).
+    note(id, value) {
+      let list = read(), card = list.find((c) => c.id === id);
+      !card || card.counter >= value || (card.counter = value, write(list));
+    }
+  };
+}
+function createStore({ kv, stopCards = null } = {}) {
   if (!kv || typeof kv.get != "function") throw new TypeError("createStore needs a key-value back end");
-  let chain = Promise.resolve(), serial = (fn) => {
+  let syncCards = (list) => {
+    try {
+      stopCards?.sync(list);
+    } catch {
+    }
+  }, chain = Promise.resolve(), serial = (fn) => {
     let run = chain.then(fn, fn);
     return chain = run.catch(() => {
     }), run;
@@ -1638,7 +1691,7 @@ function createStore({ kv } = {}) {
     put: (record) => serial(async () => {
       if (!isObject(record) || typeof record.id != "string" || !record.id) throw new TypeError("a computer record needs an id");
       let all = await readComputers(), next = all.some((c) => c.id === record.id) ? all.map((c) => c.id === record.id ? record : c) : [...all, record];
-      return await kv.put("computers", next), record;
+      return await kv.put("computers", next), syncCards(next), record;
     }),
     // Merges fields into a record. Keys in `fields` replace the record's value; a null value removes the field.
     patchComputer: (id, fields) => serial(async () => {
@@ -1646,22 +1699,44 @@ function createStore({ kv } = {}) {
       if (!found) return null;
       for (let [k, v] of Object.entries(fields ?? {}))
         v === null ? delete found[k] : found[k] = v;
-      return await kv.put("computers", all), publicComputer(found);
+      return await kv.put("computers", all), syncCards(all), publicComputer(found);
     }),
     remove: (id) => serial(async () => {
-      let all = await readComputers();
-      return await kv.put("computers", all.filter((c) => c.id !== id)), !0;
+      let left = (await readComputers()).filter((c) => c.id !== id);
+      return await kv.put("computers", left), syncCards(left), !0;
     }),
     counter: (id) => serial(() => readCounter(id)),
     // Stores a counter of at least `minimum`, never lower than what is stored, and returns the value stored. The handshake only
     // goes out with a value this returns (channel.js answerCounter).
+    // The Stop card's counter counts too: a Stop sent from the card while the store could not be read raised it there, and the next
+    // handshake must go above it. When the store cannot be read at all, the card alone keeps the rule (a Stop without unlocking).
     raiseCounter: (id, minimum) => serial(async () => {
-      let current = await readCounter(id), next = Math.max(current, Number(minimum) - 1) + 1;
+      let current;
+      try {
+        current = await readCounter(id);
+      } catch (err) {
+        if (!stopCards?.get(id)) throw err;
+        return stopCards.raise(id, minimum);
+      }
+      current = Math.max(current, stopCards?.counterOf(id) ?? 0);
+      let next = Math.max(current, Number(minimum) - 1) + 1;
       if (!Number.isSafeInteger(next)) throw new RangeError("counter out of range");
       await kv.put(`ctr:${id}`, next);
-      let all = await readComputers(), found = all.find((c) => c.id === id);
-      return found && (found.counter = next, await kv.put("computers", all)), next;
+      try {
+        stopCards?.note(id, next);
+      } catch {
+      }
+      try {
+        let all = await readComputers(), found = all.find((c) => c.id === id);
+        found && (found.counter = next, await kv.put("computers", all));
+      } catch {
+      }
+      return next;
     }),
+    // The Stop cards (null without Web Storage), for the lock screen when the store cannot be read, and a sync from the store's records
+    // (at launch, so a phone paired before the cards existed gets them).
+    stopCards,
+    syncStopCards: () => serial(async () => syncCards(await readComputers())),
     meta: {
       get: (name) => serial(() => kv.get(`meta:${name}`)),
       put: (name, value) => serial(() => kv.put(`meta:${name}`, value)),
@@ -1671,9 +1746,15 @@ function createStore({ kv } = {}) {
     keys: () => serial(() => kv.keys())
   };
 }
-function createPlatformStore({ secureStorage = null, indexedDB = null } = {}) {
-  if (secureStorage) return createStore({ kv: createSecureKv({ plugin: secureStorage }) });
-  if (indexedDB) return createStore({ kv: createIdbKv({ indexedDB }) });
+function createPlatformStore({ secureStorage = null, indexedDB = null, localStorage: localStorage2 = null } = {}) {
+  let stopCards = null;
+  try {
+    stopCards = createStopCards({ storage: localStorage2 });
+  } catch {
+    stopCards = null;
+  }
+  if (secureStorage) return createStore({ kv: createSecureKv({ plugin: secureStorage }), stopCards });
+  if (indexedDB) return createStore({ kv: createIdbKv({ indexedDB }), stopCards });
   throw new Error("no storage: neither secure storage nor IndexedDB is available");
 }
 
@@ -4441,17 +4522,28 @@ function createShell({
     };
   }
   async function loadComputers() {
-    computers = (await store.publicList()).map((c) => ({ ...c })), await refreshLockStop();
+    try {
+      computers = (await store.publicList()).map((c) => ({ ...c })), store.syncStopCards?.().catch(() => {
+      });
+    } finally {
+      await refreshLockStop();
+    }
   }
   async function lockStopTarget() {
     let id = activeId;
     id || (id = await store.meta.get(ACTIVE_META).catch(() => null));
-    let record = id ? await store.get(id) : null;
-    if (!record) {
-      let list = await store.publicList();
-      list.length === 1 && (record = await store.get(list[0].id));
+    try {
+      let record = id ? await store.get(id) : null;
+      if (!record) {
+        let list = await store.publicList();
+        list.length === 1 && (record = await store.get(list[0].id));
+      }
+      return record ?? null;
+    } catch (err) {
+      let cards = store.stopCards?.read() ?? [], card = (id ? cards.find((c) => c.id === id) : null) ?? (cards.length === 1 ? cards[0] : null);
+      if (card) return card;
+      throw err;
     }
-    return record ?? null;
   }
   async function refreshLockStop() {
     let next = { ready: !1, computerName: "" };
@@ -4484,7 +4576,7 @@ function createShell({
   }
   async function lockedStop(project, computerId = "") {
     if (lockedCtl && (stopView.state === "sending" || stopView.state === "queued") && (!computerId || computerId === lockedFor)) return lockedCtl.press(project);
-    let target = computerId ? await store.get(computerId).catch(() => null) : await lockStopTarget().catch(() => null);
+    let target = computerId ? await store.get(computerId).catch(() => store.stopCards?.get(computerId) ?? null) : await lockStopTarget().catch(() => null);
     if (computerId && !target)
       return say(UNKNOWN_COMPUTER_STOP, "warn"), refresh(), { ...stopView, state: "idle", reason: "unknown-computer" };
     if (!target || publicComputer(target)?.stopReady !== !0)
@@ -5219,7 +5311,13 @@ async function runStart(env, { loadPlugins, devBuild, attach, give }) {
     } catch {
       pluginFailure = !0;
     }
-  let registered = plugins?.secureStorage ?? cap?.Plugins?.SecureStorage ?? null, secureStorage = native || bridge ? pluginFailure || bridge && (!plugins || !registered) ? NO_SECURE_STORAGE : registered : null, store = createPlatformStore({ secureStorage, indexedDB: env.indexedDB ?? null }), biometricPlugin = native ? plugins?.BiometricAuth ?? cap?.Plugins?.BiometricAuth ?? null : null, lock = createLock({
+  let registered = plugins?.secureStorage ?? cap?.Plugins?.SecureStorage ?? null, secureStorage = native || bridge ? pluginFailure || bridge && (!plugins || !registered) ? NO_SECURE_STORAGE : registered : null, localStorage2 = null;
+  try {
+    localStorage2 = env.localStorage ?? null;
+  } catch {
+    localStorage2 = null;
+  }
+  let store = createPlatformStore({ secureStorage, indexedDB: env.indexedDB ?? null, localStorage: localStorage2 }), biometricPlugin = native ? plugins?.BiometricAuth ?? cap?.Plugins?.BiometricAuth ?? null : null, lock = createLock({
     store,
     now: () => Date.now(),
     biometric: createBiometricGate({ plugin: biometricPlugin }),

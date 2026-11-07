@@ -2,7 +2,7 @@
 // Everything here runs in Node on fake caches, fake files and a fake channel. A desktop is simulated by a temp public/ folder that
 // lib/remote/ui-manifest.mjs reads, so the manifest the phone checks is the one the desktop computes.
 // Run through the sealed runner, never from the project folder:
-//   node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id mob-09-shims-ui-manifest-and-loader ui-loader.test.mjs
+//   node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id mob-09-shims-ui-manifest-and-loader ui-loader.test.mjs
 import { after, before, describe, test } from 'node:test';
 import { startSealedServer } from './helpers/sealed-server.mjs';
 import assert from 'node:assert/strict';

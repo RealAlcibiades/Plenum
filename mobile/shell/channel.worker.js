@@ -48,10 +48,11 @@
 //   - The counter is raised and stored BEFORE every handshake; no handshake is sent until the page confirms the store.
 //   - IK for a known computer (one round trip per connect); IKpsk2 only while pairing, with the offer's psk.
 //   - Reconnect after a drop: 1, 2, 4, 8, then 10 s, trying the carrier used last, then the others.
-//   - Three failed rounds: 'offline'. A relay close 4001 host-offline (or a CLOSE frame with that reason): 'asleep'. Revoked, update-app and
-//     update-desktop stop retries.
-//   - Three rounds in which every carrier closes with 4401 (the computer does not know this phone, e.g. removed while it was away):
-//     'not-known', which the screens show as revoked. Retried every 60 s and never given up: the close code is not authenticated.
+//   - Three failed rounds: 'offline'. A relay close 4001 host-offline (or a CLOSE frame with that reason): 'asleep', retried on the same
+//     schedule for three rounds and then every 60 s. Revoked, update-app and update-desktop stop retries.
+//   - Three rounds in which a carrier closes with 4401 and the others close with 4401 too or cannot be reached (the computer does not
+//     know this phone, e.g. removed while it was away): 'not-known', which the screens show as revoked. Retried every 60 s and never
+//     given up: the close code is not authenticated.
 //   - STOP: the same 16-byte id is sent until its STOP_ACK arrives, on every reconnect, for 60 s at most.
 //   - A session renews after 1 h or 2^20 messages, whether or not streams are open: a new IK handshake carries new requests at
 //     once, and the old socket keeps the streams it has for up to 60 s (RENEW_DRAIN_MS), then closes.
@@ -79,6 +80,10 @@ export const RENEW_CHECK_MS = 60000;
 export const RENEW_DRAIN_MS = 60000;
 export const NOT_KNOWN_ROUNDS = 3;
 export const NOT_KNOWN_RETRY_MS = 60000;
+// Asleep keeps the quick schedule for its first rounds (a computer that is restarting Plenum is back within seconds), then tries once a
+// minute: about 1,440 relay upgrades a day per phone instead of 8,640 (B-124). Try again on the screen still tries at once.
+export const ASLEEP_SLOW_AFTER_ROUNDS = 3;
+export const ASLEEP_RETRY_MS = 60000;
 export const PING_INTERVAL_MS = 25000;
 export const PING_MISSES = 2;
 export const PROBE_MS = 3000;   // a session that is up is probed with a PING when the app resumes or a Stop is pressed; no PONG in this time closes it
@@ -289,7 +294,7 @@ export function createChannelCore(options = {}) {
   const rids = new Map();
   const pendingStops = new Map();
   const draining = new Set();   // sessions renewed away whose open streams are still running
-  let unknownRounds = 0;        // consecutive rounds in which every carrier closed with 4401
+  let unknownRounds = 0;        // consecutive rounds that ended with a 4401 and no other coded answer (see attempt)
 
   const transition = next => {
     if (next !== phase) {
@@ -580,7 +585,8 @@ export function createChannelCore(options = {}) {
     if (closedByPage || !computer || TERMINAL.includes(phase)) return;
     clearRetry();
     const slow = phase === 'not-known';
-    const delay = slow ? NOT_KNOWN_RETRY_MS : (DELAYS_MS[failedRounds] ?? RETRY_CAP_MS);
+    const sleepy = phase === 'asleep' && failedRounds >= ASLEEP_SLOW_AFTER_ROUNDS;
+    const delay = slow ? NOT_KNOWN_RETRY_MS : sleepy ? ASLEEP_RETRY_MS : (DELAYS_MS[failedRounds] ?? RETRY_CAP_MS);
     nextRetryAt = clock.now() + delay;
     if (phase !== 'asleep' && !slow) transition(failedRounds >= OFFLINE_ROUNDS ? 'offline' : 'reconnecting');
     retryTimer = clock.setTimeout(() => {
@@ -637,8 +643,11 @@ export function createChannelCore(options = {}) {
           reasons.push(lastFailure);
         }
       }
-      // Every carrier answered 4401 in this round: the computer does not know this phone (removed while the phone was away).
-      unknownRounds = reasons.length > 0 && reasons.every(r => r === 'unknown') ? unknownRounds + 1 : 0;
+      // A carrier answered 4401 in this round and none said anything else coded: the computer does not know this phone (removed while
+      // the phone was away). A carrier that only could not be reached (the LAN away from home, Tailscale not running) does not hide
+      // the 4401 of another (B-121), but a host-offline, replay or rate answer does, since the computer may still know the phone.
+      const notKnown = reasons.includes('unknown') && reasons.every(r => r === 'unknown' || !CODED_FAILURES.includes(r));
+      unknownRounds = notKnown ? unknownRounds + 1 : 0;
       failedRounds += 1;
       // includes, not every: LAN plus relay is the normal set of ways, and the LAN refusal must not hide the relay's host-offline.
       if (unknownRounds >= NOT_KNOWN_ROUNDS) transition('not-known');

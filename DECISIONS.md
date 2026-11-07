@@ -87,7 +87,7 @@ Sources checked for items 1 to 11 (an earlier round):
 
 ## 8. The CLIs sign in through their own login in a terminal window
 
-**Decision.** Accounts opens a terminal that runs `claude auth login`, `muse login` or `codex login`. Gemini opens its own CLI for the Google sign-in. Plenum does not store or copy those sign-ins; it only checks whether one exists. Each CLI's child process drops the per-token provider keys (xAI, OpenAI, DeepSeek, Mistral, Google AI, OpenRouter, the Gemini and Google API key variables, and the Cursor and Grok Build keys CURSOR_API_KEY and GROK_CODE_XAI_API_KEY) and the Anthropic and Claude settings (`ANTHROPIC_`, `CLAUDE_`, `CLAUDECODE`). Codex and Muse Code also drop every `OPENAI_` variable. The shell drops the provider keys, `ANTHROPIC_` and `CLAUDE_CODE_`. Each CLI therefore uses its subscription login.
+**Decision.** Accounts opens a terminal that runs `claude auth login`, `muse login` or `codex login`. Gemini opens its own CLI for the Google sign-in. Plenum does not store or copy those sign-ins; it only checks whether one exists. Each CLI's child process drops the per-token provider keys (xAI, OpenAI, DeepSeek, Mistral, Google AI, OpenRouter, the Gemini and Google API key variables, and the Cursor and Grok Build keys CURSOR_API_KEY and GROK_CODE_XAI_API_KEY) and the Anthropic and Claude settings (`ANTHROPIC_`, `CLAUDE_`, `CLAUDECODE`). Codex and Muse Code also drop every `OPENAI_` variable. The shell drops the provider keys, `ANTHROPIC_` and `CLAUDE_CODE_`. Each CLI therefore uses its subscription login. The exception is a key route chosen in Accounts (`keyRoutesFrom` in `lib/proc.mjs`): Gemini CLI gets the saved Google AI key by default (item 10), and Codex gets the saved OpenAI API key only when its route is turned on. The key is added to that one run's environment after `childEnv` has removed every key, and `withoutKey` takes it out of what the CLI prints.
 
 **Reason.** The CLI owns its credentials. A key left in a child's environment would bill per token instead of the subscription.
 
@@ -108,6 +108,8 @@ Sources checked for items 1 to 11 (an earlier round):
 ## 10. Gemini uses its own sign-in, and no provider key reaches it
 
 **Decision.** Gemini runs through the Gemini CLI, signed in with a Google account. The Gemini child's environment drops the per-token provider keys (`XAI_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `GOOGLE_AI_API_KEY`, `OPENROUTER_API_KEY`), `GEMINI_API_KEY`, `GOOGLE_API_KEY`, and the settings that switch Gemini to a key, Vertex AI or Code Assist (`GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_GENAI_USE_GCA`).
+
+**Amended (6 Nov 2026, owner decision on C-29).** The Gemini key route is the one exception, and it stays on by default. When a Google AI key is saved and **Use my Google AI key with Gemini CLI** is on, the Gemini child gets that key as `GEMINI_API_KEY` and nothing else; requests are billed per token. Google's terms allow Gemini CLI through an API key but restrict its account sign-in from other apps (amendment 26), so the key is the default and the sign-in is the choice. Accounts says which route a run takes. `withoutKey` replaces the key in every piece the CLI prints, its failure text included. With the route off, or no key saved, the rule above holds unchanged.
 
 **Reason.** A key would bill per token and bypass the signed-in account.
 
@@ -827,13 +829,13 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 ## 78. Phone notifications act on their own computer, and the relay link is paced under its limit
 
-**Decision.** Stop all, Deny and Approve in a notification carry the sending computer's id (the sha256 of its static key, 64 hex) and act on that computer, whichever one is open. An unknown id is refused; an older computer's short id acts on the open one. A relay session paces non-priority frames to 1.5 MiB/s (burst 128 KiB), under the relay's 2 MiB/s per-phone cap; STOP, PING, PONG and CANCEL are never held. Resuming or pressing Stop probes a live session with a PING (3 s). HELLO carriers are kept in the record, so a way turned on after pairing is used at the next connection. The Ways dial tries the way it last connected first, then the others in order. Web Push is one subscription per address: a second computer behind the same address is told "on for another computer", and nothing is replaced. A relay close 4001 shows "asleep", and asleep uses the same back-off schedule as the other phases.
+**Decision.** Stop all, Deny and Approve in a notification carry the sending computer's id (the sha256 of its static key, 64 hex) and act on that computer, whichever one is open. An unknown id is refused; an older computer's short id acts on the open one. A relay session paces non-priority frames to 1.5 MiB/s (burst 128 KiB), under the relay's 2 MiB/s per-phone cap; STOP, PING, PONG and CANCEL are never held. Resuming or pressing Stop probes a live session with a PING (3 s). HELLO carriers are kept in the record, so a way turned on after pairing is used at the next connection. The Ways dial tries the way it last connected first, then the others in order. Web Push is one subscription per address: a second computer behind the same address is told "on for another computer", and nothing is replaced. A relay close 4001 shows "asleep", and asleep keeps the other phases' schedule for three rounds, then retries once a minute (item 80).
 
 **Reason.** A notification must act on the computer that sent it. The relay disconnects a phone that uploads faster than 2 MiB a second, so uploads are paced below that rate; Stop is never held back.
 
 **Source.** `mobile/shell/sw.js`, `mobile/shell/app.js`, `mobile/shell/channel.worker.js`, `mobile/shell/push.js`, `mobile/shell/screens/copy.js`, `lib/remote/frames.mjs`, `relay/README.md`.
 
-**Status.** Built in the phone fix round. Open: a slower 60 s back-off for asleep (the same schedule is used for now), and the Ways dial order stays last-used-first. Also open for the owner: when a phone's Stop key cannot be read, its lock screen says so and points to the computer's Stop. That case does not meet "Stop always works" in the MOBILE.json floor. The owner has not accepted it, and the floor is unchanged.
+**Status.** Built in the phone fix round. The Ways dial order stays last-used-first. Settled by item 80: asleep slows to once a minute after three rounds, and a phone whose store cannot be read sends Stop from its Stop card, so the floor holds.
 
 ## 79. The number guard reads a card number typed in pieces
 
@@ -844,6 +846,29 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 **Source.** `lib/computer/run.mjs` (`TYPED_TAIL`, `gateTyping`).
 
 **Status.** Built after the 0.6 fix round. The number guard is still a setting; with it off nothing here runs.
+
+## 80. The owner's decisions on the 0.6 bug-hunt questions
+
+**Decision.** Made on 6 Nov 2026, when the owner left each open question to the coordinator's judgement:
+- **Phone Stop when the store cannot be read (item 78).** The floor stays as written, and the gap is closed. Each phone keeps a Stop card per computer in Web Storage, apart from its store: the Stop key, this phone's id, the computer's name, ways and counter. When the store cannot be read, the lock screen's Stop and a notification's Stop use the card. The card raises its own counter before the Stop goes out, and the store's next raise goes above it. Only a phone with no Web Storage at all is left with the message that points to the computer's Stop.
+- **Gemini key route (C-29).** It stays on by default (item 10, amended). Google's terms restrict the Gemini CLI account sign-in from other apps, so the key is the default.
+- **http links (B-113).** A plain http link from the app window, or the Browser pane's Open outside on an http page, opens in the system browser. The first one in a session shows a notice that it is not encrypted. Every other scheme is still denied. The legal texts still link only to https pages.
+- **Linux pairing QR (B-112).** The code stays hidden on Linux, and the pairing window offers **Show the code anyway**. Once shown, a note says screen capture can read the code until it is used or expires. Pairing still needs Allow on the computer. The same button appears wherever the capture check saw the window.
+- **Auto relay off (B-10).** It is enforced by the window only, as the wording says. The API stays open, so scripts and the phone can start a route.
+- **Test notification with phones off (B-25).** The Bridge starts for the test and stops again.
+- **"Use in Plenum" and the model menu with a project model (B-98).** On Main of a project with its own model, both change the project's model (`POST /api/project-model`), and the menu shows that model. Elsewhere they change the thread's model, or the app's.
+- **Missing panels (B-95).** An unreadable panel list is asked for again after 3, 6, 12, 24 and 48 s. After that a notice says some panels did not load.
+- **Secure Keyboard Entry on macOS (B-114).** This waits for a Mac to test on. Typing is refused while it is on anywhere, and the run says why.
+- **Asleep back-off (B-124).** The first three rounds follow the normal schedule, then retries come once a minute. Try again still tries at once.
+- **Removed phones (B-121).** A round with a 4401 counts toward not-known when the other ways only failed to connect. A host-offline, replay or rate answer from another way keeps it from counting.
+- **Docs.** PRIVACY's chat line says each chat keeps 300 messages. The release check scans `relay/LICENSE-RELAY.txt` for placeholders. The unused `relay/test/support/relay.mjs` is deleted.
+- **Not done:** the licensor name stays `[LICENSOR NAME]` until the owner supplies it (item 28). The old installers stay in the Recycle Bin. The supervised real computer-use run waits for the owner to be present.
+
+**Reason.** Each choice keeps the feature fully capable and the floor whole. Where there is a risk, the person is told and decides.
+
+**Source.** `mobile/shell/store.js` (`createStopCards`), `mobile/shell/app.js` (`lockStopTarget`), `mobile/shell/channel.worker.js` (`ASLEEP_RETRY_MS`, `attempt`), `desktop/main.cjs`, `desktop/handlers/phones.cjs` and `desktop/phones-pair.js` (`show-code`), `public/app.js` (`setThreadModel`, `modelInUse`), `lib/routes/projects.mjs` (`/api/project-model`), `public/ext.js` (`RETRY_MS`), `scripts/build-legal.mjs`, `legal/PRIVACY.md`.
+
+**Status.** Built on 6 Nov 2026 with tests.
 
 ## Open items
 

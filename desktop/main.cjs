@@ -464,9 +464,10 @@ function createWindow() {
     win.setTitleBarOverlay?.(windowButtons(isDark(color) ? CHROME.dark : CHROME.light));
     win.setBackgroundColor(color);
   });
-  // Links that open a new window go to the browser; the app itself stays in this window.
+  // Links that open a new window go to the browser; the app itself stays in this window. Plain http links go too (B-113: a model's
+  // http://localhost:3000 must open); the page says once that such a link is not encrypted. Every other scheme is denied.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//.test(url)) electronShell.openExternal(url);
+    if (/^https?:\/\//.test(url)) electronShell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event, url) => {

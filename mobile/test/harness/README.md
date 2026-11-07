@@ -8,7 +8,7 @@ anywhere else, and it refuses unless `MOBILE_SEALED=1`.
 
 ## Run it
 
-    node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id mob-18-phone-size-harness regression.test.mjs
+    node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id mob-18-phone-size-harness regression.test.mjs
 
 The regression takes about 10 s here. Screenshots go to `C:/t/mob/` (short paths; Windows path limits otherwise).
 Read them back with the Read tool. Set `MOB18_TRACE=1` to append timed steps to `C:/t/mob/mob18-trace.log` when a run hangs.
@@ -74,7 +74,7 @@ Three environment variables, three jobs. Do not reuse one for another:
 
 Split a long run so each call ends within the 10-minute Bash limit:
 
-    MOB11_PART=p1 MOB11_ONLY=360x780 node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id g4 --timeout 540000 ui-phone.test.mjs
+    MOB11_PART=p1 MOB11_ONLY=360x780 node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id g4 --timeout 540000 ui-phone.test.mjs
 
 ## Own app folder (M3)
 

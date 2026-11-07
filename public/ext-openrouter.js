@@ -9,6 +9,8 @@
   const MuseUI = window.MuseUI;
   // app.js defines MuseUI before the extra panels load. Without it there is nothing to attach to.
   if (!MuseUI) return;
+  // The model the chat on screen runs: the thread's, the project's own, or the app's (B-98).
+  const inUse = () => (MuseUI.modelInUse ? MuseUI.modelInUse() : (MuseUI.threads?.info?.()?.model || MuseUI.state.model));
 
   const SECTION = 'ext-openrouter';
   // The Settings section: its id, its title and where it sorts. The keys section (ext-accounts-api) is order 20 and the tool test is
@@ -114,7 +116,7 @@
     let busy = false;
 
     const paintPill = () => {
-      const on = String(MuseUI.threads?.info?.()?.model || MuseUI.state.model || '').startsWith(PREFIX);
+      const on = String(inUse() || '').startsWith(PREFIX);
       pill.textContent = on ? 'In use' : 'Not in use';
       pill.className = on ? 'pill ok' : 'pill';
     };
@@ -235,7 +237,7 @@
   // and redraws the project list on every render too, so a change to either one means the value was just set. The menu is
   // also filled once the catalog has loaded, which is the other change watched. It is checked now as well, in case a render
   // ran before this file did. Nothing is added to the menu before it is filled, because app.js fills it only while it is empty.
-  const syncModel = () => showModel(MuseUI.threads?.info?.()?.model || MuseUI.state.model);
+  const syncModel = () => showModel(inUse());
   for (const node of [MuseUI.el.model, MuseUI.el.projects]) {
     if (node) new MutationObserver(syncModel).observe(node, { childList: true });
   }

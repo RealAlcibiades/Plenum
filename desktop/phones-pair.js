@@ -111,8 +111,13 @@
     );
     body.append(strip);
 
-    if (offer.captureVisible) {
-      body.append(el('div', 'qr-hidden', 'Screen capture can see this window on this computer, so the code is hidden. Use Copy link and open the link on your phone.'));
+    if (offer.captureVisible && !offer.qrPng) {
+      // Show the code anyway (B-112): on Linux, and wherever the capture check saw this window, the code waits for the person's choice.
+      const hidden = el('div', 'qr-hidden', 'Screen capture can see this window on this computer, so the code is hidden. Use Copy link and open the link on your phone, or show the code anyway.');
+      const show = button('Show the code anyway', 'show-code');
+      show.classList.add('show-code');
+      hidden.append(show);
+      body.append(hidden);
     } else if (offer.qrPng) {
       const frame = el('div', 'qr-frame');
       const image = document.createElement('img');
@@ -121,6 +126,9 @@
       image.src = offer.qrPng;
       frame.append(image);
       body.append(frame);
+      if (offer.captureVisible) {
+        body.append(el('p', 'warn', 'Screen capture can see this window, so a screenshot or screen-sharing program running now could read this code until it is used or expires. A phone that has it still needs your Allow here.'));
+      }
     } else {
       body.append(el('div', 'qr-hidden', 'The code is not ready. Try a new code.'));
     }

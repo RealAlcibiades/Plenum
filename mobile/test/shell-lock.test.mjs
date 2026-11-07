@@ -1,6 +1,6 @@
 // The phone's lock, store and pairing parser (mob-10, phone security fix round, G3: S8, S9, SL4, SL5, SL7c). Node only, no browser.
 // The store runs over a Map that keeps values as they are (kind 'web', so the device-key path runs). Run through the sealed runner:
-//   node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id sec-g3 shell-lock.test.mjs
+//   node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id sec-g3 shell-lock.test.mjs
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';

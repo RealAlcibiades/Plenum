@@ -448,8 +448,10 @@ describe('the phone routes on plain node', () => {
     assert.ok(activity.some(x => x.text === 'cancelled a run'));
     assert.ok(activity.some(x => x.text === 'stopped everything'));
     for (const entry of activity) assert.deepEqual(Object.keys(entry).sort(), ['at', 'device', 'text']);
-    const saved = JSON.parse(readFileSync(path.join(server.home, 'state.json'), 'utf8')).phones.activity;
-    assert.ok(saved.length >= 2, 'kept in state.json');
+    // The state file is written a moment after the activity is in memory, so it is read until both lines are there.
+    const savedActivity = () => { try { return JSON.parse(readFileSync(path.join(server.home, 'state.json'), 'utf8')).phones?.activity ?? []; } catch { return []; } };
+    await until(async () => savedActivity().length >= 2, 'the activity kept in state.json');
+    assert.ok(savedActivity().length >= 2, 'kept in state.json');
     await server.post('/api/phones/remove-all', {});
   });
 

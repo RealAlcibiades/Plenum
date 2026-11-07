@@ -4,7 +4,7 @@
 // (scripts/build-mobile.mjs, which emits screens.js) into a private app folder of this copy, serves its mobile/www on 127.0.0.1 and draws every screen in the phone-size
 // harness (mobile/test/harness, one hidden Electron window) at 390 x 844 and 360 x 780, light and dark, with the 16.1 safe areas.
 // Screenshots go to C:/t/mob/ (mob10-<screen>-<width>-<theme>.png). Run it through the sealed runner:
-//   node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id mob-10-shell-screens-part-1 shell-screens.test.mjs
+//   node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id mob-10-shell-screens-part-1 shell-screens.test.mjs
 
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';

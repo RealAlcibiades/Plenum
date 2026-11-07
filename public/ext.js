@@ -1,7 +1,8 @@
 // Loads the extra panels after the main page script. Each panel adds itself through window.MuseUI.
 // The panels in KNOWN load first, in this order, as soon as the server's list has been asked for once. Any other ext-*.js panel the
-// server lists (GET /api/ext-modules) loads after them, sorted by name. If that list cannot be read, it is asked for once more after
-// 3 seconds; only the extra panels wait for that.
+// server lists (GET /api/ext-modules) loads after them, sorted by name. If that list cannot be read, it is asked for again after 3, 6,
+// 12, 24 and 48 seconds (B-95: the approvals, computer, browser and phone panels are extras, so one bad moment must not leave them out);
+// only the extra panels wait for that. When every try fails, a notice says so and points to a reload.
 (function () {
   // Keep this order: the panels were written to load in it. ext-legal and ext-notices come first: the agreement card must be
   // ready before any panel asks the server for anything, and the notice registry must exist before a panel calls MuseUI.risk.
@@ -41,18 +42,27 @@
   }
 
   const extrasOf = names => names.filter(name => !KNOWN.includes(name)).sort();
-  // The KNOWN panels load when the first answer is in, whatever it is. The extra panels load from that answer, or, when the first
-  // answer could not be read, from the second one (asked for 3 seconds later).
+  const RETRY_MS = [3000, 6000, 12000, 24000, 48000];
+  // Asks again after each wait in RETRY_MS until an answer can be read, then loads the extra panels from it.
+  function retry(attempt) {
+    if (attempt >= RETRY_MS.length) {
+      window.MuseUI?.toast?.('Some panels did not load, because the list of panels could not be read. Reload the window to try again.', 'bad');
+      return;
+    }
+    setTimeout(() => {
+      discovered().then(again => {
+        if (again === null) return retry(attempt + 1);
+        for (const name of extrasOf(again)) load(name);
+      });
+    }, RETRY_MS[attempt]);
+  }
+  // The KNOWN panels load when the first answer is in, whatever it is. The extra panels load from the first answer that can be read.
   discovered().then(first => {
     for (const name of KNOWN) load(name);
     if (first !== null) {
       for (const name of extrasOf(first)) load(name);
       return;
     }
-    setTimeout(() => {
-      discovered().then(again => {
-        for (const name of extrasOf(again ?? [])) load(name);
-      });
-    }, 3000);
+    retry(0);
   });
 })();

@@ -933,6 +933,38 @@ describe('the capture check', () => {
     fe.ipcMain.emit('phones-pair:answer', { sender: win.webContents }, 'copy');
     assert.deepEqual(shell.tells, [{ type: 'phones-pair-answer', offer: 'OFFER-ID-000001', action: 'copy' }]);
   });
+
+  test('Show the code anyway puts the hidden code up for that window, the next code too, and tells the server nothing (B-112)', async () => {
+    FakeWindow.all.length = 0;
+    const { phones, fe } = handlerWith({ sampleMarker: fixedSampler(false), platform: 'linux' });
+    const shell = fakeShell(freshFolder('linux-show'));
+    await phones.messages['phones-pair-show'](offerMessage(), shell);
+    const win = FakeWindow.all[0];
+    win.webContents.emit('did-finish-load');
+    await sleep(10);
+    assert.equal(win.webContents.last.qrPng, '');
+    assert.equal(win.webContents.last.showAnyway, false);
+    fe.ipcMain.emit('phones-pair:answer', { sender: { other: true } }, 'show-code');
+    assert.equal(win.webContents.last.qrPng, '', 'another window cannot ask for the code');
+    fe.ipcMain.emit('phones-pair:answer', { sender: win.webContents }, 'show-code');
+    assert.ok(win.webContents.last.qrPng.startsWith('data:image/png'), 'the code is up');
+    assert.equal(win.webContents.last.captureVisible, true, 'the window still says capture can see it');
+    assert.equal(win.webContents.last.showAnyway, true);
+    await phones.messages['phones-pair-show'](offerMessage({ id: 'show-10', offer: 'OFFER-ID-000002' }), shell);
+    assert.ok(win.webContents.last.qrPng.startsWith('data:image/png'), 'a new code in the same window is shown too');
+    assert.deepEqual(shell.tells, [], 'the server is told nothing');
+  });
+
+  test('Show the code anyway is ignored while the code is not hidden, or when there is no code to show', async () => {
+    FakeWindow.all.length = 0;
+    const { phones, fe } = handlerWith({ sampleMarker: fixedSampler(false) });
+    await phones.messages['phones-pair-show'](offerMessage(), fakeShell(freshFolder('show-ignored')));
+    const win = FakeWindow.all[0];
+    win.webContents.emit('did-finish-load');
+    await sleep(10);
+    fe.ipcMain.emit('phones-pair:answer', { sender: win.webContents }, 'show-code');
+    assert.equal(win.webContents.last.showAnyway, false, 'nothing to show anyway when capture cannot see the window');
+  });
 });
 
 describe('the other messages', () => {

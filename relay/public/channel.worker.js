@@ -2682,7 +2682,7 @@ function usableCarriers(carriers) {
 }
 
 // mobile/shell/channel.worker.js
-var PROTOCOL = "1.0", DELAYS_MS = Object.freeze([1e3, 2e3, 4e3, 8e3]), RETRY_CAP_MS = 1e4, OFFLINE_ROUNDS = 3, CONNECT_TIMEOUT_MS = 6e3, HANDSHAKE_TIMEOUT_MS = 6e3, COUNTER_TIMEOUT_MS = 1e4, STOP_WINDOW_MS = 6e4, STOP_RESEND_MS = 8e3, RENEW_AFTER_MS = 36e5, RENEW_AFTER_MESSAGES = 1048576, RENEW_CHECK_MS = 6e4, RENEW_DRAIN_MS = 6e4, NOT_KNOWN_ROUNDS = 3, NOT_KNOWN_RETRY_MS = 6e4, PING_INTERVAL_MS2 = 25e3, PING_MISSES = 2, PROBE_MS = 3e3, DEFAULT_CAPS = Object.freeze(["ui-from-desktop", "artifacts-iframe", "push-none", "share", "save"]), CARRIERS2 = Object.freeze(["lan", "tailscale", "relay"]), STOP_ONLY_WAIT_MS = 6e3, MAX_SOCKET_MESSAGE = 65599, PAGE_HEADERS = Object.freeze(["accept", "content-type", "x-plenum-client-id"]), SHELL_HEADERS = Object.freeze([...PAGE_HEADERS, "x-plenum-notify-line"]), SHELL_BRIDGE_PATHS = Object.freeze(["/_bridge/log", "/_bridge/ui-manifest"]), TERMINAL = Object.freeze(["revoked", "update-app", "update-desktop", "closed"]), utf82 = new TextEncoder(), utf8Decode = new TextDecoder();
+var PROTOCOL = "1.0", DELAYS_MS = Object.freeze([1e3, 2e3, 4e3, 8e3]), RETRY_CAP_MS = 1e4, OFFLINE_ROUNDS = 3, CONNECT_TIMEOUT_MS = 6e3, HANDSHAKE_TIMEOUT_MS = 6e3, COUNTER_TIMEOUT_MS = 1e4, STOP_WINDOW_MS = 6e4, STOP_RESEND_MS = 8e3, RENEW_AFTER_MS = 36e5, RENEW_AFTER_MESSAGES = 1048576, RENEW_CHECK_MS = 6e4, RENEW_DRAIN_MS = 6e4, NOT_KNOWN_ROUNDS = 3, NOT_KNOWN_RETRY_MS = 6e4, ASLEEP_SLOW_AFTER_ROUNDS = 3, ASLEEP_RETRY_MS = 6e4, PING_INTERVAL_MS2 = 25e3, PING_MISSES = 2, PROBE_MS = 3e3, DEFAULT_CAPS = Object.freeze(["ui-from-desktop", "artifacts-iframe", "push-none", "share", "save"]), CARRIERS2 = Object.freeze(["lan", "tailscale", "relay"]), STOP_ONLY_WAIT_MS = 6e3, MAX_SOCKET_MESSAGE = 65599, PAGE_HEADERS = Object.freeze(["accept", "content-type", "x-plenum-client-id"]), SHELL_HEADERS = Object.freeze([...PAGE_HEADERS, "x-plenum-notify-line"]), SHELL_BRIDGE_PATHS = Object.freeze(["/_bridge/log", "/_bridge/ui-manifest"]), TERMINAL = Object.freeze(["revoked", "update-app", "update-desktop", "closed"]), utf82 = new TextEncoder(), utf8Decode = new TextDecoder();
 function b64uToBytes(text) {
   let s = String(text).replace(/-/g, "+").replace(/_/g, "/"), bin = atob(s + "=".repeat((4 - s.length % 4) % 4)), out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -3030,7 +3030,7 @@ function createChannelCore(options = {}) {
   function scheduleRetry() {
     if (closedByPage || !computer || TERMINAL.includes(phase)) return;
     clearRetry();
-    let slow = phase === "not-known", delay = slow ? NOT_KNOWN_RETRY_MS : DELAYS_MS[failedRounds] ?? RETRY_CAP_MS;
+    let slow = phase === "not-known", sleepy = phase === "asleep" && failedRounds >= ASLEEP_SLOW_AFTER_ROUNDS, delay = slow ? NOT_KNOWN_RETRY_MS : sleepy ? ASLEEP_RETRY_MS : DELAYS_MS[failedRounds] ?? RETRY_CAP_MS;
     nextRetryAt = clock.now() + delay, phase !== "asleep" && !slow && transition(failedRounds >= OFFLINE_ROUNDS ? "offline" : "reconnecting"), retryTimer = clock.setTimeout(() => {
       retryTimer = null, nextRetryAt = null, attempt().catch(() => {
       });
@@ -3074,7 +3074,7 @@ function createChannelCore(options = {}) {
             lastFailure = failureName(err), reasons.push(lastFailure);
           }
         }
-        unknownRounds = reasons.length > 0 && reasons.every((r) => r === "unknown") ? unknownRounds + 1 : 0, failedRounds += 1, unknownRounds >= NOT_KNOWN_ROUNDS ? transition("not-known") : reasons.includes("host-offline") ? transition("asleep") : (phase === "not-known" || phase === "asleep") && transition("reconnecting"), scheduleRetry();
+        unknownRounds = reasons.includes("unknown") && reasons.every((r) => r === "unknown" || !CODED_FAILURES.includes(r)) ? unknownRounds + 1 : 0, failedRounds += 1, unknownRounds >= NOT_KNOWN_ROUNDS ? transition("not-known") : reasons.includes("host-offline") ? transition("asleep") : (phase === "not-known" || phase === "asleep") && transition("reconnecting"), scheduleRetry();
       } finally {
         attempting = !1;
       }
@@ -3451,6 +3451,8 @@ if (inWorker) {
   self.onmessage = (event) => core.handle(event.data);
 }
 export {
+  ASLEEP_RETRY_MS,
+  ASLEEP_SLOW_AFTER_ROUNDS,
   CONNECT_TIMEOUT_MS,
   COUNTER_TIMEOUT_MS,
   DEFAULT_CAPS,

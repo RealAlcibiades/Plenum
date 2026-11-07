@@ -144,6 +144,11 @@ html, body {
   text-align: center;
 }
 
+.qr-hidden .show-code {
+  display: block;
+  margin: 10px auto 0;
+}
+
 .lede {
   color: var(--text-2);
   font-size: 13px;

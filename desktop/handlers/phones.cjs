@@ -43,7 +43,7 @@ const SERVER_STATES = ['offer', 'confirm', 'allowed', 'denied', 'expired', 'fail
 const QR_KINDS = ['tailscale', 'lan', 'relay', 'native'];
 const TIERS = ['full', 'approve', 'read'];
 const DEVICE_APPS = ['pwa', 'android', 'ios', 'lan-web'];
-const ANSWERS = ['allow', 'deny', 'copy', 'new-code', 'cancel', 'done'];
+const ANSWERS = ['allow', 'deny', 'copy', 'new-code', 'cancel', 'done', 'show-code'];
 // States in which the offer is still open on the server, so closing the window must cancel it.
 const LIVE_STATES = ['offer', 'confirm'];
 const PAIR_SIZE = { width: 420, height: 640 };
@@ -507,6 +507,7 @@ function createPhones(options = {}) {
       tier: p.tier,
       qrPng: p.qrPng,
       captureVisible: p.captureVisible,
+      showAnyway: p.showAnyway,
       copied: p.copied,
     });
   }
@@ -540,6 +541,16 @@ function createPhones(options = {}) {
       if (p.serverState === 'offer') tellServer(p, 'copy');
       return undefined;
     }
+    // Show the code anyway (B-112): the person's choice, for this window, to see a code that screen capture can read. The window says so
+    // next to the code. Pairing still needs Allow on this computer.
+    if (action === 'show-code') {
+      if (p.shown !== 'offer' || !p.captureVisible || !p.qrDrawn || p.showAnyway) return undefined;
+      p.showAnyway = true;
+      p.qrPng = p.qrDrawn;
+      p.shell?.log?.('the code is shown although screen capture can see the pairing window (the person chose Show the code anyway)');
+      pushPayload(p);
+      return undefined;
+    }
     if (action === 'allow' || action === 'deny') {
       // One answer per offer: the second click on Allow or Deny is ignored until the server answers.
       if (p.serverState !== 'confirm' || p.pending) return undefined;
@@ -566,7 +577,7 @@ function createPhones(options = {}) {
       if (pair !== p || p.win.isDestroyed()) return;
       if (visible === true && !p.captureVisible) {
         p.captureVisible = true;
-        p.qrPng = '';
+        if (!p.showAnyway) p.qrPng = '';
         p.shell?.log?.('the pairing window is visible to screen capture; the code is hidden');
         pushPayload(p);
       }
@@ -645,7 +656,10 @@ function createPhones(options = {}) {
       qrKind: 'native',
       tier: 'full',
       qrPng: '',
+      // The last code drawn, kept so Show the code anyway can put it up without drawing it again.
+      qrDrawn: '',
       captureVisible: false,
+      showAnyway: false,
       copied: false,
       checked: false,
       pending: '',
@@ -653,7 +667,7 @@ function createPhones(options = {}) {
     };
     pair = p;
     // Electron keeps a window out of screen capture only on macOS and Windows (setContentProtection), so on Linux the code is hidden
-    // from the start, and no screen grab is made there (B-112). Copy link still pairs.
+    // from the start, and no screen grab is made there (B-112). Copy link still pairs, and Show the code anyway puts the code up.
     if (platform === 'linux') p.captureVisible = true;
     lockDown(api, win);
     try {
@@ -720,7 +734,8 @@ function createPhones(options = {}) {
     p.left = offer.left;
     p.qrKind = offer.qrKind;
     p.tier = offer.tier;
-    p.qrPng = shown === 'offer' && !p.captureVisible ? qrPng : '';
+    p.qrDrawn = shown === 'offer' ? qrPng : '';
+    p.qrPng = shown === 'offer' && (!p.captureVisible || p.showAnyway) ? qrPng : '';
     p.copied = false;
     p.pending = '';
     p.seq += 1;

@@ -110,8 +110,84 @@ export function publicComputer(record) {
   };
 }
 
-export function createStore({ kv } = {}) {
+// ----- the Stop cards -----
+
+// A second copy of what Stop without unlocking needs, one card per computer: { id, name, myDeviceId, stopKey, carriers, lastCarrier,
+// counter }. It lives in Web Storage (localStorage), apart from the store, so a store that cannot be read (a damaged entry, a Keystore or
+// IndexedDB failure) still leaves the lock screen a Stop (MOBILE.json floor: Stop from the phone always works). The Stop key is the one key
+// kept outside secure storage: all it can do is stop runs and deny the cards they wait on (lib/remote/stop-only.mjs), and a script that runs
+// in the shell could press Stop through the app anyway. myPriv, the psk and the push key never go here. `storage` is a Web Storage object.
+export const STOP_CARDS_KEY = 'plenum.stop-cards';
+const STOP_KEY = /^[A-Za-z0-9_-]{43}$/;
+const DEVICE_ID = /^[0-9a-f]{64}$/;
+
+function cardOf(record, counter = 0) {
+  if (!isObject(record) || typeof record.id !== 'string' || !record.id) return null;
+  if (typeof record.stopKey !== 'string' || !STOP_KEY.test(record.stopKey) || !DEVICE_ID.test(String(record.myDeviceId ?? ''))) return null;
+  const carriers = Array.isArray(record.carriers)
+    ? record.carriers.filter(isObject).map(c => ({ kind: String(c.kind ?? ''), urls: Array.isArray(c.urls) ? c.urls.filter(u => typeof u === 'string') : [] }))
+    : [];
+  return {
+    id: record.id,
+    name: String(record.name ?? ''),
+    myDeviceId: record.myDeviceId,
+    stopKey: record.stopKey,
+    carriers,
+    lastCarrier: typeof record.lastCarrier === 'string' ? record.lastCarrier : null,
+    counter: Math.max(Number.isSafeInteger(record.counter) ? record.counter : 0, counter),
+  };
+}
+
+export function createStopCards({ storage } = {}) {
+  if (!storage || typeof storage.getItem !== 'function') return null;
+  const read = () => {
+    try {
+      const list = JSON.parse(storage.getItem(STOP_CARDS_KEY) ?? '[]');
+      return Array.isArray(list) ? list.map(c => cardOf(c)).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  };
+  const write = list => storage.setItem(STOP_CARDS_KEY, JSON.stringify(list));
+  return {
+    read,
+    get: id => read().find(c => c.id === id) ?? null,
+    counterOf: id => read().find(c => c.id === id)?.counter ?? 0,
+    // Writes a card for each record that holds a Stop key, and drops the cards of computers that are gone. A card's counter never falls.
+    sync(records) {
+      const before = new Map(read().map(c => [c.id, c.counter]));
+      const next = (Array.isArray(records) ? records : []).map(r => cardOf(r, before.get(r?.id) ?? 0)).filter(Boolean);
+      if (next.length) write(next);
+      else storage.removeItem(STOP_CARDS_KEY);
+    },
+    // The counter rule of the store (raiseCounter), on the card alone: used when the store cannot be read.
+    raise(id, minimum) {
+      const list = read();
+      const card = list.find(c => c.id === id);
+      if (!card) throw new Error('no Stop card for this computer');
+      const next = Math.max(card.counter, Number(minimum) - 1) + 1;
+      if (!Number.isSafeInteger(next)) throw new RangeError('counter out of range');
+      card.counter = next;
+      write(list);
+      return next;
+    },
+    // Keeps a card's counter at least `value` (each counter the store raises is noted here too).
+    note(id, value) {
+      const list = read();
+      const card = list.find(c => c.id === id);
+      if (!card || card.counter >= value) return;
+      card.counter = value;
+      write(list);
+    },
+  };
+}
+
+export function createStore({ kv, stopCards = null } = {}) {
   if (!kv || typeof kv.get !== 'function') throw new TypeError('createStore needs a key-value back end');
+  // The Stop cards follow every write of the computers. A card that cannot be written never fails the store's own write.
+  const syncCards = list => {
+    try { stopCards?.sync(list); } catch { /* the store's write stands; the next write tries again */ }
+  };
   // Every read-modify-write runs one after another, so two writers cannot lose each other's change.
   let chain = Promise.resolve();
   const serial = fn => {
@@ -144,6 +220,7 @@ export function createStore({ kv } = {}) {
         ? all.map(c => (c.id === record.id ? record : c))
         : [...all, record];
       await kv.put('computers', next);
+      syncCards(next);
       return record;
     }),
 
@@ -157,12 +234,15 @@ export function createStore({ kv } = {}) {
         else found[k] = v;
       }
       await kv.put('computers', all);
+      syncCards(all);
       return publicComputer(found);
     }),
 
     remove: id => serial(async () => {
       const all = await readComputers();
-      await kv.put('computers', all.filter(c => c.id !== id));
+      const left = all.filter(c => c.id !== id);
+      await kv.put('computers', left);
+      syncCards(left);
       return true;
     }),
 
@@ -170,19 +250,39 @@ export function createStore({ kv } = {}) {
 
     // Stores a counter of at least `minimum`, never lower than what is stored, and returns the value stored. The handshake only
     // goes out with a value this returns (channel.js answerCounter).
+    // The Stop card's counter counts too: a Stop sent from the card while the store could not be read raised it there, and the next
+    // handshake must go above it. When the store cannot be read at all, the card alone keeps the rule (a Stop without unlocking).
     raiseCounter: (id, minimum) => serial(async () => {
-      const current = await readCounter(id);
+      let current;
+      try {
+        current = await readCounter(id);
+      } catch (err) {
+        if (!stopCards?.get(id)) throw err;
+        return stopCards.raise(id, minimum);
+      }
+      current = Math.max(current, stopCards?.counterOf(id) ?? 0);
       const next = Math.max(current, Number(minimum) - 1) + 1;
       if (!Number.isSafeInteger(next)) throw new RangeError('counter out of range');
       await kv.put(`ctr:${id}`, next);
-      const all = await readComputers();
-      const found = all.find(c => c.id === id);
-      if (found) {
-        found.counter = next;
-        await kv.put('computers', all);
+      try { stopCards?.note(id, next); } catch { /* the store holds the counter; the card catches up at the next write */ }
+      // The record's copy of the counter is for show; `ctr:<id>` is the one the rule reads, so a damaged record does not fail the raise.
+      try {
+        const all = await readComputers();
+        const found = all.find(c => c.id === id);
+        if (found) {
+          found.counter = next;
+          await kv.put('computers', all);
+        }
+      } catch {
+        // The counter is stored under its own key.
       }
       return next;
     }),
+
+    // The Stop cards (null without Web Storage), for the lock screen when the store cannot be read, and a sync from the store's records
+    // (at launch, so a phone paired before the cards existed gets them).
+    stopCards,
+    syncStopCards: () => serial(async () => syncCards(await readComputers())),
 
     meta: {
       get: name => serial(() => kv.get(`meta:${name}`)),
@@ -197,8 +297,11 @@ export function createStore({ kv } = {}) {
 }
 
 // The store a page gets: native when the Capacitor SecureStorage plugin is there, IndexedDB otherwise.
-export function createPlatformStore({ secureStorage = null, indexedDB = null } = {}) {
-  if (secureStorage) return createStore({ kv: createSecureKv({ plugin: secureStorage }) });
-  if (indexedDB) return createStore({ kv: createIdbKv({ indexedDB }) });
+// localStorage, when given, holds the Stop cards (createStopCards).
+export function createPlatformStore({ secureStorage = null, indexedDB = null, localStorage = null } = {}) {
+  let stopCards = null;
+  try { stopCards = createStopCards({ storage: localStorage }); } catch { stopCards = null; }
+  if (secureStorage) return createStore({ kv: createSecureKv({ plugin: secureStorage }), stopCards });
+  if (indexedDB) return createStore({ kv: createIdbKv({ indexedDB }), stopCards });
   throw new Error('no storage: neither secure storage nor IndexedDB is available');
 }

@@ -253,8 +253,10 @@ const activeScope = () => S.activeThread || S.activeProject;
 const scopeBody = () => ({ project: S.activeProject, ...(S.activeThread ? { thread: S.activeThread } : {}) });
 const scopeInProject = (scope, projectId) => typeof scope === 'string' && typeof projectId === 'string' && (scope === projectId || scope.startsWith(`${projectId}-t`));
 const threadInfo = (scope = activeScope()) => (S.threads ?? []).find(t => t.id === scope) ?? null;
-// The model the thread on screen uses: its own (a thread other than Main is given one when it is made), else the app's.
-const threadModelRef = () => threadInfo()?.model || S.model;
+// The model the thread on screen uses: its own (a thread other than Main is given one when it is made), else the project's own (its entry
+// carries the model its runs use, B-98), else the app's.
+const activeProjectEntry = () => (S.projects ?? []).find(p => p.id === S.activeProject) ?? null;
+const threadModelRef = () => threadInfo()?.model || activeProjectEntry()?.model || S.model;
 // The notes (errors and short lines drawn after the transcript) of threads that are not on screen; `notes` itself belongs to the one that is.
 const threadNotes = new Map();
 function noteTo(scope, text) {
@@ -505,6 +507,17 @@ document.addEventListener('click', e => {
   if (!link) return;
   e.preventDefault();
   downloadApi(link.getAttribute('href')).catch(err => toast(err.message, 'bad'));
+}, true);
+
+// A plain http link opens in the system browser like an https one (B-113). The first one in a session gets a notice that it is not
+// encrypted; the browser marks the page as well.
+let plainLinkNoted = false;
+document.addEventListener('click', e => {
+  if (plainLinkNoted) return;
+  const link = e.target instanceof Element ? e.target.closest('a[href^="http://"]') : null;
+  if (!link) return;
+  plainLinkNoted = true;
+  toast('That link is plain http, so it opens in your browser without encryption.', 'ok', 5200);
 }, true);
 
 const span = (cls, text) => {
@@ -4114,9 +4127,17 @@ async function switchThread(id) {
 // Sets the model of the thread on screen: Main follows the app's model (the model selector, as before); any other thread has its own.
 async function setThreadModel(ref) {
   const thread = threadInfo();
-  if (!thread || thread.main) return update({ model: ref });
-  adoptState(await api('/api/threads/update', { project: S.activeProject, thread: thread.id, model: ref }));
-  return undefined;
+  if (thread && !thread.main) {
+    adoptState(await api('/api/threads/update', { project: S.activeProject, thread: thread.id, model: ref }));
+    return undefined;
+  }
+  // Main of a project with its own model runs that model, not the app's, so that is the one changed (B-98).
+  const project = activeProjectEntry();
+  if (project?.ownModel) {
+    adoptState(await api('/api/project-model', { project: project.id, model: ref }));
+    return undefined;
+  }
+  return update({ model: ref });
 }
 
 // B-93: these three report a refusal themselves. Their callers (the sidebar, the row and key handlers, and the slash commands)
@@ -6880,9 +6901,11 @@ window.MuseUI = {
   // project's run (the active thread's when it runs), or the scope id of a run (a thread's id) to stop exactly that one; a thread id as the
   // second argument names the thread of the project.
   stopRun: (projectId, thread) => (thread ? api('/api/cancel', { project: projectId, thread }) : api('/api/cancel', { project: projectId })),
-  // Sets the model of the thread on screen: Main follows the app's model, any other thread has its own. The API finder and OpenRouter use it,
-  // so Use in Plenum does not change Main's model while a thread that runs its own is open (B-98).
+  // Sets the model of the thread on screen: any thread other than Main has its own; Main follows the project's own model when it has one,
+  // else the app's. The API finder and OpenRouter use it, so Use in Plenum changes the model that is in use there (B-98).
   setThreadModel,
+  // The model the chat on screen runs now (the thread's, the project's or the app's), for an "In use" mark.
+  modelInUse: threadModelRef,
   // Threads (pro-01; public/ext-threads.js draws the tabs and adds to this object). A thread's id is its scope id.
   threads: {
     scope: activeScope,                       // the id of the thread on screen

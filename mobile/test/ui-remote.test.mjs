@@ -309,7 +309,14 @@ describe('desktop, 1280 px, light: the section, its notices and the chip', { tim
     await h.eval(`(() => { const s = ${row}.querySelector('select'); s.value = 'approve'; s.dispatchEvent(new Event('change')); return true; })()`);
     await waitIn("window.__g4posts.includes('/api/phones/tier')", 'the lowering change sent');
     assert.equal(await h.eval("Boolean(document.querySelector('dialog.confirm-dialog[open]'))"), false, 'lowering asks nothing');
-    assert.equal((await h.server.get('/api/phones')).body.devices.find(d => d.id === id).tier, 'approve', 'the computer stored Approve and watch');
+    // The page has sent the change; the computer may still be storing it, so the stored tier is read until it settles (up to 5 s).
+    let stored;
+    for (let i = 0; i < 50; i++) {
+      stored = (await h.server.get('/api/phones')).body.devices.find(d => d.id === id).tier;
+      if (stored === 'approve') break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    assert.equal(stored, 'approve', 'the computer stored Approve and watch');
     await h.eval("window.__g4patch = null");
   });
 

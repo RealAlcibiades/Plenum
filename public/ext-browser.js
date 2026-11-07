@@ -501,9 +501,10 @@
     ui.url.disabled = !ok;
     ui.plus.disabled = !ok || S.tabs.length >= S.maxTabs;
     if (document.activeElement !== ui.url) ui.url.value = shownAddress();
-    // Open outside: the current page when it is an https address (the desktop app hands it to the system browser).
-    const https = t && /^https:\/\//.test(t.url);
-    if (https) {
+    // Open outside: the current page when it is an http or https address (the desktop app hands it to the system browser; the page
+    // says once that a plain http one is not encrypted).
+    const web = t && /^https?:\/\//.test(t.url);
+    if (web) {
       ui.outside.href = t.url;
       ui.outside.removeAttribute('aria-disabled');
     } else {

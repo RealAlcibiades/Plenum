@@ -454,7 +454,7 @@ On Windows, `npm run dist:portable` builds one portable `.exe` in `release/` tha
 
 ## CLI agents
 
-Claude Code, Codex, Gemini CLI, Cursor and Grok Build run as their own command-line programs with their own sign-ins; Plenum never gives them a key.
+Claude Code, Codex, Gemini CLI, Cursor and Grok Build run as their own command-line programs with their own sign-ins. Plenum gives one of them a key only through a key route under **Accounts**, which says what each run uses. **Use my Google AI key with Gemini CLI** is on by default: when a Google AI key is saved, Gemini CLI gets it as `GEMINI_API_KEY` and those requests are billed per token, because Google's terms allow Gemini CLI through an API key but restrict its account sign-in from other apps. Turn it off to use the Google sign-in. **Use my OpenAI API key with Codex** is off by default, so Codex uses your ChatGPT sign-in. The key goes only into that one run's environment, and Plenum takes it out of the CLI's output, failure text included. Claude Code, Cursor, Grok Build and Muse Code never get a key.
 
 Claude Code, Codex, Gemini CLI, Cursor and Grok Build can use the Plenum browser pane, a computer-use run you started and Plenum's agents. Plenum starts a small local MCP server for the CLI for each chat message (never for read-only seats, council seats or Plan mode); each call goes through the same cards, site list, limits and Stop as in Plenum's own chat. Plenum passes the CLI only the address of this app on your computer and a one-time token, never a key or a sign-in. Muse Code does not get the bridge.
 

@@ -399,7 +399,7 @@ function publicState({ messages = true } = {}) {
     //   buildFocus      whether Build focus is on for the project (lib/focus.mjs)
     projects: st.projects.map(p => {
       const eff = effectiveSettings(st, p);
-      return { id: p.id, name: p.name, path: p.path, chatMode: chatModeOf(p), ...approvalSummary(st, p), model: eff.model ?? st.model, effort: eff.effort, buildFocus: buildFocusOf(p) };
+      return { id: p.id, name: p.name, path: p.path, chatMode: chatModeOf(p), ...approvalSummary(st, p), model: eff.model ?? st.model, ownModel: Boolean(storedSettings(p)?.model), effort: eff.effort, buildFocus: buildFocusOf(p) };
     }),
     // The relay settings a route in the active project uses (its own, else the app's) and whether the project has its own (B-63), so the
     // route panel and its Start gate match what the server enforces. Kept beside the project list, which carries no settings.

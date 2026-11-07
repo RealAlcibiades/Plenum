@@ -9,7 +9,7 @@
 // serves, Stop with its result toast), a card from a run answered from the phone, /?shell staying on the shell's screens, a computer that
 // restarts on the same state and is reached again within 10 seconds, Forget.
 // Screenshots go to C:/t/mob/ (mob10-part2-<name>.png, stabm6-<name>.png). Run it through the sealed runner:
-//   node C:/Users/willi/AppData/Local/Temp/claude/mcshots/build/mobile/run.mjs --id mob-10-shell-screens-part-2-and-end-to-end shell.e2e.test.mjs
+//   node C:/Users/willi/PlenumWork/mcshots/build/mobile/run.mjs --id mob-10-shell-screens-part-2-and-end-to-end shell.e2e.test.mjs
 
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';

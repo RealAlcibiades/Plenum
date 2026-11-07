@@ -529,22 +529,37 @@ export function createShell({
   }
 
   async function loadComputers() {
-    const list = await store.publicList();
-    computers = list.map(c => ({ ...c }));
-    await refreshLockStop();
+    try {
+      const list = await store.publicList();
+      computers = list.map(c => ({ ...c }));
+      // A phone paired before the Stop cards existed gets them now (store.js createStopCards).
+      store.syncStopCards?.().catch(() => {});
+    } finally {
+      // Also when the store cannot be read: the lock screen's Stop may then come from a Stop card.
+      await refreshLockStop();
+    }
   }
 
   // The computer a Stop sent from the lock screen would go to: the active one, else the saved active one, else the only one. It works while
   // `computers` is still empty (a cold start from a notification arrives before loadComputers). Resolves the stored record or null.
+  // When the store cannot be read, the Stop card stands in for the record (store.js createStopCards): it holds the Stop key, this phone's
+  // id and the ways, which is all a Stop without unlocking sends, so the floor's "Stop from the phone always works" holds then too.
   async function lockStopTarget() {
     let id = activeId;
     if (!id) id = await store.meta.get(ACTIVE_META).catch(() => null);
-    let record = id ? await store.get(id) : null;
-    if (!record) {
-      const list = await store.publicList();
-      if (list.length === 1) record = await store.get(list[0].id);
+    try {
+      let record = id ? await store.get(id) : null;
+      if (!record) {
+        const list = await store.publicList();
+        if (list.length === 1) record = await store.get(list[0].id);
+      }
+      return record ?? null;
+    } catch (err) {
+      const cards = store.stopCards?.read() ?? [];
+      const card = (id ? cards.find(c => c.id === id) : null) ?? (cards.length === 1 ? cards[0] : null);
+      if (card) return card;
+      throw err;
     }
-    return record ?? null;
   }
 
   async function refreshLockStop() {
@@ -601,7 +616,10 @@ export function createShell({
   // computerId (B-117) names the computer a notification came from; '' is the one a Stop would go to anyway (lockStopTarget).
   async function lockedStop(project, computerId = '') {
     if (lockedCtl && (stopView.state === 'sending' || stopView.state === 'queued') && (!computerId || computerId === lockedFor)) return lockedCtl.press(project);
-    const target = computerId ? await store.get(computerId).catch(() => null) : await lockStopTarget().catch(() => null);
+    // A store that cannot be read is stood in for by the computer's Stop card, as in lockStopTarget.
+    const target = computerId
+      ? await store.get(computerId).catch(() => store.stopCards?.get(computerId) ?? null)
+      : await lockStopTarget().catch(() => null);
     if (computerId && !target) {
       say(UNKNOWN_COMPUTER_STOP, 'warn');
       refresh();
@@ -1894,7 +1912,10 @@ async function runStart(env, { loadPlugins, devBuild, attach, give }) {
   // Capacitor.Plugins it was given.
   const registered = plugins?.secureStorage ?? cap?.Plugins?.SecureStorage ?? null;
   const secureStorage = native || bridge ? (pluginFailure || (bridge && (!plugins || !registered)) ? NO_SECURE_STORAGE : registered) : null;
-  const store = createPlatformStore({ secureStorage, indexedDB: env.indexedDB ?? null });
+  // localStorage holds the Stop cards (store.js createStopCards). Reading it can throw where site storage is blocked; then there are none.
+  let localStorage = null;
+  try { localStorage = env.localStorage ?? null; } catch { localStorage = null; }
+  const store = createPlatformStore({ secureStorage, indexedDB: env.indexedDB ?? null, localStorage });
   const biometricPlugin = native ? plugins?.BiometricAuth ?? cap?.Plugins?.BiometricAuth ?? null : null;
   const lock = createLock({
     store,
