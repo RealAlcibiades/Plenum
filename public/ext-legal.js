@@ -309,7 +309,10 @@
     } else {
       buildAgreement(card, data, message);
     }
-    gate.replaceChildren(card);
+    // The drag strip across the top (desktop app only, ext-legal.css): the window can be moved while the card is up.
+    const drag = make('div', 'legal-drag');
+    drag.setAttribute('aria-hidden', 'true');
+    gate.replaceChildren(drag, card);
     card.querySelector('#legalGateTitle')?.focus();
   }
 
@@ -359,11 +362,13 @@
     const actions = make('div', 'legal-actions');
     actions.append(accept, decline);
 
+    // The tick, the status line and the buttons stay in view at the bottom of the card at any window height (.legal-commit is
+    // sticky), so "I agree" is never below the window's edge. The version line goes above them.
+    const commit = make('div', 'legal-commit');
+    commit.append(agreeLabel, status, actions);
     card.append(
-      agreeLabel,
-      status,
-      actions,
       para(`Version ${terms.version ?? ''}, effective ${terms.effective ?? ''}. You can read these any time under Legal in Settings.`, 'legal-foot'),
+      commit,
     );
 
     const ui = { card, data, agree, accept, decline, status };

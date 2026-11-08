@@ -4000,13 +4000,33 @@ events.on('run', ev => {
   else noteOtherRun(ev);
 });
 
-async function loadProviders() {
-  const data = await api('/api/status');
+// The catalog the model menus were last filled from, and whether a second read is already planned (see loadProviders).
+let catalogKey = '';
+let codexReloadPlanned = false;
+
+async function loadProviders({ refreshCodex = false } = {}) {
+  const data = await api(refreshCodex ? '/api/status?refresh=codex' : '/api/status');
   providers = data.providers;
   catalog = data.catalog;
   aliases = data.aliases;
+  // The catalog grows when Codex reports the models it offers (lib/codex-models.mjs), so the menus are filled again when the list
+  // changed. The value on screen is put back by renderTop.
+  const key = catalog.map(c => `${c.provider}:${c.id}`).join('\n');
+  if (key !== catalogKey) {
+    catalogKey = key;
+    el.model.replaceChildren();
+    el.advisor.replaceChildren();
+  }
   renderStatus();
   renderTop();
+  // Codex was still reading its list when the server answered: ask once more shortly, so its models join the menu.
+  if (data.codexModels?.reading && !codexReloadPlanned) {
+    codexReloadPlanned = true;
+    setTimeout(() => {
+      codexReloadPlanned = false;
+      loadProviders().catch(() => {});
+    }, 6000);
+  }
 }
 
 // ---------- theme ----------
@@ -4504,7 +4524,11 @@ function codexCard(c) {
     }
   });
   const refreshBtn = button('ghost small', 'Refresh');
-  refreshBtn.addEventListener('click', () => refreshDrawer());
+  // Refresh also reads the Codex model list again, so a model added to the account (or a new sign-in) reaches the menu.
+  refreshBtn.addEventListener('click', async () => {
+    if (c.installed) await loadProviders({ refreshCodex: true }).catch(() => {});
+    refreshDrawer();
+  });
   actions.append(signIn, refreshBtn);
   card.append(actions);
   // The strip sits above the Sign in row (provider-terms). It informs, and the sign-in still runs when the button is pressed.

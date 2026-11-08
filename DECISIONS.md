@@ -880,6 +880,32 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Built on 7 Nov 2026.
 
+## 82. The model menu lists the Codex account's models
+
+**Decision.** On 7 Nov 2026 the owner asked why the menu offered only "Codex (CLI default model)" and said GPT-6 Astra and the other models should be available. Plenum now asks Codex's own app server for its model list (`model/list`, the request Codex's own picker uses) and adds each listed model to the catalog right after the CLI default, named as Codex names it, for example "GPT-6-Astra (Codex)", with "your CLI default" on the one Codex uses when none is picked. A run with one of them passes it to `codex exec -m`. The list includes models from a `model_catalog_json` in the person's Codex config. Models Codex marks hidden are left out, as Codex's picker leaves them out, and any model can still be named with `/model codex:<id>`.
+- The list is read only after the License Agreement is accepted and only when Codex is installed: when the page asks for the status (it waits at most 4 s, then asks again 6 s later), at most once every 30 minutes, again after 2 minutes when a read failed, and at once when Refresh is pressed on the Codex card. `model/list` runs no model. A failed or empty read keeps the last good list.
+- A Codex model id keeps its case and may contain `/` (a catalog can name `deepseek/deepseek-v4.1-flash`). It must start with a letter or digit, so it never reads as a flag. A bare id names a built-in entry first, so `gpt-6-astra` alone is still the OpenAI API model; `codex:gpt-6-astra` or the menu picks the Codex one.
+- PRIVACY's `/usage` paragraph says Plenum starts Codex's app server for this list. Editorial: terms stay version 4.
+
+**Reason.** Capability over restriction: the person's Codex account already offers these models, and Plenum should let them be picked without an API key.
+
+**Source.** `lib/codex-models.mjs`, `lib/usage.mjs` (`codexRpc` takes params), `lib/providers.mjs` (`setCodexModels`, `parseRef`), `server.mjs` (`GET /api/status`), `public/app.js` (`loadProviders`, the Codex card's Refresh), `legal/PRIVACY.md`.
+
+**Status.** Built on 7 Nov 2026 with tests (`build/v06/codex-models`).
+
+## 83. Clicks on the agreement card, and the card at the default window size
+
+**Decision.** On 7 Nov 2026 the owner reported that the agreement card did not take clicks unless the window was full screen. Cause: the window shows `desktop/splash.html` first, and its whole page is a window-drag area. Electron keeps the drag areas a page last reported, and the app page with the card up (the app hidden behind it) reported none of its own, so the splash's area stayed and every click on the card moved the window. Windows' own hit test confirmed it (every point of the card answered as title bar).
+- `body` is marked no-drag in the desktop shell (`public/style.css`), so every page reports its own drag areas and the splash's are replaced. The title bar strips are unchanged.
+- The card screen has its own drag strip across the top, where the window buttons are (`.legal-drag`), so the window can be moved while it is up; the card starts below it.
+- The tick, the status line and the buttons sit in a footer pinned to the bottom of the card (`.legal-commit`), and the reading box gives up height first (down to 140 px), so the whole card fits the default 1320 x 860 window and "I agree" is never below the window's edge.
+
+**Reason.** The terms must be acceptable in any window, and the floor needs the legal gate to work.
+
+**Source.** `public/style.css`, `public/ext-legal.css`, `public/ext-legal.js`.
+
+**Status.** Built on 7 Nov 2026 with tests (`build/v06/legal-gate-fit`: Windows hit tests in an invisible window copying the real one, and the card's layout at four sizes).
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).

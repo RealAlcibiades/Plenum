@@ -13,6 +13,16 @@ html[data-legal='pending'] #app { visibility: hidden; }
   background: var(--bg); overflow: auto;
 }
 .legal-gate.out { opacity: 0; pointer-events: none; transition: opacity 150ms var(--ease); }
+/* In the desktop app the app's title bar is hidden behind the card, so the card screen has its own drag strip across the top, where
+   the window buttons are: the window can still be moved, and the card starts below the strip so nothing on it is a drag area. */
+.legal-drag { display: none; }
+:root[data-shell="desktop"] .legal-drag {
+  display: block; position: fixed; top: 0; left: 0; right: 0; height: var(--bar-h, 52px); -webkit-app-region: drag;
+}
+:root[data-shell="desktop"] .legal-gate { padding-top: var(--bar-h, 52px); }
+:root[data-shell="desktop"] .legal-card {
+  max-height: calc(100vh - var(--bar-h, 52px) - 16px); max-height: calc(100dvh - var(--bar-h, 52px) - 16px);
+}
 
 .legal-card {
   box-sizing: border-box; width: min(760px, 100%);
@@ -24,6 +34,19 @@ html[data-legal='pending'] #app { visibility: hidden; }
 
 /* The card scrolls as a whole; its parts keep their own size, so the reading box never shrinks to a sliver. */
 .legal-card > * { flex-shrink: 0; }
+/* Except the reading box: in a window too short for the whole card it gives up height first (down to 140 px), so the card fits
+   the default 1320 x 860 window without scrolling. */
+.legal-card > .legal-read { flex: 1 1 auto; min-height: min(140px, 22vh); }
+/* The tick, status and buttons: pinned to the bottom of the card while the rest scrolls, so I agree is always on screen. A card
+   with this footer has no bottom padding of its own; the footer carries it, and its side margins reach the card's edges. */
+.legal-card:has(> .legal-commit) { padding-bottom: 0; }
+.legal-commit {
+  position: sticky; bottom: 0; z-index: 1;
+  display: flex; flex-direction: column; gap: 14px;
+  margin: 0 -24px; padding: 14px 24px 24px;
+  border-top: 1px solid var(--line-2); border-radius: 0 0 19px 19px;
+  background: var(--surface);
+}
 
 .legal-head { display: flex; align-items: center; gap: 14px; }
 .legal-mark { width: 40px; height: 40px; flex: none; }
@@ -124,6 +147,7 @@ html[data-legal='pending'] #app { visibility: hidden; }
 @media (max-width: 560px) {
   .legal-gate { padding: 8px; }
   .legal-card { padding: 18px; border-radius: 16px; }
+  .legal-commit { margin: 0 -18px; padding: 12px 18px 18px; border-radius: 0 0 15px 15px; }
   .legal-read { max-height: 45vh; }
   .legal-actions { flex-direction: column; align-items: stretch; }
   .legal-actions > button { width: 100%; }

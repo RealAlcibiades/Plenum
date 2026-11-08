@@ -382,6 +382,11 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
 /* The desktop app has no title bar of its own: the top strip moves the window. */
 :root[data-shell="desktop"] :is(.topbar, .brand) { -webkit-app-region: drag; }
 :root[data-shell="desktop"] :is(.topbar .controls, .topbar .titlebar-slot, .topbar .pane-buttons, .topbar .titlebar-pill, .pane-slot, .pane-expand, .scrim, .drawer, #palette) { -webkit-app-region: no-drag; }
+/* The page itself is never a drag area. Electron keeps the drag areas a page last reported, and desktop/splash.html, shown first in
+   the same window, is one large drag area. A page that reported none of its own (the agreement screen, with the app hidden behind
+   it) kept the splash's, so every click moved the window instead (owner report, 7 Nov 2026). With body marked no-drag every page
+   reports at least this, which replaces the splash's; the drag strips above and below still apply on top of it. */
+:root[data-shell="desktop"] body { -webkit-app-region: no-drag; }
 /* The pane's head is a drag strip too, with its buttons and tabs kept clickable. */
 :root[data-shell="desktop"] .pane-head { -webkit-app-region: drag; }
 :root[data-shell="desktop"] .pane-head :is(button, .pane-tabs) { -webkit-app-region: no-drag; }
