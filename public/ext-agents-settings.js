@@ -32,10 +32,10 @@
   const BUILD_DEFAULT_NOTE = 'In /build this is the reviewer or planner you chose (the council moderator by default).';
   const RESEARCH_TEXT = 'More than 30 steps or 10 minutes is above what the research behind agent runs supports. It still works, but a run costs more and can stall for longer.';
   // agent-roles. Which models can start agents in the council, relay, quick compare and pipeline roles; shown under the group's first paragraph.
-  const SEAT_MODELS_NOTE = 'Only Claude (through the API or the Claude CLI) and the API models with verified tools can start agents in these roles. Codex, Gemini and Muse Code seats answer from the prompt.';
+  const SEAT_MODELS_NOTE = 'Only Claude (through the API or the Claude CLI) and the API models with verified tools can start agents in these roles. Codex, Gemini and Muse Code seats start none: they answer from the prompt, or from what they read in a council that reads or works in the folder.';
   // The first paragraph while those roles have no approval cards, and once the Agents board shows their cards (amendment 21).
-  const SEAT_INTRO_NO_CARDS = 'These roles have no approval cards, so they can start only types that read files and run no commands. The seat itself still cannot open files.';
-  const SEAT_INTRO_CARDS = 'These roles can start any type. The seat itself still cannot open files. A type that edits files or runs commands asks first, and its cards appear on the Agents board.';
+  const SEAT_INTRO_NO_CARDS = 'These roles have no approval cards, so they can start only types that read files and run no commands. The seat itself cannot open files, unless it sits in a council that reads or works in the folder.';
+  const SEAT_INTRO_CARDS = 'These roles can start any type. The seat itself cannot open files, unless it sits in a council that reads or works in the folder. A type that edits files or runs commands asks first, and its cards appear on the Agents board.';
   const SEAT_EDIT_NOTICE = 'A council seat that edits files or runs commands acts on your project while the council runs. Its cards appear on the Agents board; Ask first still applies.';
   const NAME_RE = /^[a-z][a-z0-9-]{0,23}$/;
   const SAVED_MS = 1500;

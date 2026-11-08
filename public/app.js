@@ -26,6 +26,7 @@ const el = {
   boardSeats: $('boardSeats'),
   boardSummary: $('boardSummary'),
   roundsSel: $('roundsSel'),
+  folderSel: $('folderSel'),
   relayOpenBtn: $('relayOpenBtn'),
   relayLogBtn: $('relayLogBtn'),
   relayBar: $('relayBar'),
@@ -126,7 +127,11 @@ const DEFAULT_COUNCIL = {
   ],
   moderator: { ref: 'anthropic:claude-fable-5-1', effort: 'high' },
   rounds: 2,
+  // The seats read the project folder (DECISIONS item 85), as DEFAULT_COUNCIL in lib/council.mjs.
+  folder: 'read',
 };
+// Where the seats work, in the words the board and the card use (DECISIONS item 85).
+const FOLDER_WORDS = { text: 'Text only', read: 'Reads the folder', work: 'Works in the folder' };
 const CODERS = [
   { ref: 'anthropic:claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'default' },
   { ref: 'anthropic:claude-sonnet-5-5', label: 'Claude Sonnet 5.5' },
@@ -2266,6 +2271,11 @@ function liveCouncil(question, config) {
   return {
     question,
     rounds: config.rounds ?? 2,
+    folder: config.folder ?? 'text',
+    approvals: [],
+    notices: [],
+    modSteps: 0,
+    modStep: '',
     mod: config.moderator ? { label: modelName(config.moderator.ref), ref: config.moderator.ref } : null,
     seats: config.seats.map((s, i) => ({ id: SEAT_IDS[i], label: seatLabel(s), ref: s.ref, role: s.role, effort: s.effort, rounds: {} })),
     modText: '',
@@ -2294,6 +2304,12 @@ function councilFromSaved(m) {
     // ok<n> false is a round that failed (server.mjs seat-done, B-13, B-52): it is marked failed, and its error is the seat's.
     const failedRounds = Object.keys(s).map(k => /^ok(\d+)$/.exec(k)).filter(Boolean).filter(x => s[x[0]] === false).map(x => Number(x[1]));
     for (const r of failedRounds) rounds[r] = { text: rounds[r]?.text ?? '', state: 'failed', error: s.error || 'This seat failed.' };
+    // The files a round changed in the folder (DECISIONS item 85), a failed or stopped round's too.
+    for (const r of Object.keys(s).map(k => /^changed(\d+)$/.exec(k)).filter(Boolean).map(x => Number(x[1]))) {
+      if (!Array.isArray(s[`changed${r}`])) continue;
+      rounds[r] ??= { text: '', state: 'failed', error: s.error || 'This seat failed.' };
+      rounds[r].filesChanged = s[`changed${r}`];
+    }
     // A save with no ok<n> keys (from before they were kept) puts the seat's error on the last round it saved (B-15).
     if (s.error && !failedRounds.length) {
       // A failed seat never runs a later round, so the error belongs to the last round it saved (B-15).
@@ -2307,6 +2323,10 @@ function councilFromSaved(m) {
   const counted = seats.flatMap(s => Object.keys(s.rounds).map(Number));
   return {
     question: c.question ?? '',
+    folder: c.folder ?? 'text',
+    approvals: [],
+    modSteps: 0,
+    modStep: '',
     rounds: Number.isInteger(c.rounds) && c.rounds > 0 ? c.rounds : Math.max(1, ...counted),
     seats,
     mod: null,
@@ -2331,13 +2351,14 @@ function councilHandler(cd, paint) {
       case 'council-start':
         cd.seats = ev.seats.map(s => ({ id: s.id, label: s.label, ref: s.ref, role: s.role, effort: s.effort, rounds: {} }));
         cd.rounds = ev.rounds ?? cd.rounds;
+        cd.folder = ev.folder ?? cd.folder ?? 'text';
         cd.mod = ev.moderator ? { label: ev.moderator.label, ref: ev.moderator.ref } : cd.mod;
         cue('start');
         break;
       case 'seat-start': {
         const s = seat(ev.seat);
         if (!s) break;
-        s.rounds[ev.round] = { text: '', state: 'running' };
+        s.rounds[ev.round] = { text: '', state: 'running', access: ev.access ?? null, steps: 0, step: '' };
         // Round 2 opens as it starts; round 1 folds away so the answers stay in view.
         if (ev.round === 2) cd.open[`${s.id}1`] = false;
         break;
@@ -2351,7 +2372,46 @@ function councilHandler(cd, paint) {
         const s = seat(ev.seat);
         if (!s) break;
         const text = ev.text ?? s.rounds[ev.round]?.text ?? '';
-        s.rounds[ev.round] = { ...seatMeta(text), ...(ev.parsed ?? {}), text, state: ev.ok ? 'done' : 'failed', error: ev.error };
+        const was = s.rounds[ev.round] ?? {};
+        s.rounds[ev.round] = { ...seatMeta(text), ...(ev.parsed ?? {}), text, state: ev.ok ? 'done' : 'failed', error: ev.error, access: was.access ?? null, steps: was.steps ?? 0, filesChanged: Array.isArray(ev.changed) ? ev.changed : [] };
+        break;
+      }
+      // A seat or the moderator working in the folder (DECISIONS item 85): its own tool steps (not those of an agent it started), and the
+      // approval cards its turn asks for, shown on the card as the build card shows them.
+      case 'tool': {
+        if (ev.parent) break;
+        if (ev.seat === 'moderator') {
+          cd.modSteps += 1;
+          cd.modStep = ev.summary ?? ev.name ?? '';
+          break;
+        }
+        const r = seat(ev.seat)?.rounds[ev.round];
+        if (r) {
+          r.steps = (r.steps ?? 0) + 1;
+          r.step = ev.summary ?? ev.name ?? '';
+        }
+        break;
+      }
+      // A note from the server for this council (plan mode answered text-only, a coder that cannot ask before it writes): shown once on the
+      // card, and the cli-no-ask strip above the composer as in a chat turn.
+      case 'notice': {
+        if (ev.kind === 'cli-no-ask') window.MuseUI?.notice?.('cli-no-ask', { before: el.form });
+        const text = String(ev.text ?? '').trim();
+        if (text && !cd.notices.includes(text)) {
+          cd.notices.push(text);
+          paint();
+        }
+        break;
+      }
+      case 'approval': {
+        const a = { ...ev };
+        a.onDone = () => {
+          cd.approvals = cd.approvals.filter(x => x !== a);
+          paint();
+        };
+        a.onChange = paint;
+        cd.approvals.push(a);
+        cue('approval');
         break;
       }
       case 'consensus-start':
@@ -2394,6 +2454,7 @@ function councilEl(cd, fresh = false) {
   const head = document.createElement('div');
   head.className = 'council-head';
   head.append(icon('layers'), span('council-title', 'Council'), span('council-meta', `${cd.rounds} ${cd.rounds === 1 ? 'round' : 'rounds'}`));
+  if (cd.folder && cd.folder !== 'text') head.append(span(`council-folder ${cd.folder}`, FOLDER_WORDS[cd.folder] ?? ''));
   if (!cd.done) head.append(span('council-timer', cd.clock ? `Working · ${cd.clock}` : 'Working'));
   const q = document.createElement('p');
   q.className = 'council-q';
@@ -2405,6 +2466,12 @@ function councilEl(cd, fresh = false) {
   const slot = document.createElement('div');
   slot.className = 'council-slot';
   article.append(head, q, cols);
+  for (const text of cd.notices ?? []) article.append(quietNote(text, 'council-note'));
+  for (const a of cd.approvals ?? []) {
+    const card = approvalEl(a, { reason: false });
+    card.classList.remove('fresh');
+    article.append(card);
+  }
   if (cd.error) article.append(quietNote(cd.error, 'council-err'));
   const cons = consensusEl(cd, slot);
   if (cons) article.append(cons);
@@ -2463,6 +2530,7 @@ function roundEl(cd, s, r) {
     body.append(span('round-wait', r === 1 ? 'Waiting to start' : unrun.text));
   } else if (!data.text) {
     body.innerHTML = THINKING;
+    if (data.steps) body.append(span('round-steps', `${data.steps} ${data.steps === 1 ? 'step' : 'steps'}${data.step ? ` · ${data.step}` : ''}`));
   } else {
     body.innerHTML = md(seatAnswer(data.text));
     if (data.position) {
@@ -2471,6 +2539,14 @@ function roundEl(cd, s, r) {
       pos.textContent = data.position;
       body.prepend(pos);
     }
+  }
+  // What the round did in the folder: its steps while it runs, and the files it changed.
+  if (data.state === 'running' && data.text && data.steps) body.append(span('round-steps', `${data.steps} ${data.steps === 1 ? 'step' : 'steps'}${data.step ? ` · ${data.step}` : ''}`));
+  if (data.filesChanged?.length) {
+    const files = document.createElement('p');
+    files.className = 'round-files';
+    files.textContent = `Changed: ${data.filesChanged.slice(0, 12).join(', ')}${data.filesChanged.length > 12 ? ` and ${data.filesChanged.length - 12} more` : ''}`;
+    body.append(files);
   }
   d.append(body);
   return d;
@@ -2494,6 +2570,7 @@ function consensusEl(cd, slot) {
     else if (!cd.stopped) {
       const wait = document.createElement('div');
       wait.innerHTML = THINKING;
+      if (cd.modSteps) wait.append(span('round-steps', `${cd.modSteps} ${cd.modSteps === 1 ? 'step' : 'steps'}${cd.modStep ? ` · ${cd.modStep}` : ''}`));
       box.append(wait);
     }
     if (cd.stopped) box.append(quietNote('Stopped before the consensus.'));
@@ -3248,6 +3325,13 @@ function renderBoard() {
   el.hint.textContent = busyNow() ? BUSY_HINT : idleHint();
   const cfg = S.council ?? DEFAULT_COUNCIL;
   el.roundsSel.value = String(cfg.rounds);
+  if (el.folderSel) {
+    const folder = cfg.folder ?? 'text';
+    el.folderSel.value = folder;
+    // A council that works in the folder needs a round to read before the seats change anything.
+    const one = el.roundsSel.querySelector('option[value="1"]');
+    if (one) one.disabled = folder === 'work';
+  }
   if (!council) return;
   if (boardPills.length !== cfg.seats.length + 1) {
     boardPills = [...cfg.seats.map((_, i) => seatPill(i)), moderatorPill()];
@@ -3259,7 +3343,7 @@ function renderBoard() {
 
 function summaryText(cfg) {
   const seats = cfg.seats.map((s, i) => `${SEAT_IDS[i].toUpperCase()} ${modelName(s.ref)} · ${ROLE_LABELS[s.role] ?? s.role}`).join('  ·  ');
-  return `Council: ${seats} · Moderator ${modelName(cfg.moderator?.ref)} · ${cfg.rounds} ${cfg.rounds === 1 ? 'round' : 'rounds'}`;
+  return `Council: ${seats} · Moderator ${modelName(cfg.moderator?.ref)} · ${cfg.rounds} ${cfg.rounds === 1 ? 'round' : 'rounds'} · ${FOLDER_WORDS[cfg.folder ?? 'text']}`;
 }
 
 // A menu chip with a select inside it, styled like the composer's menus.
@@ -3371,6 +3455,17 @@ async function editMod(field, value) {
   return queueSettingsSave(async () => {
     const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
     cfg.moderator = { ...(cfg.moderator ?? {}), [field]: value };
+    await saveCouncil(cfg);
+  });
+}
+
+// Where the seats work. Working in the folder takes at least 2 rounds (round 1 reads), so a 1-round council becomes a 2-round one.
+async function editFolder(value) {
+  return queueSettingsSave(async () => {
+    const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
+    if (value === 'read' || value === 'work') cfg.folder = value;
+    else delete cfg.folder;
+    if (value === 'work' && cfg.rounds < 2) cfg.rounds = 2;
     await saveCouncil(cfg);
   });
 }
@@ -6661,6 +6756,7 @@ for (const b of el.modeBtns) {
 }
 
 el.roundsSel.addEventListener('change', () => editRounds(el.roundsSel.value));
+el.folderSel?.addEventListener('change', () => editFolder(el.folderSel.value));
 el.relayOpenBtn.addEventListener('click', () => openDrawer('Relay route', renderRelayPanel));
 el.relayLogBtn.addEventListener('click', () => openDrawer('Relay log', renderRelayLog));
 el.boardSummary.addEventListener('click', openCouncilDrawer);

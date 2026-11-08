@@ -198,6 +198,10 @@ function refuseForeignOrigin(req) {
 const PLAN_NOTICE = 'Plan mode: Plenum will not edit files or run commands in this project.';
 // Said when a build is asked for in a project that is in plan mode (a build runs coders that write files).
 const PLAN_BUILD_REFUSED = 'This project is in plan mode, so Plenum will not build or edit files. Turn plan mode off to build.';
+// A council that would work in the folder (DECISIONS item 85), where nothing may be changed, and one that would read it in plan mode.
+const COUNCIL_WORK_PLAN = 'Plan mode is on, so the council cannot change files here. Set the council to read the folder, or turn plan mode off.';
+const COUNCIL_WORK_WRITER = 'Only the writer thread can let the council change files. Make this thread the writer, or set the council to read the folder.';
+const COUNCIL_READ_PLAN = 'Plan mode is on, so the council answers without opening the folder this time.';
 // Said once per project (and thread) per launch, at the first chat turn that runs in Approve all (UI-ARCH: the notice is not
 // repeated every turn; the red button and the Mode menu stay as the reminder). The second text is for a project that also lets
 // Approve all answer blocked-command cards.
@@ -1507,9 +1511,27 @@ async function handleCouncil(req, res) {
   };
   res.on('close', onGone);
   try {
-    route = await claudeRoute();
     // The project's own council when it has one (B-4), else the app's saved one; a council sent in the body wins.
     config = normalizeCouncil(body.config ?? effectiveSettings(store.get(), project).council ?? DEFAULT_COUNCIL);
+  } catch (err) {
+    res.off('close', onGone);
+    throw httpError(400, err.message);
+  }
+  // Where the seats work (DECISIONS item 85). A council that works in the folder changes files, so it needs what a chat turn that writes
+  // needs: no plan mode, and the thread that writes in the folder. One that reads it is read-only, but plan mode turns off every agent
+  // turn (lib/agent-run.mjs), so in plan mode it answers text-only, and says so.
+  let folderNotice = null;
+  if (config.folder === 'work' && planModeOf(project, scope)) {
+    res.off('close', onGone);
+    throw httpError(409, readOnlyWhy(project, scope) === 'writer' ? COUNCIL_WORK_WRITER : COUNCIL_WORK_PLAN);
+  }
+  if (config.folder === 'read' && (chatModeOf(project) === 'plan' || scope.chatMode === 'plan')) {
+    const { folder: _dropped, ...textOnly } = config;
+    config = textOnly;
+    folderNotice = COUNCIL_READ_PLAN;
+  }
+  try {
+    route = await claudeRoute();
     // The files that go with the question, checked like a chat message's before anything is stored: pictures (pro-07 step 2), and
     // text, code and PDFs from the attach button or named with @path (DECISIONS item 84). A PDF's text is read here, once, when a
     // seat or the moderator does not take the PDF itself, so a scanned PDF is refused before the council starts.
@@ -1526,20 +1548,30 @@ async function handleCouncil(req, res) {
   const history = councilHistory(store.transcript(scope.id));
   // Kept as the run goes, so a cancelled council still leaves its answers in the chat. error is the reason the run ended without a
   // verdict (its error event), and rounds is the number of rounds it was set to run (B-52).
-  const saved = { seats: {}, result: null, seatMeta: [], error: null, rounds: null };
+  const saved = { seats: {}, result: null, seatMeta: [], error: null, rounds: null, folder: config.folder ?? 'text' };
   await streamForProject(req, res, project, async ({ signal, send }) => {
-    // The question keeps the names and sizes of its files, never their bytes.
-    store.addMessage(scope.id, { role: 'user', kind: 'council', content: question, ...(uploads.attached.length ? { attached: uploads.attached } : {}), ...(kept.length ? { images: kept } : {}) });
+    // The question keeps the names and sizes of its files, never their bytes, and where the seats worked.
+    store.addMessage(scope.id, { role: 'user', kind: 'council', content: question, ...(uploads.attached.length ? { attached: uploads.attached } : {}), ...(kept.length ? { images: kept } : {}), ...(config.folder ? { folder: config.folder } : {}) });
     // Saved now, so a kill during the council keeps the question (B-29). A failed save is said in a notice and the council goes on.
     await saveReporting(send, true);
+    // A council that works in the folder takes the turn snapshot a build takes (lib/hooks/10-snapshot.mjs), before any seat runs.
+    if (config.folder === 'work') {
+      await runBefore({ project, scope, kind: 'council', ref: null, planMode: false, send, signal, store, record: store.transcript(scope.id).at(-1), changed: null, followUp: null, busy: () => running.has(scope.id) });
+    }
     // One run for the whole council (every seat, every round and the moderator): the agents a seat starts count against the Council
     // seats and Moderator rows and the per-run ceiling, and the run is closed when the stream ends (lib/agent-run.mjs seatContext).
     const agents = effectiveAgents(store.get(), project);
     const run = openRun({ projectId: project.id, kind: 'council', signal });
-    return withRun(run, runCouncil({
-      question, config, cwd: scope.root, signal, history, project, agents, run, images, files, route,
+    const council = withRun(run, runCouncil({
+      question, config, cwd: scope.root, signal, history, project, agents, run, images, files, route, codersCannotAsk: codersCannotAskOf(project),
       denyPatterns: denyPatternsOf(project), tools: effectiveSettings(store.get(), project).tools, mode: approvalModeOf(store.get(), project), approve: approvalRequester(send, signal),
     }));
+    if (!folderNotice) return council;
+    // The stream opens when this returns, so the plan-mode notice goes out as the run's first event (a send before then reaches no page).
+    return (async function* () {
+      yield { type: 'notice', text: folderNotice };
+      yield* council;
+    })();
   }, ev => {
     if (ev.type === 'council-start') {
       saved.seatMeta = ev.seats;
@@ -1549,6 +1581,7 @@ async function handleCouncil(req, res) {
     if (ev.type === 'seat-done') {
       const seat = (saved.seats[ev.seat] ??= {});
       seat[`ok${ev.round}`] = ev.ok === true;
+      if (Array.isArray(ev.changed) && ev.changed.length) seat[`changed${ev.round}`] = ev.changed.slice(0, 200);
       if (ev.ok) seat[`round${ev.round}`] = ev.text;
       else seat.error = ev.error ?? 'The seat did not answer.';
     }
@@ -1563,7 +1596,7 @@ async function handleCouncil(req, res) {
       if (!(saved.result || saved.error || Object.keys(saved.seats).length)) return;
       const content = saved.result ? councilText(saved.result) : (saved.error ?? 'The council was stopped before it reached a verdict.');
       const seats = saved.seatMeta.map(meta => ({ ...meta, ...(saved.seats[meta.id] ?? {}) }));
-      store.addMessage(scope.id, { role: 'assistant', kind: 'council', content, council: { question, seats, result: saved.result, error: saved.error, rounds: saved.rounds } });
+      store.addMessage(scope.id, { role: 'assistant', kind: 'council', content, council: { question, seats, result: saved.result, error: saved.error, rounds: saved.rounds, ...(saved.folder !== 'text' ? { folder: saved.folder } : {}) } });
     },
   });
 }

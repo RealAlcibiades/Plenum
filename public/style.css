@@ -387,6 +387,12 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
    it) kept the splash's, so every click moved the window instead (owner report, 7 Nov 2026). With body marked no-drag every page
    reports at least this, which replaces the splash's; the drag strips above and below still apply on top of it. */
 :root[data-shell="desktop"] body { -webkit-app-region: no-drag; }
+
+/* DECISIONS item 85: where a council's seats work, on the card, and what a round did in the folder. */
+.council-folder { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line, currentColor); opacity: .85; }
+.council-folder.work { border-color: var(--warn, currentColor); }
+.round-steps { display: block; margin-top: 6px; font-size: 12px; opacity: .75; overflow-wrap: anywhere; }
+.round-files { margin: 8px 0 0; font-size: 12px; opacity: .85; overflow-wrap: anywhere; }
 /* The pane's head is a drag strip too, with its buttons and tabs kept clickable. */
 :root[data-shell="desktop"] .pane-head { -webkit-app-region: drag; }
 :root[data-shell="desktop"] .pane-head :is(button, .pane-tabs) { -webkit-app-region: no-drag; }
