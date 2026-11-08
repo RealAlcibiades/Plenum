@@ -51,8 +51,9 @@ import { folderRisk } from './lib/guard.mjs';
 import { buildSystem } from './lib/prompt.mjs';
 import { apiProvider } from './lib/api-providers.mjs';
 import { loadGlobalRules, loadProjectRules } from './lib/rules.mjs';
-import { IMAGE_REFUSAL, MAX_IMAGES, checkImages, describeImages, takesImages } from './lib/images.mjs';
-import { checkMessageTotals, describeUploads, pdfRefusal, sortAttachments, splitUploads, takesDocuments, withInline } from './lib/attachments.mjs';
+import { IMAGE_REFUSAL, MAX_IMAGES, checkImages, takesImages } from './lib/images.mjs';
+import { attachmentNote, checkMessageTotals, describeUploads, pdfRefusal, sortAttachments, splitUploads, takesDocuments, withInline } from './lib/attachments.mjs';
+import { councilUploads } from './lib/council-files.mjs';
 import { runAfter, runBefore, runExpand } from './lib/turn-hooks.mjs';
 import { describeThreads, planModeOf, projectBusy, readOnlyNotice, readOnlyWhy, runningScopes, scopeFor, threadOf, worktreeHeld, worktreeOf } from './lib/scope.mjs';
 import { ensureThreads, migrateThreads, threadsOf } from './lib/threads.mjs';
@@ -86,7 +87,8 @@ const APPROVAL_TIMEOUT_MS = (() => {
 })();
 // A chat message may carry up to 25 MB of files, which is about 33 MB in base64, and its text sits in the same body. The body is
 // capped at 40 MB of UTF-8 for files and text together, so 14 million CJK characters (about 42 MB) are refused by the body cap,
-// which the page's text check does not measure. Every other body is held to 16 MB.
+// which the page's text check does not measure. A council question takes the same files (DECISIONS item 84), so it has the same cap.
+// Every other body is held to 16 MB.
 const BODY_LIMIT = 16_000_000;
 const CHAT_BODY_LIMIT = 40_000_000;
 // The most text one chat message may carry (UTF-16 units, the same count the page checks). Longer text is refused, not stored.
@@ -1466,12 +1468,19 @@ async function streamForProject(req, res, project, makeRun, onEvent, { kind = 'r
   }
 }
 
-// The recent conversation as plain text, for the seats. Council and build results count as replies.
+// The recent conversation as plain text, for the seats. Council and build results count as replies. A message that came with files
+// says so in one line (their names and sizes), since the files themselves are not sent again (DECISIONS item 84).
 function councilHistory(log) {
   return log
     .filter(m => (m.kind === 'chat' || m.kind === 'council' || m.kind === 'build') && m.draft !== true)
     .slice(-8)
-    .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content ?? '').slice(0, 800)}`)
+    .map(m => {
+      const notes = m.role === 'user' ? [
+        Array.isArray(m.images) ? attachmentNote(m.images) : '',
+        Array.isArray(m.attached) && m.attached.length ? `[Named with @ in this message: ${m.attached.slice(0, 10).join(', ')}. Not shown again.]` : '',
+      ].filter(Boolean) : [];
+      return `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content ?? '').slice(0, 800)}${notes.length ? `\n${notes.join('\n')}` : ''}`;
+    })
     .join('\n\n');
 }
 
@@ -1482,29 +1491,45 @@ function councilText(result) {
 }
 
 async function handleCouncil(req, res) {
-  const body = await readBody(req);
+  const body = await readBody(req, CHAT_BODY_LIMIT);
   const project = projectById(body.project);
   const scope = scopeFor(store, project, threadOf(body));
   const question = String(body.question ?? '').trim();
   if (!question) throw httpError(400, 'Ask the council a question first.');
   let config;
-  let images;
+  let uploads;
+  let route = null;
+  // Reading the files can take a while (a PDF's text, up to 20 s a file), and the stream that would notice a closed page is not open yet.
+  // A page that goes away meanwhile (Stop, or a closed window) ends the reading, and nothing is stored or run.
+  const gone = new AbortController();
+  const onGone = () => {
+    if (!res.writableFinished) gone.abort();
+  };
+  res.on('close', onGone);
   try {
+    route = await claudeRoute();
     // The project's own council when it has one (B-4), else the app's saved one; a council sent in the body wins.
     config = normalizeCouncil(body.config ?? effectiveSettings(store.get(), project).council ?? DEFAULT_COUNCIL);
-    // The pictures that go with the question (pro-07 step 2): checked like a chat message's, before anything is stored.
-    images = checkImages({ sent: body.images });
+    // The files that go with the question, checked like a chat message's before anything is stored: pictures (pro-07 step 2), and
+    // text, code and PDFs from the attach button or named with @path (DECISIONS item 84). A PDF's text is read here, once, when a
+    // seat or the moderator does not take the PDF itself, so a scanned PDF is refused before the council starts.
+    uploads = await councilUploads(body, question, { root: scope.root, refs: [...config.seats.map(seat => seat.ref), config.moderator.ref], route, signal: gone.signal });
   } catch (err) {
+    if (gone.signal.aborted) return;
     throw httpError(400, err.message);
+  } finally {
+    res.off('close', onGone);
   }
-  const kept = describeImages(images);
+  if (gone.signal.aborted) return;
+  const { images, kept } = uploads;
+  const files = { blocks: uploads.blocks, documents: uploads.documents, names: [...kept.map(file => file.name), ...uploads.attached] };
   const history = councilHistory(store.transcript(scope.id));
   // Kept as the run goes, so a cancelled council still leaves its answers in the chat. error is the reason the run ended without a
   // verdict (its error event), and rounds is the number of rounds it was set to run (B-52).
   const saved = { seats: {}, result: null, seatMeta: [], error: null, rounds: null };
   await streamForProject(req, res, project, async ({ signal, send }) => {
-    // The question keeps the names and sizes of its pictures, never their bytes.
-    store.addMessage(scope.id, { role: 'user', kind: 'council', content: question, ...(kept.length ? { images: kept } : {}) });
+    // The question keeps the names and sizes of its files, never their bytes.
+    store.addMessage(scope.id, { role: 'user', kind: 'council', content: question, ...(uploads.attached.length ? { attached: uploads.attached } : {}), ...(kept.length ? { images: kept } : {}) });
     // Saved now, so a kill during the council keeps the question (B-29). A failed save is said in a notice and the council goes on.
     await saveReporting(send, true);
     // One run for the whole council (every seat, every round and the moderator): the agents a seat starts count against the Council
@@ -1512,7 +1537,7 @@ async function handleCouncil(req, res) {
     const agents = effectiveAgents(store.get(), project);
     const run = openRun({ projectId: project.id, kind: 'council', signal });
     return withRun(run, runCouncil({
-      question, config, cwd: scope.root, signal, history, project, agents, run, images,
+      question, config, cwd: scope.root, signal, history, project, agents, run, images, files, route,
       denyPatterns: denyPatternsOf(project), tools: effectiveSettings(store.get(), project).tools, mode: approvalModeOf(store.get(), project), approve: approvalRequester(send, signal),
     }));
   }, ev => {

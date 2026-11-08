@@ -168,18 +168,24 @@
   }
 
   // The line for the selected model, shown while files are attached: whether it takes images, and whether a PDF goes as a document or as
-  // text. In Council mode the line says what the council sends: the pictures, to each seat whose model takes them (app.js refuses other files).
+  // text. In Council mode the line says what the council sends instead (DECISIONS item 84): every file to every seat and the moderator,
+  // each picture to the models that take it. The chat model's row does not matter there, so the line shows without the table too.
   function paintCaps() {
     const ref = refFor();
     const entry = caps?.models?.[ref];
+    if (picked.length && inCouncil()) {
+      capsLineEl.textContent = 'Council: every seat and the moderator get the text files and PDFs (a PDF as a document for Claude by API key, as its text for the others), and the pictures their model takes.';
+      capsLineEl.removeAttribute('title');
+      capsLineEl.hidden = false;
+      return;
+    }
     if (!picked.length || !entry) {
       capsLineEl.hidden = true;
       capsLineEl.textContent = '';
       capsLineEl.removeAttribute('title');
       return;
     }
-    let text = `${labelOf(ref)}: ${entry.image ? 'image ok' : 'images not supported'} · ${entry.pdf === 'native' ? 'PDF ok' : 'PDF as text'}`;
-    if (inCouncil()) text += '. Council: each seat gets the pictures its model takes. Text files and PDFs are not sent to a council, so remove them to send.';
+    const text = `${labelOf(ref)}: ${entry.image ? 'image ok' : 'images not supported'} · ${entry.pdf === 'native' ? 'PDF ok' : 'PDF as text'}`;
     capsLineEl.textContent = text;
     if (entry.why) capsLineEl.title = entry.why;
     else capsLineEl.removeAttribute('title');
@@ -208,7 +214,8 @@
     }
     const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
     const mime = sniff(head);
-    const entry = entryFor();
+    // In Council mode a picture is not held to the chat model's row: each seat and the moderator get it when their model takes it.
+    const entry = inCouncil() ? null : entryFor();
     let kind = 'file';
     if (mime) {
       kind = 'image';
@@ -340,7 +347,7 @@
     if (hasFiles(e) && !el.form.contains(e.target)) e.preventDefault();
   });
 
-  // The table is read now, and again when the model changes. The council switch only changes the line's last sentence.
+  // The table is read now, and again when the model changes. The council switch changes the line to the council's.
   el.model?.addEventListener('change', () => {
     paintCaps();
     loadCaps();

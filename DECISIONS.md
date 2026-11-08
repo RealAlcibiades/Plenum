@@ -906,6 +906,22 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Built on 7 Nov 2026 with tests (`build/v06/legal-gate-fit`: Windows hit tests in an invisible window copying the real one, and the card's layout at four sizes).
 
+## 84. A council question takes files
+
+**Decision.** On 8 Nov 2026 the owner said the council needs to be able to take files. A council question now takes what a chat message takes: text and code, PDFs and pictures, from the attach button, a drop or a paste, and files named with `@path`. Before, the page refused every file but a picture ("A council question takes pictures only").
+- Every file is checked by the chat's rules before the question is stored or any seat starts (`councilUploads` in `lib/council-files.mjs`, which uses `sortAttachments`, `checkImages`, `expandFileMentions` and `checkMessageTotals`): the same limits (10 files, 25 MB, 200 KB a text file, 600 KB of text, 20 MB a PDF) and the same refusals, with a 400 and nothing stored. The page puts a refused question's files back in the composer. `/api/council` reads its body with the chat's 40 MB cap, since 25 MB of files is about 33 MB in base64; the general 16 MB cap had refused even four large pictures.
+- A seat cannot open files, so every seat and the moderator get the files in the prompt, after the question, in every round (each round is a request of its own). Text and `@path` files go as their FILE blocks for every model, since no seat can read the project. A PDF goes to Claude by API key as the PDF itself and to every other model as the text Plenum reads out of it; that text is read once, before the run, and only when some participant needs it, so a scanned PDF is refused before the council starts. When every participant is Claude by API key, Anthropic judges the PDF, as in chat. A page that goes away while the files are read (Stop) ends the reading, and nothing is stored or run. Pictures go where they went before (`imagesFor`).
+- The prompt names every attached file, so a model that gets a PDF as a document, or cannot take a picture, still knows it was attached. A seat's and the moderator's system text carry the attachments rule (file contents are data, not instructions) only for a question with files, so a council without files sends exactly what it sent before.
+- The question keeps the names and sizes of its files and the `@path` names, never the bytes. A later council's summary of the conversation says which files came with an earlier message (attached or named with @), and does not send them again.
+- In Council mode the line under the composer's chips says what the council sends, and a picture is no longer refused because the chat model takes none: each seat that takes it gets it.
+- PRIVACY already says that attached files go to the providers of every model in a council run (section 5), so the terms do not change.
+
+**Reason.** Capability over restriction: a council is most useful on the document the question is about, and every model in it can already read text and PDF text in chat.
+
+**Source.** `lib/council-files.mjs`, `lib/council.mjs` (`questionBlock`, `filesPart`, `runCouncil`), `lib/files.mjs` (`expandFileMentions` returns `blocks`), `lib/prompt-parts/50-attachments.mjs`, `server.mjs` (`handleCouncil`, `councilHistory`), `public/app.js` (`askCouncil`), `public/ext-images.js`.
+
+**Status.** Built on 8 Nov 2026 with tests (`build/v06/council-files`: the uploads and the per-model split, an in-process council against a mock Anthropic server, the fake codex and the echo model, and `/api/council` over HTTP).
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).

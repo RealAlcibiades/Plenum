@@ -1876,10 +1876,9 @@ const pickedImages = () => window.MuseImages?.list() ?? [];
 // The reason a model cannot take the images in list, in the server's words, or '' when it can (or when there are none). The list
 // is the composer's files, or the files a queued message was queued with (B-94). public/ext-images.js takes(model, files) checks it.
 const imageRefusal = (list, model) => (list.length && window.MuseImages && !window.MuseImages.takes(model, list) ? window.MuseImages.REFUSAL : '');
-// A council question takes pictures, which each seat gets when its model takes them (pro-07 step 2). The pictures in the composer are
-// the ones it sends; any other file there (a text file or a PDF) is not sent with a council question, so it is refused here.
-const councilPictures = () => pickedImages().filter(file => file.kind === 'image');
-const councilRefusal = () => (pickedImages().some(file => file.kind !== 'image') ? 'A council question takes pictures only. Remove the other files, or switch to Chat to send them.' : '');
+// A council question takes every file the composer holds (DECISIONS item 84): text, code and PDFs go to every seat and the moderator,
+// and each pictures to the models that take them (pro-07 step 2). The server checks them all again, as it does a chat message's.
+const councilFiles = () => pickedImages();
 
 // computer (optional) is the settings of a computer run that this message starts (see sendComputer); appNames are its apps, for the chip.
 // scope (optional) is the thread the message goes to: the thread on screen, or (for a queued message) another thread of the project.
@@ -3188,15 +3187,13 @@ async function askCouncil(question) {
   }
   if (busyNow()) return toast('This project is already running. Use /cancel first.', 'bad');
   if (!text) return toast('Type a question for the council. Example: /council Should we cache the price feed?', 'bad');
-  const refusal = councilRefusal();
-  if (refusal) return toast(refusal, 'bad');
   const config = S.council ?? DEFAULT_COUNCIL;
-  // The pictures in the composer go with this question (pro-07 step 2). The server checks them again, and each seat gets the ones its
-  // model takes. They leave the composer when the question is sent; the chat keeps only their names and sizes.
-  const pictures = councilPictures();
+  // The files in the composer go with this question. The server checks them again; every seat and the moderator get the text files and
+  // PDFs, and the pictures their model takes. They leave the composer when the question is sent; the chat keeps only their names and sizes.
+  const files = councilFiles();
   notes = [];
-  S.messages.push({ role: 'user', kind: 'council', content: text, ts: Date.now(), ...(pictures.length ? { images: pictures.map(({ name, size }) => ({ name, size })) } : {}) });
-  if (pictures.length) window.MuseImages?.clear();
+  S.messages.push({ role: 'user', kind: 'council', content: text, ts: Date.now(), ...(files.length ? { images: files.map(({ name, size }) => ({ name, size })) } : {}) });
+  if (files.length) window.MuseImages?.clear();
   renderChat();
   const cd = liveCouncil(text, config);
   let live = councilEl(cd, true);
@@ -3215,13 +3212,20 @@ async function askCouncil(question) {
       stickBottom();
     });
   };
-  await runStream('/api/council', { ...scopeBody(), question: text, config, ...(pictures.length ? { images: pictures.map(({ name, mime, data }) => ({ name, mime, data })) } : {}) }, councilHandler(cd, paint), {
+  await runStream('/api/council', { ...scopeBody(), question: text, config, ...(files.length ? { images: files.map(({ name, mime, data }) => ({ name, mime, data })) } : {}) }, councilHandler(cd, paint), {
     tick: (secs, time) => {
       cd.clock = time;
       const t = el.chat.querySelector('.council-timer');
       if (t) t.textContent = `Working · ${time}`;
     },
   });
+  // A question the server refused before it started (a file it cannot take, such as a scanned PDF) gets its files back in the composer,
+  // and its text when the box is still empty, so the person can fix the one file and ask again.
+  if (refusedBy && files.length && !pickedImages().length) window.MuseImages?.restore?.(files);
+  if (refusedBy && files.length && !el.input.value) {
+    el.input.value = mode === 'council' ? text : `/council ${text}`;
+    autosize();
+  }
 }
 
 // ---------- council board, above the composer ----------
@@ -6507,7 +6511,7 @@ el.form.addEventListener('submit', e => {
   // A saved prompt's text is a message even when it starts with a slash, so it cannot run a command such as /approvals auto (C-39).
   // ext-prompts.js sets sendingSaved for the one submit a saved prompt makes. A typed /command is unchanged.
   const command = text.startsWith('/') && window.MuseUI?.sendingSaved !== true;
-  const held = command ? '' : mode === 'council' ? councilRefusal() : imageRefusal(images);
+  const held = command || mode === 'council' ? '' : imageRefusal(images);
   if (held) return toast(held, 'bad');
   el.input.value = '';
   autosize();
