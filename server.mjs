@@ -31,7 +31,8 @@ import { geminiSignIn, geminiUsage } from './lib/gemini.mjs';
 import { normalizeRoute, runSend, runBroadcast, runRoute, RelayLog, hashText } from './lib/relay.mjs';
 import { clipText } from './lib/collab.mjs';
 import { effectiveSettings, storedSettings, denyPatternsOf, chatModeOf, approvalModeOf, approvalSummary, approveAllBlockedOf, approveAllCoversOf, codersCannotAskOf, normalizeAppCovers, normalizeProjectSettings } from './lib/projects.mjs';
-import { forgetProjectSessions, forgetSession, sessionMode } from './lib/sessions.mjs';
+import { forgetProjectSessions, forgetSession, sessionEnabled, sessionMode } from './lib/sessions.mjs';
+import { compactDue } from './lib/compact-limits.mjs';
 import { buildFocusOf, FOCUS_REMINDER } from './lib/focus.mjs';
 import { keepArchive, peekArchive } from './lib/archive.mjs';
 import { accrueReply, budgetState, checkBudget, spendOf } from './lib/budget.mjs';
@@ -1031,6 +1032,9 @@ async function handleTurn(req, res, { review }) {
     let extra = { blocks: [], labels: [], notes: [] };
     // The context the turn hooks get (lib/turn-hooks.mjs). Set for a chat turn only, never for a review.
     let hookCtx = null;
+    // The auto-compact check of a chat turn (lib/compact-limits.mjs compactDue, DECISIONS item 86), and the stored question it moves.
+    let autoCompact = null;
+    let questionRecord = null;
 
     if (review) {
       const answerIdx = findLastIndex(log, m => m.role === 'assistant' && m.kind === 'chat');
@@ -1130,6 +1134,12 @@ async function handleTurn(req, res, { review }) {
       rulesChanged = sessionMode(st) === 'native' && rulesSeen.has(project.id) && rulesSeen.get(project.id) !== rulesKey;
       if (rulesChanged) forgetRulesSessions(st, project);
       rulesSeen.set(project.id, rulesKey);
+      // DECISIONS item 86: a thread that has reached this model's auto-compact limit is compacted before the message goes. It is checked here,
+      // on the thread as it is before the message (plus the message and the system text), and the summary is written once the stream is open.
+      // The room is what the turn is sent: one prompt of a CLI (every CLI, and Claude through its CLI), or an API model's window. A CLI that
+      // keeps its own native session compacts that session itself, at the same limit.
+      const sentToCli = provider === 'anthropic' ? (await claudeRoute()) !== 'api' : !api;
+      autoCompact = compactDue({ ref, log, extraChars: question.length + system.length, cli: sentToCli, native: sentToCli && sessionEnabled(ref, st), st });
       // Only the name and size of each picture and file are saved, never its bytes.
       const kept = describeUploads(images, { inline: got.inline, documents });
       // A computer run shows as a chip under the message: the apps it may use and whether it sees one window or a display.
@@ -1138,6 +1148,7 @@ async function handleTurn(req, res, { review }) {
         : {};
       // context: the labels a turn hook gives for what it added to the message (lib/turn-hooks.mjs), shown under it.
       store.addMessage(scope.id, { role: 'user', kind: 'chat', content: text, attached: expanded.attached, ...(kept.length ? { images: kept } : {}), ...computerNote, ...(extra.labels.length ? { context: extra.labels } : {}) });
+      questionRecord = store.transcript(scope.id).at(-1);
       // Saved now, not when the reply ends, so a kill or a crash during the reply keeps the question (B-29). The stream is not open yet, so a
       // failed save is said in a notice once it is (questionSaved), and the reply goes on.
       questionSaved = await saveReporting(null);
@@ -1163,6 +1174,45 @@ async function handleTurn(req, res, { review }) {
     if (!questionSaved) send({ type: 'notice', text: `${store.saveFailure() ?? 'Plenum could not save its state file.'} Your message is shown but is lost on restart until a save works.` });
     // The notes of the turn hooks that ran before the stream opened, and the hooks' own sends from here on.
     for (const note of extra.notes) send({ type: 'notice', text: note });
+    // The automatic compaction (DECISIONS item 86). The question is taken out of the thread while the summary is written, so the summary
+    // covers the earlier messages only, and it goes back after the summary. A summary that fails or is empty leaves the thread as it was,
+    // and the message goes on with it; a Stop ends the turn as it always does.
+    if (autoCompact?.due && questionRecord && !ac.signal.aborted) {
+      const live = store.transcript(scope.id);
+      const label = labelFor(ref);
+      send({ type: 'notice', kind: 'auto-compact', text: `This chat fills about ${autoCompact.pct}% of what ${label} is sent, and its auto-compact limit is ${autoCompact.limit}%. ${label} first writes a summary that replaces the earlier messages.` });
+      const at = live.lastIndexOf(questionRecord);
+      if (at >= 0) live.splice(at, 1);
+      const before = live.filter(m => m.kind === 'chat').length;
+      const cac = new AbortController();
+      const onStop = () => cac.abort();
+      ac.signal.addEventListener('abort', onStop, { once: true });
+      const compactTimer = setTimeout(() => cac.abort(), AUTO_COMPACT_MS);
+      let summary = '';
+      let failure = '';
+      try {
+        summary = await writeSummary({ project, scope, ref, log: live, signal: cac.signal });
+        if (!summary && !cac.signal.aborted) failure = `${label} returned an empty summary`;
+      } catch (err) {
+        failure = err.message;
+      } finally {
+        clearTimeout(compactTimer);
+        ac.signal.removeEventListener('abort', onStop);
+      }
+      if (cac.signal.aborted && !ac.signal.aborted) failure = `it took longer than ${AUTO_COMPACT_MS / 60_000} minutes`;
+      if (summary && !cac.signal.aborted) {
+        replaceWithSummary(scope, live, summary);
+        live.push(questionRecord);
+        // The history of this turn is the summary now; the newest message is the one already built above.
+        messages = [...historyFor(replayable(live.slice(0, -1)), ref, { textOnly: !toolLoop }), messages.at(-1)];
+        await saveReporting(send);
+        events.publishState('run');
+        send({ type: 'notice', kind: 'auto-compact', text: `Compacted ${before} messages into a summary. Your message goes on from there.` });
+      } else {
+        live.push(questionRecord);
+        if (!ac.signal.aborted) send({ type: 'notice', kind: 'auto-compact', text: `Auto-compact did not finish (${failure || 'stopped'}). The chat is unchanged, and your message goes on with it.` });
+      }
+    }
     if (hookCtx) hookCtx.send = send;
     // Approve all is announced once per project (and thread) per launch, on a chat turn that can act. The red button and the Mode
     // menu keep saying it after that. A plan-mode turn changes nothing, so it does not use up the notice.
@@ -1315,6 +1365,40 @@ function transcriptText(log) {
   return parts.join('\n\n');
 }
 
+// The summary of a thread's chat, written by `ref`. It is always written read-only, in every chat mode (B-53): it is text only, so no
+// feature is lost, and a CLI model cannot touch the project folder here (a Codex project's Read only setting is therefore not overridden).
+// The summary's own cost goes into the running spend (lib/budget.mjs) when the call ends, whether or not the summary is kept, and the state
+// is saved on every outcome, as a chat turn and a build are (B-44), so a failed summary keeps its billed cost across a restart.
+// saveReporting never throws, so a failed save here cannot replace the error the caller is reporting (B-28). Returns the summary, trimmed.
+async function writeSummary({ project, scope, ref, log, signal }) {
+  let summary = '';
+  const messages = [{ role: 'user', content: `Summarise this conversation.\n\n<<<CONVERSATION\n${transcriptText(log)}\nCONVERSATION>>>` }];
+  const reports = [];
+  const billing = await billingFor(ref);
+  try {
+    const system = await buildSystem('compact', { root: scope.root, projectId: project.id, project, ref, base: [COMPACT_SYSTEM] });
+    for await (const delta of streamChat(ref, { system, messages, cwd: scope.root, signal, mode: 'ask', effort: 'low', readOnly: true, onUsage: rec => reports.push(rec) })) {
+      summary += delta;
+    }
+  } finally {
+    accrueReply(project, log, summarizeUsage(ref, reports, { billing, partial: signal.aborted }));
+    await saveReporting(null);
+  }
+  return summary.trim();
+}
+
+// Replaces a thread's messages with the summary. They are kept for Undo (lib/archive.mjs), and the thread's native sessions are forgotten,
+// so a CLI does not keep the old chat.
+function replaceWithSummary(scope, log, summary) {
+  keepArchive(scope.id, [...log], 'compact');
+  log.length = 0;
+  forgetProjectSessions(scope.id);
+  store.addMessage(scope.id, { role: 'user', kind: 'chat', compact: true, content: `${COMPACT_HEAD}\n\n${summary}` });
+}
+
+// The longest the automatic compaction before a chat turn may take before the turn goes on without it.
+const AUTO_COMPACT_MS = 15 * 60_000;
+
 // /compact: the main model summarises the chat, and the summary replaces it.
 async function handleCompact(req, res) {
   const body = await readBody(req);
@@ -1343,32 +1427,10 @@ async function handleCompact(req, res) {
     // The summary is an API call on the main model, so a capped project refuses it the same way (before anything runs).
     // It is checked after the project is marked running, as a chat turn is, so no other run can start during the check.
     await refuseAtCap(project, log, st.model);
-    let summary = '';
-    const messages = [{ role: 'user', content: `Summarise this conversation.\n\n<<<CONVERSATION\n${transcriptText(log)}\nCONVERSATION>>>` }];
-    // The summary is always written read-only, in every chat mode (B-53): it is text only, so no feature is lost, and a CLI model cannot
-    // touch the project folder here. A Codex project's Read only setting is therefore not overridden by a compact.
-    const readOnly = true;
-    // The summary's own cost goes into the running spend (lib/budget.mjs) when the call ends, whether or not the summary is kept.
-    const reports = [];
-    const billing = await billingFor(st.model);
-    try {
-      const system = await buildSystem('compact', { root: scope.root, projectId: project.id, project, ref: st.model, base: [COMPACT_SYSTEM] });
-      for await (const delta of streamChat(st.model, { system, messages, cwd: scope.root, signal: ac.signal, mode: 'ask', effort: 'low', readOnly, onUsage: rec => reports.push(rec) })) {
-        summary += delta;
-      }
-    } finally {
-      accrueReply(project, log, summarizeUsage(st.model, reports, { billing, partial: ac.signal.aborted }));
-      // Saved on every outcome, as a chat turn and a build are (B-44), so a failed summary keeps its billed cost across a restart.
-      // saveReporting never throws, so a failed save here cannot replace the error this run is reporting (B-28).
-      await saveReporting(null);
-    }
+    const summary = await writeSummary({ project, scope, ref: st.model, log, signal: ac.signal });
     if (ac.signal.aborted) throw httpError(499, 'Compacting was cancelled. The chat is unchanged.');
-    summary = summary.trim();
     if (!summary) throw httpError(502, `${labelFor(st.model)} returned an empty summary. The chat is unchanged.`);
-    keepArchive(scope.id, [...log], 'compact');
-    log.length = 0;
-    forgetProjectSessions(scope.id);
-    store.addMessage(scope.id, { role: 'user', kind: 'chat', compact: true, content: `${COMPACT_HEAD}\n\n${summary}` });
+    replaceWithSummary(scope, log, summary);
     await store.saveOrFail();
     return json(res, 200, { ...publicState(), compacted: before });
   } finally {
@@ -1382,7 +1444,8 @@ async function handleCompact(req, res) {
 // ---------- council, build and plan ----------
 
 const SSE_HEADERS = { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-content-type-options': 'nosniff' };
-const PLAN_TIMEOUT_MS = 10 * 60 * 1000;
+// The longest a plan may run: the ceiling of a type's time limit (lib/agents.mjs CEILINGS.timeoutMin, 480 minutes).
+const PLAN_TIMEOUT_MS = 480 * 60 * 1000;
 
 // Runs one generator as a server-sent stream for a project. makeRun checks its input and may save
 // the question first; anything it throws before the stream starts is answered as plain JSON.
@@ -1612,6 +1675,8 @@ async function handlePlan(req, res) {
   const ref = body.planner ? parseRef(body.planner) : cfg.moderator.ref;
   // The agents block in force (the project's own, else the app's, else the defaults): the Planner type's limits and the types a task may name.
   const agents = effectiveAgents(store.get(), project);
+  // The Planner type's own time limit (Agents > Types). It was also capped at PLAN_TIMEOUT_MS, so a limit raised there still stopped a
+  // planner on a slow model at 10 minutes (DECISIONS item 86); the cap is now the type's ceiling.
   const limit = Math.min(PLAN_TIMEOUT_MS, typeByName(agents, 'planner').timeoutMin * 60_000);
   // A plan is a run of its thread, like a chat turn and a compact (B-34): it is marked running, so /cancel stops it, the page shows the
   // thread as busy, another run in the thread is refused, and a build waits for it. The checks come before anything starts.

@@ -2712,7 +2712,7 @@ const FALLBACK_TYPES = [
   { name: 'coder', label: 'Coder', kind: 'edit', model: null, effort: 'high', maxSteps: 30, timeoutMin: 15 },
   { name: 'researcher', label: 'Researcher', kind: 'read', model: null, effort: 'medium', maxSteps: 30, timeoutMin: 10 },
   { name: 'tester', label: 'Tester', kind: 'read', model: null, effort: 'medium', maxSteps: 30, timeoutMin: 15 },
-  { name: 'reviewer', label: 'Reviewer', kind: 'read', model: null, effort: 'high', maxSteps: 20, timeoutMin: 10 },
+  { name: 'reviewer', label: 'Reviewer', kind: 'read', model: null, effort: 'high', maxSteps: 20, timeoutMin: 20 },
 ];
 // Why a task's agent ended early, in the words the Agents tab uses (ext-agents.js).
 const AGENT_STOP_WORDS = { timeout: 'Stopped at its time limit', idle: 'Stopped at its idle limit', steps: 'Stopped at its tool step limit', user: 'Stopped by you', parent: 'Stopped with the run', denied: 'Not started: you said no' };
@@ -5754,7 +5754,7 @@ const SETTINGS_GROUPS = [
   { key: 'more', label: 'More' },
 ];
 const SECTION_GROUP = {
-  rules: 'rules', accounts: 'accounts', 'api-finder': 'api', roles: 'roles', sessions: 'roles', agents: 'agents', approvals: 'safety', phones: 'phones',
+  rules: 'rules', accounts: 'accounts', 'api-finder': 'api', roles: 'roles', sessions: 'roles', compaction: 'roles', agents: 'agents', approvals: 'safety', phones: 'phones',
   appearance: 'general', music: 'general', desktop: 'general', legal: 'legal', updates: 'updates', 'plenum-changes': 'updates',
 };
 const groupOfSection = def => SECTION_GROUP[def.id] ?? (SETTINGS_GROUPS.some(g => g.key === def.group) ? def.group : 'more');
@@ -6237,6 +6237,141 @@ settingsRegister({
     body.append(row, status.note);
   },
 });
+
+// Auto-compact: a dial for each model (DECISIONS item 86, lib/compact-limits.mjs and lib/routes/compact-limits.mjs). A model with a limit has its
+// chat compacted by Plenum when the thread fills that share of what the model is sent, and Claude Code and Codex are told the same limit for
+// their own compaction. Default leaves the model as it was; Off also turns Claude Code's own auto-compaction off.
+settingsRegister({
+  id: 'compaction',
+  scope: 'app',
+  title: 'Auto-compact',
+  order: 35,
+  render(body) {
+    body.append(para('Reading the limits…'));
+    // The "Add another model" menu is filled from the model catalog; Settings opened while the page is still starting has none yet.
+    const models = catalog.length ? null : loadProviders().catch(() => {});
+    return Promise.all([api('/api/compact-limits'), models]).then(([data]) => drawCompaction(body, data));
+  },
+});
+
+// 37_500 -> "38K", 1_000_000 -> "1M".
+const tokenWords = n => (n >= 1_000_000 ? `${Math.round(n / 100_000) / 10}M` : `${Math.round(n / 1000)}K`);
+
+// What one model's limit does, in a sentence or two, from the server's description of it (GET /api/compact-limits).
+function compactNote(m, value) {
+  const room = m.room ?? {};
+  const where = room.kind === 'prompt'
+    ? `the most Plenum sends it in one prompt (about ${tokenWords(room.tokens)} tokens)`
+    : room.kind === 'assumed'
+      ? `its context window (none is published, so Plenum assumes ${tokenWords(room.tokens)} tokens)`
+      : `its ${tokenWords(room.tokens)} token context window`;
+  const parts = [];
+  if (value === null) {
+    parts.push('Model default: Plenum does not compact this chat on its own.');
+    if (m.knob) parts.push(`${m.knob === 'claude' ? 'Claude Code' : 'Codex'} keeps its own default.`);
+  } else if (value === 'off') {
+    parts.push('Off: Plenum never compacts this chat on its own.');
+    if (m.knob === 'claude') parts.push('Claude Code\'s own auto-compaction is turned off too.');
+    if (m.knob === 'codex') parts.push('Codex has no switch that turns its own compaction off, so it keeps its default.');
+  } else {
+    parts.push(room.kind === 'session'
+      ? 'This model keeps its own session here (Native session mode), so it compacts that session itself.'
+      : `Plenum compacts the chat when it fills ${value}% of ${where}: the model writes a summary, which replaces the earlier messages.`);
+    if (m.knob === 'claude') parts.push(`Claude Code compacts its own context at ${value}% too.`);
+    if (m.knob === 'codex' && m.codexTokens) parts.push(`Codex compacts its own context at ${tokenWords(m.codexTokens)} tokens (${value}% of ${m.published ? '' : 'an assumed '}${tokenWords(m.window)}).`);
+  }
+  return parts.join(' ');
+}
+
+function drawCompaction(body, data) {
+  body.replaceChildren();
+  body.append(para('A dial for each model: when a chat fills that share of what the model gets, it is compacted into a summary first, as /compact does. Claude Code and Codex are given the same limit for their own compaction. Default changes nothing.'));
+  const range = data.range ?? { min: 20, max: 95, step: 5 };
+  for (const m of data.models ?? []) body.append(compactRow(m, range));
+  // Any other model can be given a limit too.
+  const shown = new Set((data.models ?? []).map(m => m.ref));
+  const others = catalog.filter(c => c.provider && c.id && !shown.has(`${c.provider}:${c.id}`));
+  if (others.length) {
+    const pick = document.createElement('select');
+    pick.setAttribute('aria-label', 'Add a model to set its auto-compact limit');
+    pick.append(new Option('Add another model…', ''));
+    for (const c of others) pick.append(new Option(plainModel(c.label) || `${c.provider}:${c.id}`, `${c.provider}:${c.id}`));
+    const status = settingStatus();
+    pick.addEventListener('change', () => {
+      const ref = pick.value;
+      if (!ref) return;
+      api('/api/compact-limits', { ref, value: 80 })
+        .then(next => {
+          drawCompaction(body, next);
+          toast(`Auto-compact for ${fullModelLabel(ref)}: 80%`);
+        })
+        .catch(err => {
+          pick.value = '';
+          status.failed(err.message);
+          toast(err.message, 'bad');
+        });
+    });
+    const row = document.createElement('label');
+    row.className = 'setting';
+    row.append(span('field-label', 'Another model'), pick);
+    body.append(row, status.note);
+  }
+}
+
+function compactRow(m, range) {
+  const wrap = document.createElement('div');
+  wrap.className = 'setting compact-model';
+  const mode = document.createElement('select');
+  mode.setAttribute('aria-label', `Auto-compact for ${m.label}`);
+  mode.append(new Option('Model default', 'default'), new Option('Limit', 'limit'), new Option('Off', 'off'));
+  const dial = document.createElement('input');
+  dial.type = 'range';
+  dial.min = String(range.min);
+  dial.max = String(range.max);
+  dial.step = String(range.step);
+  dial.setAttribute('aria-label', `Auto-compact limit for ${m.label}, in percent`);
+  const out = document.createElement('output');
+  const note = span('field-note', '');
+  const status = settingStatus();
+  let saved = m.value;
+  const paint = value => {
+    mode.value = value === null ? 'default' : value === 'off' ? 'off' : 'limit';
+    dial.value = String(typeof value === 'number' ? value : 80);
+    dial.disabled = typeof value !== 'number';
+    out.textContent = typeof value === 'number' ? `${value}%` : '';
+    note.textContent = compactNote(m, value);
+  };
+  // Only the answer to the latest change is used, so two quick changes cannot leave the dial on the earlier value.
+  let latest = 0;
+  const save = value => {
+    const mine = ++latest;
+    paint(value);
+    api('/api/compact-limits', { ref: m.ref, value })
+      .then(next => {
+        if (mine !== latest) return;
+        const fresh = (next.models ?? []).find(x => x.ref === m.ref);
+        if (fresh) Object.assign(m, fresh);
+        saved = fresh ? fresh.value : value;
+        paint(saved);
+        status.saved();
+      })
+      .catch(err => {
+        if (mine !== latest) return;
+        paint(saved);
+        status.failed(err.message);
+        toast(err.message, 'bad');
+      });
+  };
+  mode.addEventListener('change', () => save(mode.value === 'default' ? null : mode.value === 'off' ? 'off' : Number(dial.value)));
+  dial.addEventListener('input', () => { out.textContent = `${dial.value}%`; note.textContent = compactNote(m, Number(dial.value)); });
+  dial.addEventListener('change', () => save(Number(dial.value)));
+  const dialRow = document.createElement('div');
+  dialRow.className = 'range-row';
+  dialRow.append(mode, dial, out);
+  wrap.append(span('field-label', m.label || m.ref), dialRow, note, status.note);
+  paint(saved);
+  return wrap;
+}
 
 // ---------- the confirm dialog (MuseUI.confirm) ----------
 // MuseUI.confirm({ title, body, action, cancel, tone, check, focusCancel }) replaces window.confirm and window.prompt. It resolves
