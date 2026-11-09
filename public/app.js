@@ -6238,9 +6238,9 @@ settingsRegister({
   },
 });
 
-// Auto-compact: a dial for each model (DECISIONS item 86, lib/compact-limits.mjs and lib/routes/compact-limits.mjs). A model with a limit has its
-// chat compacted by Plenum when the thread fills that share of what the model is sent, and Claude Code and Codex are told the same limit for
-// their own compaction. Default leaves the model as it was; Off also turns Claude Code's own auto-compaction off.
+// Auto-compact: a dial for each model, in tokens (DECISIONS item 86, lib/compact-limits.mjs and lib/routes/compact-limits.mjs). A model with a
+// limit has its chat compacted by Plenum when the thread holds that many tokens, and Claude Code and Codex are told the same limit for their
+// own compaction. Default leaves the model as it was; Off also turns Claude Code's own auto-compaction off.
 settingsRegister({
   id: 'compaction',
   scope: 'app',
@@ -6260,11 +6260,6 @@ const tokenWords = n => (n >= 1_000_000 ? `${Math.round(n / 100_000) / 10}M` : `
 // What one model's limit does, in a sentence or two, from the server's description of it (GET /api/compact-limits).
 function compactNote(m, value) {
   const room = m.room ?? {};
-  const where = room.kind === 'prompt'
-    ? `the most Plenum sends it in one prompt (about ${tokenWords(room.tokens)} tokens)`
-    : room.kind === 'assumed'
-      ? `its context window (none is published, so Plenum assumes ${tokenWords(room.tokens)} tokens)`
-      : `its ${tokenWords(room.tokens)} token context window`;
   const parts = [];
   if (value === null) {
     parts.push('Model default: Plenum does not compact this chat on its own.');
@@ -6274,100 +6269,154 @@ function compactNote(m, value) {
     if (m.knob === 'claude') parts.push('Claude Code\'s own auto-compaction is turned off too.');
     if (m.knob === 'codex') parts.push('Codex has no switch that turns its own compaction off, so it keeps its default.');
   } else {
-    parts.push(room.kind === 'session'
-      ? 'This model keeps its own session here (Native session mode), so it compacts that session itself.'
-      : `Plenum compacts the chat when it fills ${value}% of ${where}: the model writes a summary, which replaces the earlier messages.`);
-    if (m.knob === 'claude') parts.push(`Claude Code compacts its own context at ${value}% too.`);
-    if (m.knob === 'codex' && m.codexTokens) parts.push(`Codex compacts its own context at ${tokenWords(m.codexTokens)} tokens (${value}% of ${m.published ? '' : 'an assumed '}${tokenWords(m.window)}).`);
+    const tokens = `${tokenWords(value)} tokens`;
+    const share = m.published && m.window ? ` (${Math.round((value / m.window) * 100)}% of its ${tokenWords(m.window)} token context window)` : '';
+    if (room.kind === 'session') {
+      parts.push('This model keeps its own session here (Native session mode), so it compacts that session itself.');
+    } else {
+      parts.push(`Plenum compacts the chat when it holds about ${tokens}${share}: the model writes a summary, which replaces the earlier messages.`);
+      if (room.kind === 'prompt' && value > room.tokens) parts.push(`One prompt to this model carries about ${tokenWords(room.tokens)} tokens of the chat at most, so until then the oldest messages are left out of what it is sent.`);
+    }
+    if (!m.published) parts.push('No context window is published for this model.');
+    // Claude Code keeps 13,000 tokens free below its own window (at most 1M), so it never compacts later than that (lib/compact-limits.mjs).
+    const claudeTop = m.published && m.window ? Math.min(m.window, 1_000_000) - 13_000 : null;
+    if (m.knob === 'claude' && claudeTop !== null && value > claudeTop) parts.push(`Claude Code is told the same limit, but it keeps 13K tokens free below its window, so it compacts its own context at about ${tokenWords(claudeTop)} tokens.`);
+    else if (m.knob === 'claude' && !m.published) parts.push(`Claude Code is told to compact its own context at ${tokens} too, or 13K tokens below its own window if that comes first.`);
+    else if (m.knob === 'claude') parts.push(`Claude Code is told to compact its own context at ${tokens} too.`);
+    if (m.knob === 'codex') parts.push(`Codex is told to compact its own context at ${tokens} too.`);
   }
   return parts.join(' ');
 }
 
 function drawCompaction(body, data) {
   body.replaceChildren();
-  body.append(para('A dial for each model: when a chat fills that share of what the model gets, it is compacted into a summary first, as /compact does. Claude Code and Codex are given the same limit for their own compaction. Default changes nothing.'));
-  const range = data.range ?? { min: 20, max: 95, step: 5 };
-  for (const m of data.models ?? []) body.append(compactRow(m, range));
-  // Any other model can be given a limit too.
+  body.append(para('A dial for each model, in tokens: when a chat holds that many, it is compacted into a summary first, as /compact does. Claude Code and Codex are given the same limit for their own compaction. Default changes nothing.'));
+  const range = data.range ?? { min: 10_000, step: 1000 };
+  const rows = document.createElement('div');
+  for (const m of data.models ?? []) rows.append(compactRow(m, range));
+  body.append(rows);
+  // Any other model can be given a limit too: it gets a row, on its default until its menu or dial is changed.
   const shown = new Set((data.models ?? []).map(m => m.ref));
   const others = catalog.filter(c => c.provider && c.id && !shown.has(`${c.provider}:${c.id}`));
-  if (others.length) {
-    const pick = document.createElement('select');
-    pick.setAttribute('aria-label', 'Add a model to set its auto-compact limit');
-    pick.append(new Option('Add another model…', ''));
-    for (const c of others) pick.append(new Option(plainModel(c.label) || `${c.provider}:${c.id}`, `${c.provider}:${c.id}`));
-    const status = settingStatus();
-    pick.addEventListener('change', () => {
-      const ref = pick.value;
-      if (!ref) return;
-      api('/api/compact-limits', { ref, value: 80 })
-        .then(next => {
-          drawCompaction(body, next);
-          toast(`Auto-compact for ${fullModelLabel(ref)}: 80%`);
-        })
-        .catch(err => {
-          pick.value = '';
-          status.failed(err.message);
-          toast(err.message, 'bad');
-        });
-    });
-    const row = document.createElement('label');
-    row.className = 'setting';
-    row.append(span('field-label', 'Another model'), pick);
-    body.append(row, status.note);
-  }
+  if (!others.length) return;
+  const pick = document.createElement('select');
+  pick.setAttribute('aria-label', 'Add a model to set its auto-compact limit');
+  pick.append(new Option('Add another model…', ''));
+  for (const c of others) pick.append(new Option(plainModel(c.label) || `${c.provider}:${c.id}`, `${c.provider}:${c.id}`));
+  const status = settingStatus();
+  pick.addEventListener('change', () => {
+    const ref = pick.value;
+    if (!ref) return;
+    pick.disabled = true;
+    api(`/api/compact-limits?ref=${encodeURIComponent(ref)}`)
+      .then(next => {
+        rows.append(compactRow(next.model, next.range ?? range));
+        pick.querySelector(`option[value="${CSS.escape(ref)}"]`)?.remove();
+        rows.lastElementChild?.querySelector('select')?.focus({ preventScroll: false });
+      })
+      .catch(err => {
+        status.failed(err.message);
+        toast(err.message, 'bad');
+      })
+      .finally(() => {
+        pick.value = '';
+        pick.disabled = false;
+      });
+  });
+  const row = document.createElement('label');
+  row.className = 'setting';
+  row.append(span('field-label', 'Another model'), pick);
+  body.append(row, status.note);
 }
 
 function compactRow(m, range) {
   const wrap = document.createElement('div');
   wrap.className = 'setting compact-model';
+  wrap.dataset.ref = m.ref;
+  const max = Number(m.max) || 1_000_000;
+  const start = Number(m.suggested) || Math.min(max, 100_000);
   const mode = document.createElement('select');
   mode.setAttribute('aria-label', `Auto-compact for ${m.label}`);
   mode.append(new Option('Model default', 'default'), new Option('Limit', 'limit'), new Option('Off', 'off'));
   const dial = document.createElement('input');
   dial.type = 'range';
   dial.min = String(range.min);
-  dial.max = String(range.max);
+  dial.max = String(max);
   dial.step = String(range.step);
-  dial.setAttribute('aria-label', `Auto-compact limit for ${m.label}, in percent`);
-  const out = document.createElement('output');
+  dial.setAttribute('aria-label', `Auto-compact limit for ${m.label}, in tokens`);
+  // The exact number, typed or nudged; the dial follows it.
+  const box = document.createElement('input');
+  box.type = 'number';
+  box.min = String(range.min);
+  box.max = String(max);
+  box.step = String(range.step);
+  box.inputMode = 'numeric';
+  box.className = 'compact-tokens';
+  box.setAttribute('aria-label', `Auto-compact limit for ${m.label}, in tokens, typed`);
+  const unit = span('compact-unit', 'tokens');
   const note = span('field-note', '');
   const status = settingStatus();
   let saved = m.value;
+  // The last limit shown: Off or Model default leaves it on the (disabled) dial, and Limit picks it up again.
+  let last = typeof m.value === 'number' ? m.value : start;
   const paint = value => {
     mode.value = value === null ? 'default' : value === 'off' ? 'off' : 'limit';
-    dial.value = String(typeof value === 'number' ? value : 80);
-    dial.disabled = typeof value !== 'number';
-    out.textContent = typeof value === 'number' ? `${value}%` : '';
+    if (typeof value === 'number') last = value;
+    dial.value = String(last);
+    box.value = String(last);
+    dial.disabled = box.disabled = typeof value !== 'number';
     note.textContent = compactNote(m, value);
   };
-  // Only the answer to the latest change is used, so two quick changes cannot leave the dial on the earlier value.
-  let latest = 0;
+  // Only the answer to the latest change repaints the row, so two quick changes cannot leave the dial on the earlier value. Every success
+  // newer than the last one recorded still becomes what the server holds, so a change that fails goes back to that; and an earlier change
+  // that is answered after the newest one failed repaints the row with it, since the server now holds it.
+  let latest = 0; // the newest change
+  let acked = 0; // the newest change the server took
+  let failed = 0; // the newest change that failed while it was the newest
   const save = value => {
     const mine = ++latest;
     paint(value);
     api('/api/compact-limits', { ref: m.ref, value })
       .then(next => {
-        if (mine !== latest) return;
         const fresh = (next.models ?? []).find(x => x.ref === m.ref);
-        if (fresh) Object.assign(m, fresh);
-        saved = fresh ? fresh.value : value;
-        paint(saved);
-        status.saved();
+        if (mine > acked) {
+          acked = mine;
+          if (fresh) Object.assign(m, fresh);
+          saved = fresh ? fresh.value : value;
+        }
+        if (mine === latest) {
+          paint(saved);
+          status.saved();
+        } else if (failed === latest && mine === acked) {
+          paint(saved);
+        }
       })
       .catch(err => {
         if (mine !== latest) return;
+        failed = mine;
         paint(saved);
         status.failed(err.message);
         toast(err.message, 'bad');
       });
   };
-  mode.addEventListener('change', () => save(mode.value === 'default' ? null : mode.value === 'off' ? 'off' : Number(dial.value)));
-  dial.addEventListener('input', () => { out.textContent = `${dial.value}%`; note.textContent = compactNote(m, Number(dial.value)); });
+  mode.addEventListener('change', () => save(mode.value === 'default' ? null : mode.value === 'off' ? 'off' : Number(box.value) || start));
+  dial.addEventListener('input', () => {
+    box.value = dial.value;
+    note.textContent = compactNote(m, Number(dial.value));
+  });
   dial.addEventListener('change', () => save(Number(dial.value)));
+  box.addEventListener('change', () => {
+    const n = Number(box.value);
+    if (!Number.isInteger(n) || n < range.min || n > max) {
+      status.failed(`Type whole tokens from ${range.min.toLocaleString()} to ${max.toLocaleString()}.`);
+      paint(saved);
+      return;
+    }
+    save(n);
+  });
   const dialRow = document.createElement('div');
   dialRow.className = 'range-row';
-  dialRow.append(mode, dial, out);
+  dialRow.append(mode, dial, box, unit);
   wrap.append(span('field-label', m.label || m.ref), dialRow, note, status.note);
   paint(saved);
   return wrap;

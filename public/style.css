@@ -1444,12 +1444,16 @@ html[data-legal='pending'] #app { display: none; }
 .range-row { display: flex; align-items: center; gap: 10px; }
 .range-row input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
 .range-row output { flex: none; min-width: 44px; text-align: right; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-/* Settings > Roles > Auto-compact: one row per model, the mode menu, the dial and its percent. A narrow window wraps the dial under the menu. */
+/* Settings > Roles > Auto-compact: one row per model, the mode menu, the token dial and the typed token box. A narrow window wraps the dial
+   under the menu. */
 .compact-model + .compact-model { padding-top: 10px; border-top: 1px solid var(--line); }
 .compact-model .range-row { flex-wrap: wrap; }
 .compact-model .range-row select { flex: none; }
 .compact-model .range-row input[type="range"] { flex: 1 1 140px; }
 .compact-model .range-row input[type="range"]:disabled { opacity: 0.45; }
+.compact-model .range-row .compact-tokens { flex: none; width: 11ch; font-variant-numeric: tabular-nums; }
+.compact-model .range-row .compact-tokens:disabled { opacity: 0.45; }
+.compact-model .range-row .compact-unit { flex: none; color: var(--muted); font-size: 13px; }
 .switch-row { position: relative; display: flex; align-items: flex-start; gap: 12px; cursor: pointer; color: var(--text); font-size: 13px; line-height: 1.45; }
 .switch-row .switch-track { margin-top: 2px; }
 .switch-row input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }

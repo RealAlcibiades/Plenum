@@ -32,7 +32,7 @@ import { normalizeRoute, runSend, runBroadcast, runRoute, RelayLog, hashText } f
 import { clipText } from './lib/collab.mjs';
 import { effectiveSettings, storedSettings, denyPatternsOf, chatModeOf, approvalModeOf, approvalSummary, approveAllBlockedOf, approveAllCoversOf, codersCannotAskOf, normalizeAppCovers, normalizeProjectSettings } from './lib/projects.mjs';
 import { forgetProjectSessions, forgetSession, sessionEnabled, sessionMode } from './lib/sessions.mjs';
-import { compactDue } from './lib/compact-limits.mjs';
+import { compactDue, tokenText } from './lib/compact-limits.mjs';
 import { buildFocusOf, FOCUS_REMINDER } from './lib/focus.mjs';
 import { keepArchive, peekArchive } from './lib/archive.mjs';
 import { accrueReply, budgetState, checkBudget, spendOf } from './lib/budget.mjs';
@@ -1180,7 +1180,7 @@ async function handleTurn(req, res, { review }) {
     if (autoCompact?.due && questionRecord && !ac.signal.aborted) {
       const live = store.transcript(scope.id);
       const label = labelFor(ref);
-      send({ type: 'notice', kind: 'auto-compact', text: `This chat fills about ${autoCompact.pct}% of what ${label} is sent, and its auto-compact limit is ${autoCompact.limit}%. ${label} first writes a summary that replaces the earlier messages.` });
+      send({ type: 'notice', kind: 'auto-compact', text: `This chat holds about ${tokenText(autoCompact.used)} tokens, and the auto-compact limit for ${label} is ${tokenText(autoCompact.limit)}. ${label} first writes a summary that replaces the earlier messages.` });
       const at = live.lastIndexOf(questionRecord);
       if (at >= 0) live.splice(at, 1);
       const before = live.filter(m => m.kind === 'chat').length;
