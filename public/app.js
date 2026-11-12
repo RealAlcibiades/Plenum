@@ -27,6 +27,7 @@ const el = {
   boardSummary: $('boardSummary'),
   roundsSel: $('roundsSel'),
   folderSel: $('folderSel'),
+  addSeatBtn: $('addSeatBtn'),
   relayOpenBtn: $('relayOpenBtn'),
   relayLogBtn: $('relayLogBtn'),
   relayBar: $('relayBar'),
@@ -117,6 +118,9 @@ const THINKING = `<span class="thinking"><svg class="loop" viewBox="6 12 52 40" 
 
 // Council seats, the build coders and the relay settings (see CONTRACTS.md and RELAY-CONTRACT.md).
 const SEAT_IDS = ['a', 'b', 'c', 'd'];
+// A council has 2 to 4 seats (lib/council.mjs checks it too; DECISIONS item 88).
+const MIN_SEATS = 2;
+const MAX_SEATS = 4;
 const ROLE_LABELS = { architect: 'Architect', engineer: 'Engineer', skeptic: 'Skeptic', generalist: 'Generalist' };
 // Used only until the server's state arrives; the server always sends the saved council.
 const DEFAULT_COUNCIL = {
@@ -124,6 +128,7 @@ const DEFAULT_COUNCIL = {
     { ref: 'anthropic:claude-opus-5-5', effort: 'high', role: 'architect' },
     { ref: 'muse:muse-wonder-full-1.0', effort: 'high', role: 'skeptic' },
     { ref: 'codex:default', effort: 'high', role: 'engineer' },
+    { ref: 'gemini:default', effort: 'high', role: 'generalist' },
   ],
   moderator: { ref: 'anthropic:claude-fable-5-2', effort: 'high' },
   rounds: 2,
@@ -3332,6 +3337,9 @@ function renderBoard() {
     const one = el.roundsSel.querySelector('option[value="1"]');
     if (one) one.disabled = folder === 'work';
   }
+  // A council has 2 to 4 seats (DECISIONS item 88): Add seat shows until there are four, and the row has one column per seat.
+  if (el.addSeatBtn) el.addSeatBtn.hidden = cfg.seats.length >= MAX_SEATS;
+  el.boardSeats.style.setProperty('--cols', String(cfg.seats.length + 1));
   if (!council) return;
   if (boardPills.length !== cfg.seats.length + 1) {
     boardPills = [...cfg.seats.map((_, i) => seatPill(i)), moderatorPill()];
@@ -3374,9 +3382,13 @@ function seatPill(index) {
   effort.select.replaceChildren(...menuHead(), ...effortOptions());
   effort.select.addEventListener('change', () => editSeat(index, 'effort', effort.select.value));
   const sess = span('seat-sess', '');
+  const remove = button('seat-remove', '×');
+  remove.title = `Remove seat ${L}. A council keeps at least 2 seats`;
+  remove.setAttribute('aria-label', `Remove seat ${L}`);
+  remove.addEventListener('click', () => removeSeat(index));
   const head = document.createElement('div');
   head.className = 'seat-head';
-  head.append(span('seat-letter', L), role);
+  head.append(span('seat-letter', L), role, remove);
   const foot = document.createElement('div');
   foot.className = 'seat-foot';
   foot.append(effort.pickEl, sess);
@@ -3387,6 +3399,7 @@ function seatPill(index) {
       const s = cfg.seats[index] ?? {};
       const gemini = providerOf(s.ref) === 'gemini';
       root.dataset.p = providerOf(s.ref);
+      remove.hidden = cfg.seats.length <= MIN_SEATS;
       role.value = s.role;
       ensureOption(model.select, s.ref);
       model.select.value = s.ref;
@@ -3451,6 +3464,36 @@ async function editSeat(index, field, value) {
   });
 }
 
+// Add seat and the × on a seat (DECISIONS item 88). The server takes 2 to 4 seats; the letters follow the order, so removing seat B
+// makes seat C the new B. A new seat takes the first role not yet on the council, and the first of Plenum's CLIs not yet seated
+// (Gemini CLI, Codex, Muse Code, then Claude), so the council can have every one of them; with all four seated it copies the last seat.
+const NEW_SEAT_MODELS = [['gemini', 'gemini:default'], ['codex', 'codex:default'], ['muse', 'muse:muse-wonder-full-1.0'], ['anthropic', 'anthropic:claude-opus-5-5']];
+function newSeat(seats) {
+  const roles = new Set(seats.map(s => s.role));
+  const role = ['architect', 'skeptic', 'engineer', 'generalist'].find(r => !roles.has(r)) ?? 'generalist';
+  const seated = new Set(seats.map(s => providerOf(s.ref)));
+  const ref = NEW_SEAT_MODELS.find(([p]) => !seated.has(p))?.[1] ?? seats.at(-1)?.ref ?? 'gemini:default';
+  return { ref, effort: 'high', role };
+}
+
+async function addSeat() {
+  return queueSettingsSave(async () => {
+    const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
+    if (cfg.seats.length >= MAX_SEATS) return;
+    cfg.seats.push(newSeat(cfg.seats));
+    await saveCouncil(cfg);
+  });
+}
+
+async function removeSeat(index) {
+  return queueSettingsSave(async () => {
+    const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
+    if (cfg.seats.length <= MIN_SEATS || !cfg.seats[index]) return;
+    cfg.seats.splice(index, 1);
+    await saveCouncil(cfg);
+  });
+}
+
 async function editMod(field, value) {
   return queueSettingsSave(async () => {
     const cfg = JSON.parse(JSON.stringify(S.council ?? DEFAULT_COUNCIL));
@@ -3509,13 +3552,17 @@ function renderCouncilDrawer(body) {
   rounds.value = String(cfg.rounds);
   rounds.addEventListener('change', () => editRounds(rounds.value));
   body.append(fieldRow('Rounds', rounds, 'One round means no critique. Two or three let the seats answer each other.'));
+  const addBtn = button('ghost small', 'Add seat');
+  addBtn.title = 'Add a seat. A council has 2 to 4 seats';
+  addBtn.hidden = cfg.seats.length >= MAX_SEATS;
+  addBtn.addEventListener('click', () => addSeat());
   const relayBtn = button('ghost small', 'Relay route…');
   relayBtn.addEventListener('click', () => openDrawer('Relay route', renderRelayPanel));
   const logBtn = button('ghost small', 'Relay log');
   logBtn.addEventListener('click', () => openDrawer('Relay log', renderRelayLog));
   const actions = document.createElement('div');
   actions.className = 'actions';
-  actions.append(relayBtn, logBtn);
+  actions.append(addBtn, relayBtn, logBtn);
   body.append(actions);
 }
 
@@ -6940,6 +6987,7 @@ for (const b of el.modeBtns) {
 }
 
 el.roundsSel.addEventListener('change', () => editRounds(el.roundsSel.value));
+el.addSeatBtn?.addEventListener('click', () => addSeat());
 el.folderSel?.addEventListener('change', () => editFolder(el.folderSel.value));
 el.relayOpenBtn.addEventListener('click', () => openDrawer('Relay route', renderRelayPanel));
 el.relayLogBtn.addEventListener('click', () => openDrawer('Relay log', renderRelayLog));

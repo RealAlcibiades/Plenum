@@ -139,7 +139,7 @@ Sources checked for items 1 to 11 (an earlier round):
 
 ## 13. The default council is the one in lib/council.mjs
 
-**Decision.** With no council set, the council is `DEFAULT_COUNCIL` in `lib/council.mjs`: Claude Opus 5.5 as Architect, Muse Code Wonder Full as Skeptic and Codex as Engineer. Claude Fable 5.1 is the moderator (Claude Fable 5.2 since item 87). There are two rounds.
+**Decision.** With no council set, the council is `DEFAULT_COUNCIL` in `lib/council.mjs`: Claude Opus 5.5 as Architect, Muse Code Wonder Full as Skeptic and Codex as Engineer (and Gemini CLI as Generalist since item 88). Claude Fable 5.1 is the moderator (Claude Fable 5.2 since item 87). There are two rounds.
 
 **Reason.** Each seat has a different role, so the seats are not three copies of one brief. Muse Code and Codex run in their read-only settings (item 12).
 
@@ -970,6 +970,19 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 **Source.** `lib/proc.mjs` (`keyRoutesFrom`, `GEMINI_MODEL_ROUTES`), `lib/gemini.mjs` (`keyChoice`, `geminiRoute`, `geminiModelRoutes`, `authSettings`), `lib/routes/keys.mjs` (`routeStatus`, `saveRoutes`), `lib/providers.mjs` (`CATALOG`, `ALIASES`, `FALLBACK_MODELS`, `BINDING_MODELS`, `baseParams`, `billingFor`), `lib/council.mjs` and `public/app.js` (`DEFAULT_COUNCIL`), `lib/model-info.mjs`, `lib/pricing.mjs`, `lib/price-feeds.mjs`, `lib/computer/support.mjs`, `public/ext-accounts-api.js` and `.css`.
 
 **Status.** Built on 12 Nov 2026 with tests (`build/v06/gemini-model-routes`). Not yet tried with a real Gemini subscription or a real Fable 5.2 request.
+
+## 88. Gemini on the council, and seats can be added and removed
+
+**Decision.** On 12 Nov 2026 the owner asked why Gemini was not on the council. It never had a seat: the default council had three (Claude, Muse Code, Codex), and the board could change a seat's model, role and effort but not the number of seats, though the server has always taken 2 to 4.
+
+- **The default council has four seats.** Gemini CLI (`gemini:default`, the CLI's own model) joins as seat D, Generalist, at high effort. A saved council keeps the seats it was saved with.
+- **Add seat and remove.** The board (and the Council panel on narrow windows and the phone) has **Add seat** while there are fewer than four seats, and each seat has a × while there are more than two. The letters follow the order, so removing seat B makes seat C the new B. A new seat takes the first role not yet on the council (Architect, Skeptic, Engineer, Generalist) and the first of Plenum's CLIs not yet seated (Gemini CLI, Codex, Muse Code, then Claude Opus 5.5); with all four seated it copies the last seat's model. The seat row has one column per seat plus the moderator.
+
+**Reason.** Running Claude, Muse Code, Codex and Gemini together is the point of Plenum (item 12), and the owner expected Gemini on the council. A fourth seat adds a model rather than replacing one, so no CLI leaves the council. Gemini takes the Generalist role because it is the one role the three-seat default left empty. The Gemini seat follows the Gemini route in Accounts (item 87): with a Google AI key saved and the switch on it bills the key per token, and setting the Gemini CLI default model to the subscription there puts it on the Google sign-in.
+
+**Source.** The owner's question on 12 Nov 2026. Code: `DEFAULT_COUNCIL` in `lib/council.mjs` and `public/app.js`; `newSeat`, `addSeat`, `removeSeat`, `seatPill`, `renderBoard` and `renderCouncilDrawer` in `public/app.js`; `#addSeatBtn` in `public/index.html`; `.board-seats` and `.seat-remove` in `public/style.css`.
+
+**Status.** Built on 12 Nov 2026 with tests (`build/v06/council-seats`).
 
 ## Open items
 
