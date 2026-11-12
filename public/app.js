@@ -125,7 +125,7 @@ const DEFAULT_COUNCIL = {
     { ref: 'muse:muse-wonder-full-1.0', effort: 'high', role: 'skeptic' },
     { ref: 'codex:default', effort: 'high', role: 'engineer' },
   ],
-  moderator: { ref: 'anthropic:claude-fable-5-1', effort: 'high' },
+  moderator: { ref: 'anthropic:claude-fable-5-2', effort: 'high' },
   rounds: 2,
   // The seats read the project folder (DECISIONS item 85), as DEFAULT_COUNCIL in lib/council.mjs.
   folder: 'read',

@@ -130,6 +130,10 @@
   const GEMINI_LABEL = 'Use my Google AI key with Gemini CLI';
   const GEMINI_DESC = "Google's terms allow Gemini CLI through an API key but restrict its account sign-in from other apps. Plenum uses your Google AI key for Gemini unless you switch this off; those requests are billed per token.";
   const GEMINI_TERMS = { label: "Google's Gemini CLI terms", url: 'https://www.geminicli.com/docs/resources/tos-privacy' };
+  // Each Gemini CLI model can have a route of its own, which wins over the switch for that model (lib/proc.mjs keyRoutesFrom,
+  // geminiModels). 'auto' is no choice of its own: the model follows the switch.
+  const GEMINI_MODELS_INTRO = 'Each Gemini model can also use a route of its own: your Google AI key, billed per token, or your Gemini subscription through the Google sign-in. A model\'s own choice wins over the switch above.';
+  const GEMINI_MODEL_CHOICES = [['auto', 'Same as the switch'], ['key', 'Google AI key (per token)'], ['sign-in', 'Gemini subscription (Google sign-in)']];
   const CODEX_LABEL = 'Use my OpenAI API key with Codex';
   const CODEX_DESC = 'Codex normally uses your ChatGPT sign-in. Turn this on to bill your OpenAI API key per token instead.';
   const CODEX_TERMS = { label: "ChatGPT's Terms of Use", url: 'https://openai.com/policies/terms-of-use/' };
@@ -166,12 +170,67 @@
     return a;
   }
 
+  // One Gemini model's route: its name, a menu of the three choices, and a line that says what its run does now. The menu saves
+  // on change (one request, as the switches do).
+  function geminiModelRow(panel, model) {
+    const row = document.createElement('div');
+    row.className = 'field ext-apikeys-model';
+    row.dataset.model = model.id;
+    const select = document.createElement('select');
+    const selectId = `ext-apikeys-gm-${String(model.id).replace(/[^A-Za-z0-9_-]/g, '_')}`;
+    select.id = selectId;
+    const name = document.createElement('label');
+    name.className = 'field-label';
+    name.htmlFor = selectId;
+    name.textContent = model.label ?? model.id;
+    for (const [value, text] of GEMINI_MODEL_CHOICES) select.append(new Option(text, value));
+    select.addEventListener('change', () => saveRoute(panel, { geminiModel: { id: model.id, route: select.value } }));
+    const note = document.createElement('p');
+    note.className = 'field-note';
+    row.append(name, select, note);
+    return { id: model.id, row, select, note };
+  }
+
+  // What one model's run does now, in words. choice is its own route or null; route is what the server says its run takes.
+  function geminiModelNote(m) {
+    if (m.route === 'key') return m.choice ? 'Runs on your Google AI key, billed per token.' : 'Follows the switch: runs on your Google AI key, billed per token.';
+    if (m.choice === 'sign-in') return 'Runs on your Gemini subscription through the Google sign-in.';
+    if (m.choice === 'key') return 'No Google AI key is saved, so this model signs in with Google until you save one.';
+    return 'Follows the switch: runs on the Google sign-in.';
+  }
+
+  // The per-model list under the Gemini switch. It is built again only when the server lists other models.
+  function paintGeminiModels(panel, models) {
+    const ui = panel.ui;
+    const list = Array.isArray(models) ? models : [];
+    const same = ui.geminiModels.rows.length === list.length && ui.geminiModels.rows.every((r, i) => r.id === list[i].id);
+    if (!same) {
+      const old = new Set(ui.geminiModels.rows.map(r => r.select));
+      ui.controls = ui.controls.filter(c => !old.has(c));
+      ui.geminiModels.rows = list.map(m => geminiModelRow(panel, m));
+      ui.controls.push(...ui.geminiModels.rows.map(r => r.select));
+      ui.geminiModels.list.replaceChildren(...ui.geminiModels.rows.map(r => r.row));
+      ui.geminiModels.box.hidden = list.length === 0;
+    }
+    list.forEach((m, i) => {
+      const r = ui.geminiModels.rows[i];
+      r.select.value = m.choice === 'key' || m.choice === 'sign-in' ? m.choice : 'auto';
+      r.note.textContent = geminiModelNote(m);
+    });
+  }
+
   // The three choices are built once and painted from the server's answer, so a change keeps the focus where it was.
   function buildRoutes(panel) {
     const controls = [];
     const gemini = routeSwitch(GEMINI_LABEL, GEMINI_DESC, on => saveRoute(panel, { gemini: on }));
     const geminiStatusLine = statusLine('');
     controls.push(gemini.input);
+    const modelsBox = document.createElement('div');
+    modelsBox.className = 'ext-apikeys-models';
+    const modelsList = document.createElement('div');
+    modelsList.className = 'ext-apikeys-models-list';
+    modelsBox.append(statusLine(GEMINI_MODELS_INTRO), modelsList);
+    modelsBox.hidden = true;
 
     const seg = document.createElement('div');
     seg.className = 'seg';
@@ -200,7 +259,7 @@
     claudeBlock.append(statusLine(CLAUDE_DESC), seg, claudeStatusLine, routeLink(CLAUDE_TERMS));
     const geminiBlock = document.createElement('div');
     geminiBlock.className = 'ext-apikeys-route';
-    geminiBlock.append(gemini.row, geminiStatusLine, routeLink(GEMINI_TERMS));
+    geminiBlock.append(gemini.row, geminiStatusLine, modelsBox, routeLink(GEMINI_TERMS));
     const codexBlock = document.createElement('div');
     codexBlock.className = 'ext-apikeys-route';
     codexBlock.append(codex.row, codexStatusLine, routeLink(CODEX_TERMS));
@@ -209,6 +268,7 @@
     return {
       controls,
       gemini: { input: gemini.input, status: geminiStatusLine },
+      geminiModels: { box: modelsBox, list: modelsList, rows: [] },
       codex: { input: codex.input, status: codexStatusLine },
       claude: { buttons, status: claudeStatusLine },
     };
@@ -228,6 +288,7 @@
         : !g.on
           ? 'Gemini uses its Google sign-in.'
           : 'No Google AI key is saved, so Gemini uses its Google sign-in.';
+    paintGeminiModels(panel, g.models);
     const c = routes.claude ?? {};
     for (const [value, button] of ui.claude.buttons) button.setAttribute('aria-pressed', String(c.route === value));
     const automatic = c.choice === null || c.choice === undefined ? ' Chosen automatically. Pick one to keep it.' : '';
