@@ -19,6 +19,7 @@ import { queueUpdate, listUpdates, applyUpdate, discardUpdate, rollbackUpdate, r
 import * as overlay from './lib/overlay.mjs';
 import { readUsage } from './lib/usage.mjs';
 import { codexModelsWithin } from './lib/codex-models.mjs';
+import { antigravityModelsWithin } from './lib/antigravity.mjs';
 import { claudeRoute, claudeCliStatus } from './lib/claude-cli.mjs';
 import { cleanReason } from './lib/tools.mjs';
 import { DEFAULT_COUNCIL, normalizeCouncil, runCouncil } from './lib/council.mjs';
@@ -821,7 +822,7 @@ async function runTurn({ ref, system, messages, root, kind, scope, mode, effort,
     if (go) {
       // Cursor and Grok Build always get the ctx: their approval cards (ask first, the default) are asked through ctx.approve, and they keep
       // their own tools (lib/cursor.mjs, lib/grok.mjs). A read-only run of either ignores the ctx there.
-      const cardTurn = ['cursor', 'grok'].includes(splitRef(ref).provider);
+      const cardTurn = ['cursor', 'grok', 'antigravity'].includes(splitRef(ref).provider);
       for await (const delta of streamChat(ref, { system, messages, cwd: root, signal, ctx: agent || computerOnly || cardTurn || mcpBridge ? ctx : undefined, mode, effort, readOnly, session, tools, images, documents, onUsage: rec => { reports.push(rec); draftTick(); }, onStop: r => { if (!capped) stop = r; } })) {
         // Past the cap the rest of the stream is read but neither kept nor sent, so the process and its tool calls still finish (B-51).
         if (capped || !delta) continue;
@@ -2061,6 +2062,8 @@ async function handleApi(req, res, url) {
     // The catalog includes the models the Codex CLI offers this account (lib/codex-models.mjs). Codex's app server is asked only once
     // the terms are accepted and Codex is installed, and this waits at most 4 s for it; codexModels.reading tells the page to ask again.
     case 'GET /api/status': {
+      // Antigravity's models are read first (at most 4 s, only once the terms are accepted), so the status and the catalog include them.
+      if (termsAccepted(store.get())) await antigravityModelsWithin(4000, { force: url.searchParams.get('refresh') === 'antigravity' });
       const providers = await providerStatus();
       let codexModels = null;
       if (providers?.codex?.installed && termsAccepted(store.get())) {

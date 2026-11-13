@@ -17,6 +17,10 @@
   // The order of the cards in the group: Claude Code, Codex, Gemini CLI and Muse Code are 10 to 40 (app.js BUILT_IN_AGENTS), then Cursor, then Grok Build.
   const CURSOR_ORDER = 50;
   const GROK_ORDER = 60;
+  // Antigravity (DECISIONS item 89): Google's CLI for Gemini subscriptions, after Grok Build. The commands lib/antigravity.mjs AGY_HINT gives.
+  const AGY_ORDER = 70;
+  const AGY_WINDOWS = 'irm https://antigravity.google/cli/install.ps1 | iex';
+  const AGY_POSIX = 'curl -fsSL https://antigravity.google/cli/install.sh | bash';
 
   function make(tag, cls, text) {
     const node = document.createElement(tag);
@@ -155,4 +159,44 @@
 
   MuseUI.codingAgents.add({ id: 'cursor', order: CURSOR_ORDER, card: cursorCard });
   MuseUI.codingAgents.add({ id: 'grok', order: GROK_ORDER, card: grokCard });
+
+  // The Antigravity card. Its state comes from the last read of the account's models (lib/antigravity.mjs): signed in when the read
+  // worked, not signed in when Antigravity said authentication is required. tier is the plan Antigravity named, such as Google AI Pro.
+  function antigravityCard(ctx) {
+    const a = ctx?.cli?.antigravity ?? null;
+    const state = pillOf(a);
+    const card = MuseUI.cardShell('A', 'antigravity', 'Antigravity', 'Google AI Pro, Ultra or Plus', state.text, state.ok);
+    if (!a) {
+      card.append(MuseUI.para('Antigravity status is not available yet. Press Refresh.'));
+    } else if (!a.installed) {
+      card.append(MuseUI.para('Install the Antigravity CLI first in a terminal of your own, then restart Plenum:'));
+      card.append(installBlock(AGY_WINDOWS, AGY_POSIX));
+    } else if (a.signedIn === true) {
+      card.append(MuseUI.para(a.tier ? `Signed in. Antigravity reports your plan as ${a.tier}; its models are in the model menu.` : 'Signed in; its models are in the model menu.'));
+    } else if (a.signedIn === false) {
+      card.append(MuseUI.para('Sign in with the Google account of your Gemini subscription. A terminal opens and your browser completes the sign-in; then press Refresh.'));
+    } else {
+      card.append(MuseUI.para('Plenum has not read Antigravity yet. Press Refresh; if it says sign-in is needed, use Sign in to Antigravity.'));
+    }
+    card.append(MuseUI.para('Google moved Gemini subscriptions from Gemini CLI to Antigravity. Antigravity asks Plenum before it edits or runs commands.'));
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const signIn = MuseUI.button('primary small', a?.signedIn === true ? 'Sign in again' : 'Sign in to Antigravity');
+    signIn.disabled = !a?.installed;
+    signIn.addEventListener('click', async () => {
+      try {
+        await MuseUI.api('/api/accounts/antigravity/login', {});
+        MuseUI.toast('Sign-in window opened. Finish in your browser, then press Refresh.');
+      } catch (err) {
+        MuseUI.toast(err.message, 'bad');
+      }
+    });
+    const refresh = MuseUI.button('ghost small', 'Refresh');
+    refresh.addEventListener('click', () => MuseUI.refreshDrawer());
+    actions.append(signIn, refresh);
+    card.append(actions);
+    MuseUI.notice?.('provider-terms', { before: actions });
+    return card;
+  }
+  MuseUI.codingAgents.add({ id: 'antigravity', order: AGY_ORDER, card: antigravityCard });
 })();

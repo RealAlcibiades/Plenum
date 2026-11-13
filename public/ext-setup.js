@@ -57,12 +57,14 @@
     { id: 'muse', name: 'Muse Code', account: 'Meta account', mark: 'M', path: '/api/accounts/muse/login', state: a => cliState(a?.muse, 'signedIn'), missing: MISSING },
     { id: 'cursor', name: 'Cursor', account: 'Cursor account', mark: 'U', path: '/api/accounts/cursor/login', state: a => cursorState(a?.cursor), missing: MISSING },
     { id: 'grok', name: 'Grok Build', account: 'xAI account', mark: 'K', path: '/api/accounts/grok/login', state: a => grokState(a?.grok), missing: MISSING },
+    // Antigravity (DECISIONS item 89) reads like Grok Build: its status comes from GET /api/accounts/cli as accounts.antigravity.
+    { id: 'antigravity', name: 'Antigravity', account: 'Google AI Pro, Ultra or Plus', mark: 'A', path: '/api/accounts/antigravity/login', state: a => grokState(a?.antigravity), missing: MISSING },
   ];
 
   // GET /api/accounts/cli: the coding agents added after the first four (Cursor and Grok Build). A failed read is null, and its row says it is unknown.
   const cliStatus = () => MuseUI.api('/api/accounts/cli').catch(() => null);
   // The sign-ins the rows read: GET /api/accounts, with Cursor's and Grok Build's status from GET /api/accounts/cli added as accounts.cursor and accounts.grok.
-  const withCli = (accounts, cli) => ({ ...accounts, cursor: cli?.cursor ?? null, grok: cli?.grok ?? null });
+  const withCli = (accounts, cli) => ({ ...accounts, cursor: cli?.cursor ?? null, grok: cli?.grok ?? null, antigravity: cli?.antigravity ?? null });
 
   // Whether a key is saved for a provider: Anthropic's through the Claude route, the others through GET /api/keys.
   function keyConfigured(s, id) {

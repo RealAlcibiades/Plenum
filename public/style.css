@@ -430,6 +430,7 @@ html:not([data-surface="phone"]) .proj-title :focus-visible { outline-offset: -2
 [data-p="gemini"] { --p: var(--gemini); }
 [data-p="cursor"] { --p: var(--cursor); }
 [data-p="grok"] { --p: var(--grok); }
+[data-p="antigravity"] { --p: var(--gemini); }
 /* The API model providers use the same colours as their key cards in ext-accounts-api.css. */
 [data-p="xai"] { --p: var(--text-2); }
 [data-p="openai"] { --p: var(--codex); }
@@ -1098,6 +1099,9 @@ html[data-legal='pending'] #app { display: none; }
 .logo-sm.p-grok { --p: var(--grok); }
 /* The same for Grok Build's badge in the setup wizard (ext-setup.css sets a muted colour there). */
 .setup .logo-sm.p-grok { --p: var(--grok); }
+/* Antigravity's badge takes Gemini's colour (DECISIONS item 89), in Accounts and in the setup wizard. */
+.logo-sm.p-antigravity { --p: var(--gemini); }
+.setup .logo-sm.p-antigravity { --p: var(--gemini); }
 .card-head .ct { font-weight: 650; font-size: 14.5px; }
 .card-head .cs { color: var(--muted); font-size: 12px; }
 .pill {

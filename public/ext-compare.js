@@ -12,7 +12,7 @@
   // Seat letters, in the order the models were picked. The server gives each seat the same letter.
   const SEAT_IDS = ['a', 'b', 'c', 'd'];
   // The providers a seat can use: the council's list (lib/council.mjs). The server applies the same rules again.
-  const SEAT_PROVIDERS = ['muse', 'anthropic', 'codex', 'gemini', 'cursor', 'grok', 'xai', 'openai', 'deepseek', 'mistral', 'googleai'];
+  const SEAT_PROVIDERS = ['muse', 'anthropic', 'codex', 'gemini', 'cursor', 'grok', 'antigravity', 'xai', 'openai', 'deepseek', 'mistral', 'googleai'];
   // The group names come from the provider registry (app.js PROVIDER_REGISTRY), so a new provider is named in one place.
   const GROUP_NAMES = Object.fromEntries(MuseUI.providerRegistry.map(p => [p.id, p.name]));
   const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];

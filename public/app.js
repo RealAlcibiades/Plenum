@@ -98,6 +98,8 @@ const PROVIDER_REGISTRY = Object.freeze([
   { id: 'cursor', name: 'Cursor', mark: 'U' },
   // Grok Build is the CLI (grok:default); the xai row below is the API. Its own row here puts it in every model picker and role.
   { id: 'grok', name: 'Grok Build', mark: 'K' },
+  // Antigravity is Google's CLI for Gemini subscriptions (antigravity:<model>, DECISIONS item 89).
+  { id: 'antigravity', name: 'Antigravity', mark: 'A' },
   { id: 'xai', name: 'Grok', mark: 'X' },
   { id: 'openai', name: 'OpenAI', mark: 'O' },
   { id: 'deepseek', name: 'DeepSeek', mark: 'D' },
