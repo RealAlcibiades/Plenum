@@ -1001,6 +1001,19 @@ Amendment 21 note for the same item: the Agents board has landed (item 61), so R
 
 **Status.** Built on 12 Nov 2026 with tests (`build/v06/antigravity`, against a fake `agy`). The model read was tried against the owner's real signed-in agy 1.5.7 (no prompt). No prompt has been sent to a real Antigravity or Hydrogen model yet.
 
+## 90. Applied updates load when the install folder or the state folder is reached through a junction
+
+**Decision.** Found on 12 Nov 2026, after the owner's test folders moved to another drive with a junction left at the old path (item 89): the overlay tests failed because every overlaid file loaded the install copy, with no notice. The resolve hook (`lib/overlay/hooks.mjs`, item 27) knew the install folder and the generation's folder only as the bootstrap was given them, but Node's resolver answers with real paths. When the install folder, or a folder above it, is a junction or a symbolic link, an import inside it comes back in the real spelling (for example `D:\Moved\...` for `C:\Users\me\...`), matched neither folder, and the shipped file ran.
+- **Both spellings count.** The hook now knows each of the two folders as written and as it really is (`fs.realpathSync.native`, and `fs.realpathSync`, the one Node's resolver uses, which keeps a subst or mapped drive letter; the written path alone when a folder cannot be resolved), and a URL in any of those spellings is matched. A module loaded from the generation still resolves its imports as if it sat in the install folder as written.
+- **One spelling out.** The answer is always the one overlay URL in the written spelling, also when an import names the generation's folder by its real place, so a module is never loaded twice. Only the files the bootstrap passed (`data.files`) are answered, as before, and the hook is still never overlaid.
+- **Who was affected.** Only an install folder reached through a link. A state folder behind a junction already worked, because the hook answers in the written spelling and the generation's own imports are then matched as written. On the owner's PC neither the installed app nor the state folder is a link, so the installed Plenum did not hit this.
+
+**Reason.** An applied update that silently does not run looks like a fix that did not work, and moving folders off a full drive with a junction left behind is how the owner frees space.
+
+**Source.** The overlay test failures on 12 Nov 2026. Code: `lib/overlay/hooks.mjs` (`folderHrefs`, `folderOf`, `relativeUnder`, `initialize`, `resolve`).
+
+**Status.** Built on 12 Nov 2026 with tests (`build/v06/gw-06-overlay`). `junction.test.mjs` makes a junction of its own in the scratch folder (`fs.symlinkSync(target, link, 'junction')`) and runs the bootstrap with the install folder and the state folder each through the junction and through the real path, a second generation that adds a file and a dynamic import, a blocked entry that must not load, and one overlaid module imported under five spellings that must run once; 4 of its 7 tests fail with the old hook. The suite's fixture now spells the scratch folder by its real path, so the older tests run the same with or without the junction, and its `sealed.sh` now sets the accepted-agreement preload the newer suites use (three server tests had been stopped by the terms gate, a separate cause). The suite passes 57 of 57 (hooks 17, junction 7, updates 19, registries 3, server 6, desktop 5); the hooks tests also pass 17 of 17 through the junction spelling. Not yet tried in the installed app with a real applied update.
+
 ## Open items
 
 - Claude CLI `--max-turns` and the CLAUDE_CODE_MAX_SUBAGENT_* variables need a signed-in run to confirm (agent runner item).
