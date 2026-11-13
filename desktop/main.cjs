@@ -396,7 +396,11 @@ function portInUse() {
   });
 }
 
-// Polls the server until it answers. Gives up after 30 seconds.
+// Polls the server until it answers. Gives up after 30 seconds. Each try may take STATUS_TRY_MS: /api/status checks every CLI and
+// can take a few seconds on a busy computer. On 12 Nov 2026 a limit of 1.5 s a try kept Plenum from starting (DECISIONS item 89).
+// A try ends once, whichever comes first of its answer, an error or its time limit. Destroying a request also fires its error event,
+// and before this each timed-out try started two retries, so a slow server got twice as many checks every round.
+const STATUS_TRY_MS = 10_000;
 function waitForServer(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
@@ -405,15 +409,21 @@ function waitForServer(timeoutMs = 30_000) {
       else setTimeout(tryOnce, 300);
     };
     const tryOnce = () => {
+      let ended = false;
+      const end = ok => {
+        if (ended) return;
+        ended = true;
+        if (ok) resolve();
+        else retry();
+      };
       const req = http.get({ host: '127.0.0.1', port: PORT, path: '/api/status', headers: apiHeaders() }, res => {
         res.resume();
-        if (res.statusCode === 200) resolve();
-        else retry();
+        end(res.statusCode === 200);
       });
-      req.on('error', retry);
-      req.setTimeout(1500, () => {
+      req.on('error', () => end(false));
+      req.setTimeout(STATUS_TRY_MS, () => {
         req.destroy();
-        retry();
+        end(false);
       });
     };
     tryOnce();

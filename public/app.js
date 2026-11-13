@@ -4167,8 +4167,9 @@ async function loadProviders({ refreshCodex = false } = {}) {
   }
   renderStatus();
   renderTop();
-  // Codex was still reading its list when the server answered: ask once more shortly, so its models join the menu.
-  if (data.codexModels?.reading && !codexReloadPlanned) {
+  // Codex or Antigravity was still reading its list when the server answered: ask once more shortly, so its models join the menu.
+  // The server never waits for Antigravity's list (DECISIONS item 89), so this is how the first menu gets it.
+  if ((data.codexModels?.reading || data.antigravityModels?.reading) && !codexReloadPlanned) {
     codexReloadPlanned = true;
     setTimeout(() => {
       codexReloadPlanned = false;

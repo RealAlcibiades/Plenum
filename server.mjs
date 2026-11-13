@@ -19,7 +19,7 @@ import { queueUpdate, listUpdates, applyUpdate, discardUpdate, rollbackUpdate, r
 import * as overlay from './lib/overlay.mjs';
 import { readUsage } from './lib/usage.mjs';
 import { codexModelsWithin } from './lib/codex-models.mjs';
-import { antigravityModelsWithin } from './lib/antigravity.mjs';
+import { antigravityModelsState, antigravityModelsWithin, refreshAntigravityModels } from './lib/antigravity.mjs';
 import { claudeRoute, claudeCliStatus } from './lib/claude-cli.mjs';
 import { cleanReason } from './lib/tools.mjs';
 import { DEFAULT_COUNCIL, normalizeCouncil, runCouncil } from './lib/council.mjs';
@@ -2062,15 +2062,24 @@ async function handleApi(req, res, url) {
     // The catalog includes the models the Codex CLI offers this account (lib/codex-models.mjs). Codex's app server is asked only once
     // the terms are accepted and Codex is installed, and this waits at most 4 s for it; codexModels.reading tells the page to ask again.
     case 'GET /api/status': {
-      // Antigravity's models are read first (at most 4 s, only once the terms are accepted), so the status and the catalog include them.
-      if (termsAccepted(store.get())) await antigravityModelsWithin(4000, { force: url.searchParams.get('refresh') === 'antigravity' });
+      // Antigravity's models are read in the background (only once the terms are accepted) and are never waited for here: the desktop
+      // shell's start check and the page's connection check give this route about 1.5 s, and on 12 Nov 2026 a read that took longer
+      // kept Plenum from starting (DECISIONS item 89). The page asks again while antigravityModels.reading is true. Only Accounts'
+      // Refresh (?refresh=antigravity) waits for a fresh read, at most 4 s.
+      let antigravityModels = null;
+      if (termsAccepted(store.get())) {
+        if (url.searchParams.get('refresh') === 'antigravity') await antigravityModelsWithin(4000, { force: true });
+        else refreshAntigravityModels().catch(() => {});
+        const { ok, count, reading } = antigravityModelsState();
+        antigravityModels = { ok, count, reading };
+      }
       const providers = await providerStatus();
       let codexModels = null;
       if (providers?.codex?.installed && termsAccepted(store.get())) {
         const { ok, count, reading } = await codexModelsWithin(4000, { force: url.searchParams.get('refresh') === 'codex' });
         codexModels = { ok, count, reading };
       }
-      return json(res, 200, { providers, catalog: CATALOG, aliases: ALIASES, codexModels });
+      return json(res, 200, { providers, catalog: CATALOG, aliases: ALIASES, codexModels, antigravityModels });
     }
 
     case 'GET /api/state':
